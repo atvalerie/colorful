@@ -1,0 +1,10 @@
+[package]
+name = "colorful-core"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]

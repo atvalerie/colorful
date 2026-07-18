@@ -1,5 +1,5 @@
 /target/
-/node_modules/
+node_modules/
 /.idea/
 /.vscode/
 *.iml
@@ -21,4 +21,3 @@
 *.mp3
 *.opus
 *.ogg
-
