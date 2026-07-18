@@ -11,6 +11,7 @@ ApplicationWindow {
     visible: true
     title: "Colorful"
     color: "#101012"
+    flags: Qt.Window | Qt.FramelessWindowHint
 
     readonly property color ink: "#f5f5f5"
     readonly property color mutedInk: Qt.rgba(1, 1, 1, 0.5)
@@ -63,6 +64,71 @@ ApplicationWindow {
         anchors.fill: parent
         anchors.topMargin: 2
         spacing: 0
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 36
+            color: window.active ? "#17171b" : "#131316"
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, window.active ? 0.09 : 0.055)
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 0
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: window.title
+                        color: Qt.rgba(1, 1, 1, window.active ? 0.68 : 0.38)
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 11
+                    }
+
+                    DragHandler {
+                        target: null
+                        acceptedButtons: Qt.LeftButton
+                        onActiveChanged: {
+                            if (active)
+                                window.startSystemMove()
+                        }
+                    }
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        onDoubleTapped: {
+                            if (window.visibility === Window.Maximized)
+                                window.showNormal()
+                            else
+                                window.showMaximized()
+                        }
+                    }
+                }
+
+                TitleButton {
+                    iconSource: "icons/minimize.svg"
+                    tooltipText: "Minimize"
+                    onClicked: window.showMinimized()
+                }
+                TitleButton {
+                    iconSource: window.visibility === Window.Maximized
+                                ? "icons/restore.svg" : "icons/maximize.svg"
+                    tooltipText: window.visibility === Window.Maximized ? "Restore" : "Maximize"
+                    onClicked: window.visibility === Window.Maximized
+                               ? window.showNormal() : window.showMaximized()
+                }
+                TitleButton {
+                    iconSource: "icons/close.svg"
+                    tooltipText: "Close"
+                    danger: true
+                    onClicked: window.close()
+                }
+            }
+        }
 
         RowLayout {
             Layout.fillWidth: true
@@ -598,6 +664,68 @@ ApplicationWindow {
                 }
             }
         }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        z: 999
+        color: "transparent"
+        border.width: 1
+        border.color: Qt.rgba(1, 1, 1, window.active ? 0.16 : 0.09)
+        visible: window.visibility === Window.Windowed
+    }
+
+    ResizeHandle {
+        anchors { left: parent.left; top: parent.top; bottom: parent.bottom; topMargin: 7; bottomMargin: 7 }
+        width: 7
+        edges: Qt.LeftEdge
+        handleCursor: Qt.SizeHorCursor
+    }
+    ResizeHandle {
+        anchors { right: parent.right; top: parent.top; bottom: parent.bottom; topMargin: 7; bottomMargin: 7 }
+        width: 7
+        edges: Qt.RightEdge
+        handleCursor: Qt.SizeHorCursor
+    }
+    ResizeHandle {
+        anchors { left: parent.left; right: parent.right; top: parent.top; leftMargin: 7; rightMargin: 7 }
+        height: 7
+        edges: Qt.TopEdge
+        handleCursor: Qt.SizeVerCursor
+    }
+    ResizeHandle {
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; leftMargin: 7; rightMargin: 7 }
+        height: 7
+        edges: Qt.BottomEdge
+        handleCursor: Qt.SizeVerCursor
+    }
+    ResizeHandle {
+        anchors { left: parent.left; top: parent.top }
+        width: 9
+        height: 9
+        edges: Qt.LeftEdge | Qt.TopEdge
+        handleCursor: Qt.SizeFDiagCursor
+    }
+    ResizeHandle {
+        anchors { right: parent.right; top: parent.top }
+        width: 9
+        height: 9
+        edges: Qt.RightEdge | Qt.TopEdge
+        handleCursor: Qt.SizeBDiagCursor
+    }
+    ResizeHandle {
+        anchors { left: parent.left; bottom: parent.bottom }
+        width: 9
+        height: 9
+        edges: Qt.LeftEdge | Qt.BottomEdge
+        handleCursor: Qt.SizeBDiagCursor
+    }
+    ResizeHandle {
+        anchors { right: parent.right; bottom: parent.bottom }
+        width: 9
+        height: 9
+        edges: Qt.RightEdge | Qt.BottomEdge
+        handleCursor: Qt.SizeFDiagCursor
     }
 
     Popup {

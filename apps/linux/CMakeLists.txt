@@ -26,6 +26,8 @@ qt_add_qml_module(colorful-linux
         qml/AppIcon.qml
         qml/ColorButton.qml
         qml/IconButton.qml
+        qml/ResizeHandle.qml
+        qml/TitleButton.qml
         qml/TrackDelegate.qml
     RESOURCES
         qml/icons/add.svg
@@ -33,12 +35,15 @@ qt_add_qml_module(colorful-linux
         qml/icons/download.svg
         qml/icons/home.svg
         qml/icons/library.svg
+        qml/icons/maximize.svg
+        qml/icons/minimize.svg
         qml/icons/music.svg
         qml/icons/next.svg
         qml/icons/pause.svg
         qml/icons/play.svg
         qml/icons/previous.svg
         qml/icons/queue.svg
+        qml/icons/restore.svg
         qml/icons/search.svg
         qml/icons/user.svg
         qml/icons/volume.svg

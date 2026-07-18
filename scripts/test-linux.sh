@@ -25,6 +25,8 @@ qmllint -I "$repo_dir/build/linux" \
   "$repo_dir/apps/linux/qml/AppIcon.qml" \
   "$repo_dir/apps/linux/qml/ColorButton.qml" \
   "$repo_dir/apps/linux/qml/IconButton.qml" \
+  "$repo_dir/apps/linux/qml/ResizeHandle.qml" \
+  "$repo_dir/apps/linux/qml/TitleButton.qml" \
   "$repo_dir/apps/linux/qml/TrackDelegate.qml"
 
 dbus-run-session -- bash -c '
