@@ -12,6 +12,7 @@ CREATE TABLE tracks (
     provider TEXT NOT NULL CHECK (provider IN ('tidal', 'soundcloud', 'youtube', 'local')),
     provider_id TEXT NOT NULL CHECK (length(trim(provider_id)) > 0),
     title TEXT NOT NULL,
+    version TEXT,
     album_provider TEXT CHECK (album_provider IN ('tidal', 'soundcloud', 'youtube', 'local')),
     album_provider_id TEXT,
     album_title TEXT,

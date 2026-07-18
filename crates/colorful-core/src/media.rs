@@ -53,6 +53,7 @@ pub struct Artwork {
 pub struct Track {
     pub id: MediaId,
     pub title: String,
+    pub version: Option<String>,
     pub artists: Vec<ArtistCredit>,
     pub album_id: Option<MediaId>,
     pub album_title: Option<String>,

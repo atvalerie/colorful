@@ -22,6 +22,7 @@ export type ArtistCredit = {
 export type Track = {
   ref: MediaRef;
   title: string;
+  version?: string;
   artists: ArtistCredit[];
   albumRef?: MediaRef;
   albumTitle?: string;
@@ -30,4 +31,3 @@ export type Track = {
   isrc?: string;
   explicit?: boolean;
 };
-

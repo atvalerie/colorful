@@ -619,6 +619,7 @@ QVariantMap Backend::jsonTrackToVariant(const QJsonObject &track)
     return {
         {QStringLiteral("id"), track.value(QStringLiteral("id")).toString()},
         {QStringLiteral("title"), track.value(QStringLiteral("title")).toString()},
+        {QStringLiteral("version"), track.value(QStringLiteral("version")).toString()},
         {QStringLiteral("artists"), artists},
         {QStringLiteral("artistText"), artists.join(QStringLiteral(", "))},
         {QStringLiteral("albumId"), track.value(QStringLiteral("albumId")).toString()},

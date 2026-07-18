@@ -4,6 +4,7 @@ import type { TidalConfig } from "./config";
 export type TrackSummary = {
   id: string;
   title: string;
+  version: string | null;
   artists: string[];
   albumId: string | null;
   albumTitle: string | null;
@@ -11,6 +12,16 @@ export type TrackSummary = {
   isrc: string | null;
   coverUrl: string | null;
 };
+
+export function formatTrackTitle(title: string, version: string | null | undefined): string {
+  const cleanTitle = title.trim() || "Unknown title";
+  const cleanVersion = version?.trim();
+  if (!cleanVersion) return cleanTitle;
+  const suffix = `(${cleanVersion})`;
+  return cleanTitle.toLocaleLowerCase().endsWith(suffix.toLocaleLowerCase())
+    ? cleanTitle
+    : `${cleanTitle} ${suffix}`;
+}
 
 type Resource = {
   id: string;
@@ -37,6 +48,9 @@ export function mapTracks(document: { data?: Resource | Resource[]; included?: R
   const albums = new Map(resources.filter((resource) => resource.type === "albums").map((resource) => [resource.id, resource]));
   const artwork = new Map(resources.filter((resource) => resource.type === "artworks").map((resource) => [resource.id, resource]));
   return resources.filter((resource) => resource.type === "tracks").map((track) => {
+    const version = typeof track.attributes?.version === "string" && track.attributes.version.trim()
+      ? track.attributes.version.trim()
+      : null;
     const albumId = track.relationships?.albums?.data?.[0]?.id ?? null;
     const album = albumId ? albums.get(albumId) : undefined;
     const coverId = album?.relationships?.coverArt?.data?.[0]?.id;
@@ -44,7 +58,8 @@ export function mapTracks(document: { data?: Resource | Resource[]; included?: R
     const artistIds = track.relationships?.artists?.data?.map((item) => item.id) ?? [];
     return {
       id: track.id,
-      title: String(track.attributes?.title ?? "Unknown title"),
+      title: formatTrackTitle(String(track.attributes?.title ?? "Unknown title"), version),
+      version,
       artists: artistIds.map((id) => String(artists.get(id)?.attributes?.name ?? "")).filter(Boolean),
       albumId,
       albumTitle: album ? String(album.attributes?.title ?? "") || null : null,
@@ -107,4 +122,3 @@ export class BrowseClient {
     }
   }
 }
-
