@@ -24,6 +24,13 @@ native shells send typed commands and receive state events plus explicit
 `Load`, `Pause`, `Stop`, and `Seek` playback directives. Playback itself remains
 native and provider credentials never enter this database.
 
+Offline jobs use a monotonic portable state machine: queued, resolving,
+downloading, paused/failed, then complete. Downloaded byte counts never move
+backward, known totals cannot be exceeded, and completion requires a non-empty
+local path. Source URLs are deliberately absent from durable storage; only their
+expiry is recorded, so a resumed job re-resolves short-lived provider manifests
+instead of replaying stale credentials.
+
 Schema migrations are append-only. A released migration is never edited; a new
 numbered migration advances both `schema_migrations` and `PRAGMA user_version`.
 The app must enable SQLite foreign keys on every connection.

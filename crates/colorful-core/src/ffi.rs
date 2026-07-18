@@ -4,6 +4,7 @@
 //! versioned UTF-8 JSON. Callers never dereference Rust pointers; the only
 //! returned pointer is an owned string released with [`colorful_string_free`].
 
+use crate::download::DownloadJob;
 use crate::engine::{Engine, EngineCommand, EngineEvent, PlaybackDirective};
 use crate::media::{MediaId, Track};
 use crate::playback::RepeatMode;
@@ -88,6 +89,13 @@ enum WireCommand {
         key: String,
         value_json: String,
     },
+    SaveDownload {
+        track: Track,
+        job: DownloadJob,
+    },
+    RemoveDownload {
+        id: MediaId,
+    },
 }
 
 impl From<WireCommand> for EngineCommand {
@@ -119,6 +127,8 @@ impl From<WireCommand> for EngineCommand {
             WireCommand::AddToLibrary { track } => Self::AddToLibrary(track),
             WireCommand::RemoveFromLibrary { id } => Self::RemoveFromLibrary(id),
             WireCommand::SetSetting { key, value_json } => Self::SetSetting { key, value_json },
+            WireCommand::SaveDownload { track, job } => Self::SaveDownload { track, job },
+            WireCommand::RemoveDownload { id } => Self::RemoveDownload(id),
         }
     }
 }
@@ -173,6 +183,12 @@ enum WireEvent {
     SettingChanged {
         key: String,
     },
+    DownloadChanged {
+        job: DownloadJob,
+    },
+    DownloadRemoved {
+        id: MediaId,
+    },
 }
 
 impl From<EngineEvent> for WireEvent {
@@ -185,6 +201,8 @@ impl From<EngineEvent> for WireEvent {
             },
             EngineEvent::LibraryChanged => Self::LibraryChanged,
             EngineEvent::SettingChanged(key) => Self::SettingChanged { key },
+            EngineEvent::DownloadChanged(job) => Self::DownloadChanged { job },
+            EngineEvent::DownloadRemoved(id) => Self::DownloadRemoved { id },
         }
     }
 }
@@ -196,6 +214,7 @@ struct Snapshot<'a> {
     queue: crate::queue::QueueSnapshot,
     playback: &'a crate::playback::PlaybackState,
     library: Vec<Track>,
+    downloads: Vec<DownloadJob>,
 }
 
 #[derive(Serialize)]
@@ -330,6 +349,7 @@ pub extern "C" fn colorful_engine_snapshot(handle: u64) -> *mut c_char {
             queue: engine.queue().snapshot(),
             playback: engine.playback(),
             library: engine.library().map_err(|error| error.to_string())?,
+            downloads: engine.downloads().map_err(|error| error.to_string())?,
         };
         Ok(success(snapshot))
     })

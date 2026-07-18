@@ -36,6 +36,11 @@ responses contain typed events. A native playback directive is explicit:
 }
 ```
 
+Offline transfer workers use the same boundary. The native shell performs the
+actual network and filesystem work, while `save_download` persists the portable
+job state and emits `download_changed`; engine snapshots include all jobs needed
+to restore an interrupted transfer after process death.
+
 The ABI registry serializes access to each SQLite-backed engine, catches Rust
 panics before they cross the C boundary, validates UTF-8/JSON, and reports stale
 handles as errors. `colorful_core_abi_version()` lets a shell reject an

@@ -1,3 +1,4 @@
+use crate::download::DownloadJob;
 use crate::media::{MediaId, Track};
 use crate::playback::{PlaybackState, RepeatMode};
 use crate::queue::{PlaybackQueue, QueueEntryId, QueueSnapshot};
@@ -34,6 +35,11 @@ pub enum EngineCommand {
         key: String,
         value_json: String,
     },
+    SaveDownload {
+        track: Track,
+        job: DownloadJob,
+    },
+    RemoveDownload(MediaId),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +63,8 @@ pub enum EngineEvent {
     PlaybackDirective(PlaybackDirective),
     LibraryChanged,
     SettingChanged(String),
+    DownloadChanged(DownloadJob),
+    DownloadRemoved(MediaId),
 }
 
 #[derive(Debug)]
@@ -133,6 +141,10 @@ impl Engine {
 
     pub fn setting(&self, key: &str) -> EngineResult<Option<String>> {
         Ok(self.storage.setting(key)?)
+    }
+
+    pub fn downloads(&self) -> EngineResult<Vec<DownloadJob>> {
+        Ok(self.storage.downloads()?)
     }
 
     pub fn dispatch(&mut self, command: EngineCommand) -> EngineResult<Vec<EngineEvent>> {
@@ -311,6 +323,15 @@ impl Engine {
                     .set_setting(&key, &value_json, unix_time_ms())?;
                 events.push(EngineEvent::SettingChanged(key));
             }
+            EngineCommand::SaveDownload { track, job } => {
+                self.storage.save_download(&track, &job)?;
+                events.push(EngineEvent::DownloadChanged(job));
+            }
+            EngineCommand::RemoveDownload(id) => {
+                if self.storage.remove_download(&id)? {
+                    events.push(EngineEvent::DownloadRemoved(id));
+                }
+            }
         }
         if persist_playback {
             self.storage.save_playback(
@@ -444,6 +465,27 @@ mod tests {
         assert_eq!(
             engine.setting("discord.enabled").unwrap().as_deref(),
             Some("true")
+        );
+    }
+
+    #[test]
+    fn download_jobs_share_the_engine_boundary() {
+        let mut engine = Engine::open_in_memory().unwrap();
+        let track = track("offline");
+        let job = DownloadJob::queued(track.id.clone(), 42);
+        let events = engine
+            .dispatch(EngineCommand::SaveDownload {
+                track,
+                job: job.clone(),
+            })
+            .unwrap();
+        assert_eq!(events, vec![EngineEvent::DownloadChanged(job.clone())]);
+        assert_eq!(engine.downloads().unwrap(), vec![job.clone()]);
+        assert_eq!(
+            engine
+                .dispatch(EngineCommand::RemoveDownload(job.media_id.clone()))
+                .unwrap(),
+            vec![EngineEvent::DownloadRemoved(job.media_id)]
         );
     }
 

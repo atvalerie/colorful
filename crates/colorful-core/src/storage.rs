@@ -1,3 +1,4 @@
+use crate::download::{DownloadJob, DownloadState};
 use crate::media::{ArtistCredit, Artwork, MediaId, Provider, Track};
 use crate::playback::RepeatMode;
 use crate::queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
@@ -17,6 +18,7 @@ pub enum StorageError {
     InvalidProvider(String),
     InvalidMediaId,
     InvalidQueue(QueueSnapshotError),
+    InvalidDownloadState(String),
     IntegerOutOfRange(&'static str),
 }
 
@@ -37,6 +39,9 @@ impl fmt::Display for StorageError {
             Self::InvalidMediaId => formatter.write_str("database contains an invalid media ID"),
             Self::InvalidQueue(error) => {
                 write!(formatter, "database contains an invalid queue: {error:?}")
+            }
+            Self::InvalidDownloadState(state) => {
+                write!(formatter, "unknown download state in database: {state}")
             }
             Self::IntegerOutOfRange(field) => write!(
                 formatter,
@@ -345,6 +350,110 @@ impl Storage {
             )
             .optional()?)
     }
+
+    pub fn save_download(&mut self, track: &Track, job: &DownloadJob) -> StorageResult<()> {
+        if track.id != job.media_id {
+            return Err(StorageError::InvalidMediaId);
+        }
+        let transaction = self.connection.transaction()?;
+        upsert_track(&transaction, track)?;
+        transaction.execute(
+            "INSERT INTO downloads (
+                provider, provider_id, state, local_path, bytes_downloaded,
+                bytes_total, source_expires_at_ms, error_code, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT (provider, provider_id) DO UPDATE SET
+                state = excluded.state,
+                local_path = excluded.local_path,
+                bytes_downloaded = excluded.bytes_downloaded,
+                bytes_total = excluded.bytes_total,
+                source_expires_at_ms = excluded.source_expires_at_ms,
+                error_code = excluded.error_code,
+                updated_at_ms = excluded.updated_at_ms",
+            params![
+                job.media_id.provider.to_string(),
+                job.media_id.provider_id,
+                job.state.wire_name(),
+                job.local_path,
+                sqlite_u64(job.bytes_downloaded, "downloaded byte count")?,
+                job.bytes_total
+                    .map(|value| sqlite_u64(value, "download total byte count"))
+                    .transpose()?,
+                job.source_expires_at_ms,
+                job.error_code,
+                job.updated_at_ms,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn download(&self, id: &MediaId) -> StorageResult<Option<DownloadJob>> {
+        self.connection
+            .query_row(
+                "SELECT state, local_path, bytes_downloaded, bytes_total,
+                        source_expires_at_ms, error_code, updated_at_ms
+                 FROM downloads WHERE provider = ?1 AND provider_id = ?2",
+                params![id.provider.to_string(), id.provider_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<i64>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                },
+            )
+            .optional()?
+            .map(|row| {
+                Ok(DownloadJob {
+                    media_id: id.clone(),
+                    state: DownloadState::from_wire_name(&row.0)
+                        .ok_or(StorageError::InvalidDownloadState(row.0))?,
+                    local_path: row.1,
+                    bytes_downloaded: row.2.try_into().map_err(|_| StorageError::InvalidMediaId)?,
+                    bytes_total: row
+                        .3
+                        .map(|value| value.try_into().map_err(|_| StorageError::InvalidMediaId))
+                        .transpose()?,
+                    source_expires_at_ms: row.4,
+                    error_code: row.5,
+                    updated_at_ms: row.6,
+                })
+            })
+            .transpose()
+    }
+
+    pub fn downloads(&self) -> StorageResult<Vec<DownloadJob>> {
+        let mut statement = self.connection.prepare(
+            "SELECT provider, provider_id FROM downloads
+             ORDER BY CASE state WHEN 'downloading' THEN 0 WHEN 'resolving' THEN 1
+                       WHEN 'queued' THEN 2 WHEN 'paused' THEN 3 WHEN 'failed' THEN 4 ELSE 5 END,
+                      updated_at_ms DESC",
+        )?;
+        let stored_ids = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        stored_ids
+            .into_iter()
+            .map(|(provider, provider_id)| {
+                let id = media_id(&provider, provider_id)?;
+                self.download(&id)?.ok_or(StorageError::InvalidMediaId)
+            })
+            .collect()
+    }
+
+    pub fn remove_download(&mut self, id: &MediaId) -> StorageResult<bool> {
+        Ok(self.connection.execute(
+            "DELETE FROM downloads WHERE provider = ?1 AND provider_id = ?2",
+            params![id.provider.to_string(), id.provider_id],
+        )? > 0)
+    }
 }
 
 fn upsert_track(transaction: &Transaction<'_>, track: &Track) -> StorageResult<()> {
@@ -649,5 +758,22 @@ mod tests {
                 .set_setting("discord.enabled", "not-json", 2)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn round_trips_resumable_and_complete_downloads() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        let track = track("offline");
+        let mut job = DownloadJob::queued(track.id.clone(), 1);
+        job.begin_transfer(Some(200), Some(5000), 2).unwrap();
+        job.report_progress(80, 3).unwrap();
+        storage.save_download(&track, &job).unwrap();
+        assert_eq!(storage.download(&track.id).unwrap(), Some(job.clone()));
+
+        job.begin_transfer(Some(200), Some(6000), 4).unwrap();
+        job.complete("music/offline.flac", 200, 5).unwrap();
+        storage.save_download(&track, &job).unwrap();
+        assert_eq!(storage.download(&track.id).unwrap(), Some(job));
+        assert!(storage.remove_download(&track.id).unwrap());
     }
 }
