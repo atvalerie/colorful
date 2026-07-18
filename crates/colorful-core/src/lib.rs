@@ -7,6 +7,7 @@ pub mod ffi;
 pub mod media;
 pub mod party;
 pub mod playback;
+pub mod providers;
 pub mod queue;
 pub mod storage;
 

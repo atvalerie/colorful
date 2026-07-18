@@ -15,8 +15,9 @@ No secrets or `.env` values are copied into Colorful.
 ## Reuse
 
 - normalized media/provider types
-- provider catalog mapping and URL resolution
-- request/response fixture tests
+- provider catalog mapping and URL resolution, ported behind portable Rust APIs
+- sanitized request/response fixtures shared by the Rust core and transitional
+  TypeScript host so both implementations must produce the same metadata
 - TIDAL device authorization state and slow-down polling behavior
 - access-token single-flight refresh behavior
 - manifest parsing and quality mapping
@@ -63,3 +64,10 @@ The visual layer derives contrast-safe accents and gradients from the result.
 3. YouTube only after its product boundary is explicit; `yt-dlp` is suitable
    for a personal desktop helper but is a poor mobile runtime dependency
 
+## Current boundary
+
+TIDAL search-result normalization now exists in `colorful-core`. It owns ISO
+duration parsing, version-aware display titles, artist and album relationships,
+and artwork selection. The TypeScript provider host still owns network requests,
+authorization, subscription checks, and playback manifest retrieval while those
+pieces are migrated and covered with equivalent sanitized fixtures.

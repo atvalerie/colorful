@@ -1,0 +1,51 @@
+{
+  "data": [
+    {"id":"track-1","type":"tracks"},
+    {"id":"track-2","type":"tracks"}
+  ],
+  "included": [
+    {
+      "id":"track-1",
+      "type":"tracks",
+      "attributes":{
+        "title":"Brutal",
+        "version":"Instrumental",
+        "duration":"PT2M31S",
+        "isrc":"TEST00000001",
+        "explicit":false
+      },
+      "relationships":{
+        "artists":{"data":[{"id":"artist-1","type":"artists"}]},
+        "albums":{"data":[{"id":"album-1","type":"albums"}]}
+      }
+    },
+    {
+      "id":"track-2",
+      "type":"tracks",
+      "attributes":{
+        "title":"Brutal (Live)",
+        "version":"live",
+        "duration":"PT3M12.5S",
+        "isrc":"TEST00000002",
+        "explicit":true
+      },
+      "relationships":{
+        "artists":{"data":[{"id":"artist-1","type":"artists"},{"id":"artist-2","type":"artists"}]},
+        "albums":{"data":[{"id":"album-1","type":"albums"}]}
+      }
+    },
+    {"id":"artist-1","type":"artists","attributes":{"name":"GERXMV/P"}},
+    {"id":"artist-2","type":"artists","attributes":{"name":"Someone Else"}},
+    {
+      "id":"album-1",
+      "type":"albums",
+      "attributes":{"title":"Versions"},
+      "relationships":{"coverArt":{"data":[{"id":"art-1","type":"artworks"}]}}
+    },
+    {
+      "id":"art-1",
+      "type":"artworks",
+      "attributes":{"files":[{"href":"https://example.test/brutal.jpg","meta":{"width":1280,"height":1280}}]}
+    }
+  ]
+}

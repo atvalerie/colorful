@@ -35,4 +35,22 @@ describe("TIDAL browse mapping", () => {
       durationMs: 120_000,
     })]);
   });
+
+  test("maps the same sanitized fixture as the portable Rust adapter", async () => {
+    const fixture = await Bun.file(new URL("../../../fixtures/tidal/search-tracks.json", import.meta.url)).json();
+    const tracks = mapTracks(fixture);
+
+    expect(tracks).toHaveLength(2);
+    expect(tracks[0]).toEqual(expect.objectContaining({
+      title: "Brutal (Instrumental)",
+      version: "Instrumental",
+      durationMs: 151_000,
+      coverUrl: "https://example.test/brutal.jpg",
+    }));
+    expect(tracks[1]).toEqual(expect.objectContaining({
+      title: "Brutal (Live)",
+      artists: ["GERXMV/P", "Someone Else"],
+      durationMs: 192_500,
+    }));
+  });
 });
