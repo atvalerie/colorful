@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Icon, type IconName } from "./Icon";
 import { palettes, tracks, type Palette, type Track } from "./mock";
 
 type Viewport = "desktop" | "mobile";
@@ -27,8 +28,8 @@ function Cover({ palette, size = "regular" }: { palette: Palette; size?: "small"
   );
 }
 
-function Glyph({ children }: { children: React.ReactNode }) {
-  return <span className="glyph" aria-hidden="true">{children}</span>;
+function ToolIcon({ name }: { name: IconName }) {
+  return <Icon className="icon" name={name} />;
 }
 
 function TrackRow({
@@ -52,7 +53,7 @@ function TrackRow({
         </span>
       </button>
       <span className="track-row__duration">{track.duration}</span>
-      <button className="icon-button" onClick={onQueue} aria-label={`Queue ${track.title}`}><Glyph>＋</Glyph></button>
+      <button className="icon-button" onClick={onQueue} aria-label={`Queue ${track.title}`}><ToolIcon name="add" /></button>
     </div>
   );
 }
@@ -76,20 +77,20 @@ function PlayerDock({
       </button>
       <div className="player-dock__center">
         <div className="player-dock__controls">
-          <button className="transport-button" aria-label="Shuffle"><Glyph>↝</Glyph></button>
-          <button className="transport-button" aria-label="Previous"><Glyph>‹</Glyph></button>
-          <button className="play-button" onClick={onToggle} aria-label={playing ? "Pause" : "Play"}>{playing ? "Ⅱ" : "▶"}</button>
-          <button className="transport-button" aria-label="Next"><Glyph>›</Glyph></button>
-          <button className="transport-button" aria-label="Repeat"><Glyph>↻</Glyph></button>
+          <button className="transport-button" aria-label="Shuffle"><ToolIcon name="shuffle" /></button>
+          <button className="transport-button" aria-label="Previous"><ToolIcon name="previous" /></button>
+          <button className="play-button" onClick={onToggle} aria-label={playing ? "Pause" : "Play"}><ToolIcon name={playing ? "pause" : "play"} /></button>
+          <button className="transport-button" aria-label="Next"><ToolIcon name="next" /></button>
+          <button className="transport-button" aria-label="Repeat"><ToolIcon name="repeat" /></button>
         </div>
         <div className="player-dock__timeline">
           <span>1:17</span><i><b style={{ width: "38%" }} /></i><span>{current.duration}</span>
         </div>
       </div>
       <div className="player-dock__utilities">
-        <button className="transport-button" aria-label="Volume"><Glyph>◖</Glyph></button>
+        <button className="transport-button" aria-label="Volume"><ToolIcon name="volume" /></button>
         <i className="volume"><b style={{ width: "72%" }} /></i>
-        <button className="transport-button" aria-label="Queue"><Glyph>≡</Glyph></button>
+        <button className="transport-button" aria-label="Queue"><ToolIcon name="queue" /></button>
       </div>
     </div>
   );
@@ -99,9 +100,9 @@ function Navigation({ screen, onScreen }: { screen: Screen; onScreen: (screen: S
   return (
     <nav className="navigation">
       <div className="navigation__items">
-        <button className={screen === "discover" ? "is-active" : ""} onClick={() => onScreen("discover")}><Glyph>⌁</Glyph><span>Discover</span></button>
-        <button className={screen === "album" ? "is-active" : ""} onClick={() => onScreen("album")}><Glyph>◫</Glyph><span>Library</span></button>
-        <button><Glyph>↓</Glyph><span>Offline</span></button>
+        <button className={screen === "discover" ? "is-active" : ""} onClick={() => onScreen("discover")}><ToolIcon name="discover" /><span>Discover</span></button>
+        <button className={screen === "album" ? "is-active" : ""} onClick={() => onScreen("album")}><ToolIcon name="library" /><span>Library</span></button>
+        <button><ToolIcon name="download" /><span>Offline</span></button>
       </div>
       <button className="avatar">V</button>
     </nav>
@@ -112,8 +113,8 @@ function Discover({ current, onPlay, onQueue }: { current: Track; onPlay: (track
   return (
     <main className="screen discover-screen">
       <header className="topbar">
-        <label className="search"><Glyph>⌕</Glyph><input placeholder="What do you want to hear?" /></label>
-        <button className="round-button"><Glyph>⋯</Glyph></button>
+        <label className="search"><ToolIcon name="search" /><input placeholder="Search music, artists, albums" /></label>
+        <button className="round-button"><ToolIcon name="more" /></button>
       </header>
       <section className="welcome">
         <span className="eyebrow">GOOD EVENING, VALERIE</span>
@@ -145,10 +146,10 @@ function AlbumScreen({ current, onPlay, onQueue }: { current: Track; onPlay: (tr
   const palette = palettes[current.palette]!;
   return (
     <main className="screen album-screen">
-      <header className="topbar"><button className="round-button"><Glyph>←</Glyph></button><span /><button className="round-button"><Glyph>⋯</Glyph></button></header>
+      <header className="topbar"><button className="round-button"><ToolIcon name="back" /></button><span /><button className="round-button"><ToolIcon name="more" /></button></header>
       <section className="album-hero">
         <Cover palette={palette} size="hero" />
-        <div className="album-hero__copy"><span className="eyebrow">ALBUM · 2026</span><h1>{current.album}</h1><p>{current.artist}</p><div><button className="primary-action" onClick={() => onPlay(current)}>▶ Play</button><button className="round-button">＋</button></div></div>
+        <div className="album-hero__copy"><span className="eyebrow">ALBUM · 2026</span><h1>{current.album}</h1><p>{current.artist}</p><div><button className="primary-action" onClick={() => onPlay(current)}><ToolIcon name="play" /> Play</button><button className="round-button"><ToolIcon name="add" /></button></div></div>
       </section>
       <section className="album-tracks">
         {tracks.filter((track) => track.palette === current.palette).concat(tracks.slice(0, 3)).map((track, index) => (
@@ -163,10 +164,10 @@ function FullPlayer({ current, playing, queue, onToggle }: { current: Track; pla
   const palette = palettes[current.palette]!;
   return (
     <main className="screen full-player">
-      <header className="topbar"><button className="round-button"><Glyph>⌄</Glyph></button><span className="eyebrow">NOW PLAYING</span><button className="round-button"><Glyph>⋯</Glyph></button></header>
+      <header className="topbar"><button className="round-button"><ToolIcon name="collapse" /></button><span className="eyebrow">NOW PLAYING</span><button className="round-button"><ToolIcon name="more" /></button></header>
       <section className="full-player__body">
         <Cover palette={palette} size="hero" />
-        <div className="full-player__info"><span className="eyebrow">FROM {current.album.toUpperCase()}</span><h1>{current.title}</h1><p>{current.artist}</p><div className="big-controls"><button><Glyph>↝</Glyph></button><button><Glyph>‹</Glyph></button><button className="play-button play-button--large" onClick={onToggle}>{playing ? "Ⅱ" : "▶"}</button><button><Glyph>›</Glyph></button><button><Glyph>↻</Glyph></button></div><div className="big-timeline"><i><b style={{ width: "38%" }} /></i><span>1:17</span><span>{current.duration}</span></div></div>
+        <div className="full-player__info"><span className="eyebrow">FROM {current.album.toUpperCase()}</span><h1>{current.title}</h1><p>{current.artist}</p><div className="big-controls"><button><ToolIcon name="shuffle" /></button><button><ToolIcon name="previous" /></button><button className="play-button play-button--large" onClick={onToggle}><ToolIcon name={playing ? "pause" : "play"} /></button><button><ToolIcon name="next" /></button><button><ToolIcon name="repeat" /></button></div><div className="big-timeline"><i><b style={{ width: "38%" }} /></i><span>1:17</span><span>{current.duration}</span></div></div>
         <aside className="up-next"><span className="eyebrow">UP NEXT</span><h2>{queue[0]?.title ?? tracks[1]!.title}</h2><p>{queue[0]?.artist ?? tracks[1]!.artist}</p></aside>
       </section>
     </main>
