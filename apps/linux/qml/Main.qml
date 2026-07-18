@@ -9,7 +9,7 @@ ApplicationWindow {
     minimumWidth: 920
     minimumHeight: 620
     visible: true
-    title: "Colorful"
+    title: "colorful"
     color: "#101012"
     flags: Qt.Window | Qt.FramelessWindowHint
 
@@ -818,7 +818,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: colorful.linked
                       ? "Playback uses your linked subscription. Credentials stay in the system keyring."
-                      : "Link your account without sharing your password with Colorful."
+                      : "Link your account without sharing your password with colorful."
                 color: window.mutedInk
                 wrapMode: Text.WordWrap
                 font.pixelSize: 11
@@ -920,7 +920,7 @@ ApplicationWindow {
             }
             Text {
                 Layout.fillWidth: true
-                text: "Approve Colorful in TIDAL, then return here. Your password never touches this app."
+                text: "Approve colorful in TIDAL, then return here. Your password never touches this app."
                 color: window.mutedInk
                 wrapMode: Text.WordWrap
                 font.pixelSize: 13

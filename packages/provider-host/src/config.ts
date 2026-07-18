@@ -30,7 +30,7 @@ export function readTidalConfig(env: NodeJS.ProcessEnv = process.env): TidalConf
     authBaseUrl: env.TIDAL_AUTH_BASE_URL ?? "https://auth.tidal.com",
     apiBaseUrl: env.TIDAL_API_BASE_URL ?? "https://openapi.tidal.com/v2/",
     countryCode: env.TIDAL_COUNTRY_CODE ?? env.COUNTRY_CODE ?? "US",
-    userAgent: env.TIDAL_USER_AGENT ?? "Colorful/0.1 (Linux)",
+    userAgent: env.TIDAL_USER_AGENT ?? "colorful/0.1 (Linux)",
   };
 }
 

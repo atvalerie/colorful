@@ -1,4 +1,4 @@
-# Colorful for Linux
+# colorful for Linux
 
 The first native client uses Qt 6 Quick/QML for a deeply customizable interface,
 Qt Multimedia for playback, Linux Secret Service for the TIDAL refresh token,
@@ -14,7 +14,7 @@ The launcher builds the app when necessary and loads the existing TIDAL client
 configuration from `../mocha/.env`. It does not copy or print those credentials.
 You can instead provide the same `TIDAL_*` variables in your environment.
 
-When a Discord-compatible desktop client is running, Colorful publishes the
+When a Discord-compatible desktop client is running, colorful publishes the
 current track through local Rich Presence IPC. Set
 `COLORFUL_DISABLE_DISCORD_RPC=1` before launching to disable it.
 

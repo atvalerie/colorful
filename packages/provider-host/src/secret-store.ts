@@ -28,7 +28,7 @@ export async function loadRefreshToken(): Promise<string | null> {
 }
 
 export async function saveRefreshToken(token: string): Promise<boolean> {
-  const result = await runSecretTool(["store", "--label=Colorful TIDAL account", ...ATTRIBUTES], token);
+  const result = await runSecretTool(["store", "--label=colorful TIDAL account", ...ATTRIBUTES], token);
   return result.exitCode === 0;
 }
 

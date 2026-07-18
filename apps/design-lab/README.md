@@ -1,6 +1,6 @@
-# Colorful Design Lab
+# colorful Design Lab
 
-A disposable React prototype for working out Colorful's visual language before
+A disposable React prototype for working out colorful's visual language before
 porting approved UI and interactions into the native QML client. Nothing here
 connects to TIDAL or production state.
 

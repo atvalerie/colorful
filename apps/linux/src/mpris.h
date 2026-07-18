@@ -24,7 +24,7 @@ public:
     bool canQuit() const { return true; }
     bool canRaise() const { return true; }
     bool hasTrackList() const { return false; }
-    QString identity() const { return QStringLiteral("Colorful"); }
+    QString identity() const { return QStringLiteral("colorful"); }
     QString desktopEntry() const { return QStringLiteral("colorful"); }
     QStringList supportedUriSchemes() const { return {QStringLiteral("http"), QStringLiteral("https")}; }
     QStringList supportedMimeTypes() const { return {QStringLiteral("audio/flac"), QStringLiteral("audio/aac"), QStringLiteral("application/vnd.apple.mpegurl")}; }

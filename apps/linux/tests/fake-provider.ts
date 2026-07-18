@@ -8,7 +8,7 @@ function reply(request: Request): unknown {
     return { id: request.id, ok: true, data: { tracks: [
       {
         id: "fixture-one",
-        title: "A Very Colorful Fixture",
+        title: "A Very colorful Fixture",
         artists: ["Test Artist"],
         albumId: "album-one",
         albumTitle: "QML Delegate Tests",

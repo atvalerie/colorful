@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(ColorfulLinux VERSION 0.1.0 LANGUAGES CXX)
+project(colorfulLinux VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,7 +21,7 @@ qt_add_executable(colorful-linux
 )
 
 qt_add_qml_module(colorful-linux
-    URI Colorful
+    URI colorful
     VERSION 1.0
     QML_FILES
         qml/Main.qml

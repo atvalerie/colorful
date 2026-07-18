@@ -4,7 +4,7 @@
 
 ## Product goal
 
-Colorful should keep a personal music library consistent across the owner's
+colorful should keep a personal music library consistent across the owner's
 devices without turning the application into a conventional server-backed
 streaming service. Devices must remain useful offline, and sync infrastructure
 must not be able to read library contents or provider credentials.
@@ -22,7 +22,7 @@ Use a hybrid transport:
 
 Pure P2P remains an available privacy mode, with the explicit limitation that
 two devices must overlap online before their changes can converge. The mailbox
-may be hosted by Colorful, self-hosted, or disabled.
+may be hosted by colorful, self-hosted, or disabled.
 
 ## Device pairing and trust
 

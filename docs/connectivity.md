@@ -4,14 +4,14 @@ Manual port forwarding is not part of the normal party flow.
 
 ## Connection ladder
 
-Colorful tries transports in this order:
+colorful tries transports in this order:
 
 1. **Same LAN:** discover peers with mDNS and connect directly.
 2. **Internet direct:** exchange ICE candidates through a small signaling
    service, use STUN to discover public mappings, and attempt UDP hole punching.
 3. **Relay:** if carrier-grade NAT, symmetric NAT, a school/work firewall, or
    an IPv6/IPv4 mismatch prevents a direct path, route encrypted packets through
-   TURN or a Colorful QUIC relay.
+   TURN or a colorful QUIC relay.
 
 A relay is the general answer when neither peer can accept inbound traffic.
 There is no protocol trick that guarantees a direct connection through every

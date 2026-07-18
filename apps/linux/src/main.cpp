@@ -10,16 +10,16 @@
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
-    QGuiApplication::setApplicationName(QStringLiteral("Colorful"));
+    QGuiApplication::setApplicationName(QStringLiteral("colorful"));
     QGuiApplication::setDesktopFileName(QStringLiteral("colorful"));
-    QGuiApplication::setOrganizationName(QStringLiteral("Colorful"));
+    QGuiApplication::setOrganizationName(QStringLiteral("colorful"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     Backend backend;
     MprisService mpris(&backend);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("colorful"), &backend);
-    engine.loadFromModule(QStringLiteral("Colorful"), QStringLiteral("Main"));
+    engine.loadFromModule(QStringLiteral("colorful"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty()) return 1;
 
     auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst());

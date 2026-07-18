@@ -66,4 +66,4 @@ if sqlite3 -bail "$test_db" \
   exit 1
 fi
 
-echo "Colorful storage schema checks passed"
+echo "colorful storage schema checks passed"

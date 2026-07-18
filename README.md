@@ -1,6 +1,6 @@
-# Colorful
+# colorful
 
-Colorful is a local-first personal music player for Android, Linux, Windows,
+colorful is a local-first personal music player for Android, Linux, Windows,
 and iOS. Native platform shells own playback and OS integration; a portable
 engine owns the queue, library, downloads, cache policy, and party state.
 
@@ -46,7 +46,7 @@ and troubleshooting.
 
 ## Non-goals
 
-- A mandatory Colorful account or central media server
+- A mandatory colorful account or central media server
 - Sending provider credentials to party peers or relays
 - Reimplementing the audio engine in TypeScript
 - Treating an HTTP URL as sufficient for gapless playback

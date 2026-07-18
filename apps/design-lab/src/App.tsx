@@ -140,7 +140,7 @@ function Discover({ current, onOpenAlbum, onPlay, onQueue }: { current: Track; o
             <button className="album-card" key={palette.name} onClick={() => onOpenAlbum(tracks[index] ?? tracks[0]!)}>
               <Cover palette={palette} />
               <strong>{tracks[index]?.album ?? palette.name}</strong>
-              <span>{tracks[index]?.artist ?? "Colorful mix"}</span>
+              <span>{tracks[index]?.artist ?? "colorful mix"}</span>
             </button>
           ))}
         </div>
@@ -218,7 +218,7 @@ export function App() {
   return (
     <div className="lab" style={{ "--lab-accent": palette.primary } as React.CSSProperties}>
       <header className="lab-toolbar">
-        <div className="lab-toolbar__title"><div><strong>Colorful Design Lab</strong><small>Disposable UI prototype</small></div></div>
+        <div className="lab-toolbar__title"><div><strong>colorful Design Lab</strong><small>Disposable UI prototype</small></div></div>
         <div className="lab-control"><span>Canvas</span><div className="segmented"><button className={viewport === "desktop" ? "is-active" : ""} onClick={() => setViewport("desktop")}>Desktop</button><button className={viewport === "mobile" ? "is-active" : ""} onClick={() => setViewport("mobile")}>Mobile</button></div></div>
         <div className="lab-control"><span>Screen</span><div className="segmented">{(Object.keys(screenLabels) as Screen[]).map((value) => <button key={value} className={screen === value ? "is-active" : ""} onClick={() => setScreen(value)}>{screenLabels[value]}</button>)}</div></div>
         <div className="lab-control palette-control"><span>Album color</span><div>{palettes.map((value, index) => <button key={value.name} className={index === paletteIndex ? "is-active" : ""} style={{ background: value.primary }} onClick={() => setPaletteIndex(index)} aria-label={value.name} />)}</div></div>

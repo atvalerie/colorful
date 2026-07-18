@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Colorful
+Name=colorful
 Comment=Your local-first, album-colored music player
 Exec=colorful-linux
 Icon=audio-x-generic

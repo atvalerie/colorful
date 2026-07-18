@@ -56,7 +56,7 @@ dbus-run-session -- bash -c '
     org.freedesktop.DBus.Properties.Get org.mpris.MediaPlayer2 Identity)"
   status="$(qdbus6 org.mpris.MediaPlayer2.colorful /org/mpris/MediaPlayer2 \
     org.freedesktop.DBus.Properties.Get org.mpris.MediaPlayer2.Player PlaybackStatus)"
-  [[ "$identity" == "Colorful" ]]
+  [[ "$identity" == "colorful" ]]
   [[ "$status" == "Stopped" ]]
   if grep -E "ReferenceError|TypeError|QQmlApplicationEngine failed" "$log_file"; then
     echo "QML runtime error detected" >&2
@@ -64,4 +64,4 @@ dbus-run-session -- bash -c '
   fi
 ' _ "$repo_dir"
 
-echo "Colorful Linux checks passed"
+echo "colorful Linux checks passed"

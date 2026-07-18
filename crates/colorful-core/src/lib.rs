@@ -1,4 +1,4 @@
-//! Portable state and contracts for Colorful.
+//! Portable state and contracts for colorful.
 //!
 //! Platform audio, secure storage, and UI deliberately live outside this crate.
 

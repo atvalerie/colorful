@@ -10,7 +10,7 @@ The existing projects were inspected as local references:
 - `../mocha/server/src/providers/tidal/*`
 - `../mocha/app/src/components/DeviceLink.tsx`
 
-No secrets or `.env` values are copied into Colorful.
+No secrets or `.env` values are copied into colorful.
 
 ## Reuse
 

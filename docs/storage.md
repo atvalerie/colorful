@@ -1,6 +1,6 @@
 # Local storage
 
-Colorful's durable state lives in one device-local SQLite database. Provider
+colorful's durable state lives in one device-local SQLite database. Provider
 credentials remain in the operating system's secret store and media files remain
 on disk; the database holds only credential handles and file paths.
 

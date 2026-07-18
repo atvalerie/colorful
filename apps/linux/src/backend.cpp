@@ -94,6 +94,11 @@ Backend::Backend(QObject *parent)
 
     m_audioOutput.setVolume(0.78);
     m_player.setAudioOutput(&m_audioOutput);
+    m_positionTicker.setInterval(250);
+    connect(&m_positionTicker, &QTimer::timeout, this, [this] {
+        if (m_positionClockRunning) emit positionChanged();
+    });
+    m_positionTicker.start();
 
     connect(&m_provider, &QProcess::readyReadStandardOutput, this, &Backend::processProviderOutput);
     connect(&m_provider, &QProcess::readyReadStandardError, this, [this] {
@@ -112,6 +117,7 @@ Backend::Backend(QObject *parent)
     });
 
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this] {
+        resetPositionClock(position(), m_player.playbackState() == QMediaPlayer::PlayingState);
         emit playbackChanged();
         updateDiscordPresence();
     });
@@ -121,7 +127,13 @@ Backend::Backend(QObject *parent)
     });
     connect(this, &Backend::seeked, this, [this] { updateDiscordPresence(); });
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 value) {
-        Q_UNUSED(value)
+        // TIDAL occasionally serves an HLS media playlist whose declared
+        // timeline ends early and then wraps. Qt/FFmpeg keeps decoding audio,
+        // but its position freezes or jumps backwards. Accept advancing native
+        // timestamps and ignore a wrapped timestamp behind our monotonic clock.
+        if (value + 1500 >= position()) {
+            resetPositionClock(value, m_player.playbackState() == QMediaPlayer::PlayingState);
+        }
         emit positionChanged();
     });
     connect(&m_player, &QMediaPlayer::durationChanged, this, [this] { emit durationChanged(); });
@@ -163,6 +175,16 @@ bool Backend::playing() const
     return m_player.playbackState() == QMediaPlayer::PlayingState;
 }
 
+qint64 Backend::position() const
+{
+    const auto elapsed = m_positionClockRunning && m_positionClock.isValid()
+        ? m_positionClock.elapsed()
+        : 0;
+    const auto logical = std::max<qint64>(0, m_positionAnchor + elapsed);
+    const auto trackDuration = duration();
+    return trackDuration > 0 ? std::min(logical, trackDuration) : logical;
+}
+
 qint64 Backend::duration() const
 {
     // HLS backends sometimes expose only the duration of the currently parsed
@@ -198,7 +220,7 @@ QVariantMap Backend::mprisMetadata() const
 }
 
 bool Backend::canGoNext() const { return m_currentIndex >= 0 && m_currentIndex + 1 < m_queue.size(); }
-bool Backend::canGoPrevious() const { return m_currentIndex > 0 || (m_currentIndex == 0 && m_player.position() > 3000); }
+bool Backend::canGoPrevious() const { return m_currentIndex > 0 || (m_currentIndex == 0 && position() > 3000); }
 
 void Backend::startProviderHost()
 {
@@ -325,7 +347,7 @@ void Backend::startLogin()
         m_authPending = true;
         emit authDetailsChanged();
         emit authPendingChanged();
-        setStatus(QStringLiteral("Approve Colorful in TIDAL"));
+        setStatus(QStringLiteral("Approve colorful in TIDAL"));
     });
 }
 
@@ -420,6 +442,7 @@ void Backend::playTrackAt(int index)
 {
     if (index < 0 || index >= m_queue.size()) return;
     m_player.stop();
+    resetPositionClock(0, false);
     m_currentIndex = index;
     emit currentTrackChanged();
     emit queueChanged();
@@ -463,7 +486,7 @@ void Backend::resolveCurrentSource()
 void Backend::togglePlay() { playing() ? pause() : play(); }
 void Backend::play() { if (m_currentIndex < 0 && !m_queue.isEmpty()) playTrackAt(0); else m_player.play(); }
 void Backend::pause() { m_player.pause(); }
-void Backend::stop() { m_player.stop(); }
+void Backend::stop() { m_player.stop(); resetPositionClock(0, false); emit positionChanged(); }
 
 void Backend::next()
 {
@@ -473,18 +496,27 @@ void Backend::next()
 
 void Backend::previous()
 {
-    if (m_player.position() > 3000 || m_currentIndex <= 0) seek(0);
+    if (position() > 3000 || m_currentIndex <= 0) seek(0);
     else playTrackAt(m_currentIndex - 1);
 }
 
 void Backend::seek(qint64 positionMs)
 {
     const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, duration()));
+    resetPositionClock(target, playing());
     m_player.setPosition(target);
+    emit positionChanged();
     emit seeked(target);
 }
 
-void Backend::seekBy(qint64 offsetMs) { seek(m_player.position() + offsetMs); }
+void Backend::seekBy(qint64 offsetMs) { seek(position() + offsetMs); }
+
+void Backend::resetPositionClock(qint64 positionMs, bool running)
+{
+    m_positionAnchor = std::max<qint64>(0, positionMs);
+    m_positionClockRunning = running;
+    m_positionClock.restart();
+}
 
 void Backend::setVolume(double volume)
 {

@@ -2,7 +2,7 @@
 
 ## Principle
 
-Colorful is local-first. A network connection is needed for provider catalog
+colorful is local-first. A network connection is needed for provider catalog
 and streaming operations, optional metadata sources, and remote parties, but
 not for the local library, queue, downloaded playback, or settings.
 
@@ -13,7 +13,7 @@ Native UI
   |  typed commands/events
 Native playback adapter ---- OS audio + media session
   |
-Colorful engine (Rust) ------ SQLite, cache, downloads, party state
+colorful engine (Rust) ------ SQLite, cache, downloads, party state
   |
 Provider adapter ------------ TIDAL / SoundCloud / optional YouTube
 ```

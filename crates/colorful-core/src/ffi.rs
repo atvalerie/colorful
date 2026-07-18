@@ -261,7 +261,7 @@ fn guarded(function: impl FnOnce() -> Result<*mut c_char, String>) -> *mut c_cha
     match catch_unwind(AssertUnwindSafe(function)) {
         Ok(Ok(value)) => value,
         Ok(Err(error)) => failure(error),
-        Err(_) => failure("Colorful core panicked while handling the request"),
+        Err(_) => failure("colorful core panicked while handling the request"),
     }
 }
 
@@ -367,7 +367,7 @@ pub extern "C" fn colorful_engine_close(handle: u64) -> bool {
 
 /// # Safety
 ///
-/// `value` must be a pointer returned by a Colorful C ABI function and must be
+/// `value` must be a pointer returned by a colorful C ABI function and must be
 /// released exactly once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn colorful_string_free(value: *mut c_char) {
