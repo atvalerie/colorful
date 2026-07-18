@@ -55,9 +55,28 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
+        z: 998
         height: 2
         color: colorful.accent
         Behavior on color { ColorAnimation { duration: 350 } }
+
+        DragHandler {
+            target: null
+            acceptedButtons: Qt.LeftButton
+            onActiveChanged: {
+                if (active)
+                    window.startSystemMove()
+            }
+        }
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onDoubleTapped: {
+                if (window.visibility === Window.Maximized)
+                    window.showNormal()
+                else
+                    window.showMaximized()
+            }
+        }
     }
 
     ColumnLayout {
@@ -686,12 +705,6 @@ ApplicationWindow {
         width: 7
         edges: Qt.RightEdge
         handleCursor: Qt.SizeHorCursor
-    }
-    ResizeHandle {
-        anchors { left: parent.left; right: parent.right; top: parent.top; leftMargin: 7; rightMargin: 7 }
-        height: 7
-        edges: Qt.TopEdge
-        handleCursor: Qt.SizeVerCursor
     }
     ResizeHandle {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom; leftMargin: 7; rightMargin: 7 }
