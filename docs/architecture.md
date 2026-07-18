@@ -76,7 +76,7 @@ graph. Gapless is not implemented as a crossfade and must work with EQ off.
 | Target | UI | Playback integration |
 | --- | --- | --- |
 | Android | Kotlin + Jetpack Compose | Media3 session with a custom audio/DSP boundary |
-| Linux | Rust + GTK/libadwaita | GStreamer first, PipeWire-aware output |
+| Linux | C++ + Qt Quick/QML | Qt Multimedia/FFmpeg with MPRIS over QtDBus |
 | Windows | C# + WinUI | Media Foundation/WASAPI adapter |
 | iOS | Swift + SwiftUI | AVAudioEngine/AVFoundation + MPNowPlayingInfoCenter |
 
@@ -91,4 +91,3 @@ EQ, background behavior, and device switching pass acceptance tests.
 4. Android shell using the same Rust adapter and local database model.
 5. SoundCloud adapter, party sessions, and relay deployment.
 6. Windows shell, then iOS shell and cloud build/signing workflow.
-

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Colorful
+Comment=Your local-first, album-colored music player
+Exec=colorful-linux
+Icon=audio-x-generic
+Terminal=false
+Categories=Audio;Music;Player;
+StartupWMClass=colorful
+DBusActivatable=false
+
