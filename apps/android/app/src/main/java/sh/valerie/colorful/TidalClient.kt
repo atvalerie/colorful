@@ -98,6 +98,32 @@ class TidalClient {
             ?: DEFAULT_COUNTRY
     }
 
+    fun refreshUserToken(refreshToken: String): TidalUserToken {
+        requireBrowseConfiguration()
+        val response = request(
+            "https://auth.tidal.com/v1/oauth2/token",
+            "POST",
+            authorization = basic(
+                BuildConfig.TIDAL_BROWSE_CLIENT_ID,
+                BuildConfig.TIDAL_BROWSE_CLIENT_SECRET,
+            ),
+            form = mapOf(
+                "grant_type" to "refresh_token",
+                "refresh_token" to refreshToken,
+                "client_id" to BuildConfig.TIDAL_BROWSE_CLIENT_ID,
+                "scope" to "r_usr w_usr w_sub",
+            ),
+        )
+        response.requireSuccess("TIDAL account refresh failed")
+        val value = JSONObject(response.body)
+        val accessToken = value.string("access_token")
+        check(accessToken.isNotBlank()) { "TIDAL account refresh returned no access token" }
+        return TidalUserToken(
+            accessToken = accessToken,
+            refreshToken = value.string("refresh_token").ifBlank { refreshToken },
+        )
+    }
+
     fun searchTracks(query: String, countryCode: String, limit: Int = 30): String {
         requireBrowseConfiguration()
         val tokenResponse = request(
@@ -117,7 +143,12 @@ class TidalClient {
             .appendQueryParameter("include", "tracks.albums,tracks.artists,tracks.albums.coverArt")
             .appendQueryParameter("page[limit]", limit.coerceIn(1, 50).toString())
             .build().toString()
-        val response = request(url, "GET", authorization = "Bearer $accessToken")
+        val response = request(
+            url,
+            "GET",
+            authorization = "Bearer $accessToken",
+            accept = "application/vnd.api+json",
+        )
         response.requireSuccess("TIDAL search failed")
         return response.body
     }
@@ -127,10 +158,11 @@ class TidalClient {
         method: String,
         authorization: String? = null,
         form: Map<String, String>? = null,
+        accept: String = "application/json",
     ): HttpResponse {
         repeat(3) { attempt ->
             try {
-                return requestOnce(url, method, authorization, form)
+                return requestOnce(url, method, authorization, form, accept)
             } catch (error: UnknownHostException) {
                 if (attempt == 2) {
                     throw IllegalStateException(
@@ -149,13 +181,14 @@ class TidalClient {
         method: String,
         authorization: String?,
         form: Map<String, String>?,
+        accept: String,
     ): HttpResponse {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = method
             connection.connectTimeout = 15_000
             connection.readTimeout = 20_000
-            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Accept", accept)
             connection.setRequestProperty("User-Agent", "colorful/0.1 (Android)")
             authorization?.let { connection.setRequestProperty("Authorization", it) }
             if (form != null) {
@@ -185,7 +218,10 @@ class TidalClient {
 
     private data class HttpResponse(val code: Int, val body: String) {
         fun requireSuccess(message: String) {
-            check(code in 200..299) { "$message (HTTP $code)" }
+            check(code in 200..299) {
+                val detail = body.replace(Regex("\\s+"), " ").take(240)
+                "$message (HTTP $code)${if (detail.isBlank()) "" else ": $detail"}"
+            }
         }
     }
 

@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private val activityForeground = java.util.concurrent.atomic.AtomicBoolean(false)
     private val tidal = TidalClient()
     private lateinit var tokenStore: SecureTokenStore
+    private var accountRefreshStarted = false
 
     private var librarySize by mutableIntStateOf(0)
     private var status by mutableStateOf("Opening portable engine…")
@@ -177,6 +178,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         activityForeground.set(true)
+        if (tidalLinked && !accountRefreshStarted) {
+            accountRefreshStarted = true
+            refreshLinkedTidalAccount()
+        }
     }
 
     override fun onStop() {
@@ -237,6 +242,30 @@ class MainActivity : ComponentActivity() {
         providerMessage = "Resuming TIDAL authorization…"
         providerExecutor.execute {
             pollTidalLogin(generation, pending.authorization, pending.expiresAtMs)
+        }
+    }
+
+    private fun refreshLinkedTidalAccount() {
+        if (!tidalLinked) return
+        providerExecutor.execute {
+            runCatching {
+                val refreshToken = tokenStore.readTidalRefreshToken()
+                    ?: error("Stored TIDAL credential is unavailable")
+                val token = tidal.refreshUserToken(refreshToken)
+                val countryCode = tidal.accountCountryCode(token.accessToken)
+                tokenStore.saveTidalRefreshToken(token.refreshToken)
+                tokenStore.saveTidalCountryCode(countryCode)
+                countryCode
+            }.onSuccess { countryCode ->
+                runOnUiThread {
+                    tidalCountry = countryCode
+                    providerMessage = "TIDAL account ready."
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    providerMessage = error.message ?: "TIDAL account refresh failed"
+                }
+            }
         }
     }
 
