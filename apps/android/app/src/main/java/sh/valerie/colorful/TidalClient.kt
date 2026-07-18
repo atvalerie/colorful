@@ -21,7 +21,20 @@ data class PendingDeviceAuthorization(
     val expiresAtMs: Long,
 )
 
-data class TidalUserToken(val accessToken: String, val refreshToken: String)
+data class TidalUserToken(
+    val accessToken: String,
+    val refreshToken: String,
+    val expiresAtMs: Long,
+)
+
+data class TidalAccountInfo(val userId: String, val countryCode: String)
+
+data class TidalPlaybackSource(
+    val uri: String,
+    val manifestType: String,
+    val presentation: String?,
+    val previewReason: String?,
+)
 
 sealed interface DevicePollResult {
     data class Complete(val token: TidalUserToken) : DevicePollResult
@@ -73,7 +86,11 @@ class TidalClient {
             val refreshToken = value.string("refresh_token")
             check(refreshToken.isNotBlank()) { "TIDAL login returned no refresh token" }
             return DevicePollResult.Complete(
-                TidalUserToken(value.string("access_token"), refreshToken),
+                TidalUserToken(
+                    value.string("access_token"),
+                    refreshToken,
+                    System.currentTimeMillis() + value.long("expires_in", 3600L) * 1000L,
+                ),
             )
         }
         return when (val error = value.string("error")) {
@@ -83,34 +100,36 @@ class TidalClient {
         }
     }
 
-    /** Returns the raw JSON:API document; colorful-core owns normalization. */
-    fun accountCountryCode(accessToken: String): String {
-        return runCatching {
-            val response = request(
-                "https://login.tidal.com/oauth2/me",
-                "GET",
-                authorization = "Bearer $accessToken",
-            )
-            if (response.code !in 200..299) return@runCatching DEFAULT_COUNTRY
-            JSONObject(response.body).string("countryCode").trim().uppercase()
-        }.getOrDefault(DEFAULT_COUNTRY)
-            .takeIf { it.matches(Regex("[A-Z]{2}")) }
-            ?: DEFAULT_COUNTRY
+    fun accountInfo(accessToken: String): TidalAccountInfo {
+        val response = request(
+            "https://login.tidal.com/oauth2/me",
+            "GET",
+            authorization = "Bearer $accessToken",
+        )
+        response.requireSuccess("TIDAL account lookup failed")
+        val value = JSONObject(response.body)
+        val userId = value.opt("userId")?.toString()?.trim().orEmpty()
+        val countryCode = value.string("countryCode").trim().uppercase()
+        check(userId.isNotBlank()) { "TIDAL account lookup returned no user ID" }
+        check(countryCode.matches(Regex("[A-Z]{2}"))) {
+            "TIDAL account lookup returned no valid country"
+        }
+        return TidalAccountInfo(userId, countryCode)
     }
 
     fun refreshUserToken(refreshToken: String): TidalUserToken {
-        requireBrowseConfiguration()
+        requireRefreshConfiguration()
         val response = request(
             "https://auth.tidal.com/v1/oauth2/token",
             "POST",
             authorization = basic(
-                BuildConfig.TIDAL_BROWSE_CLIENT_ID,
-                BuildConfig.TIDAL_BROWSE_CLIENT_SECRET,
+                BuildConfig.TIDAL_REFRESH_CLIENT_ID,
+                BuildConfig.TIDAL_REFRESH_CLIENT_SECRET,
             ),
             form = mapOf(
                 "grant_type" to "refresh_token",
                 "refresh_token" to refreshToken,
-                "client_id" to BuildConfig.TIDAL_BROWSE_CLIENT_ID,
+                "client_id" to BuildConfig.TIDAL_REFRESH_CLIENT_ID,
                 "scope" to "r_usr w_usr w_sub",
             ),
         )
@@ -121,6 +140,39 @@ class TidalClient {
         return TidalUserToken(
             accessToken = accessToken,
             refreshToken = value.string("refresh_token").ifBlank { refreshToken },
+            expiresAtMs = System.currentTimeMillis() + value.long("expires_in", 3600L) * 1000L,
+        )
+    }
+
+    fun playbackSource(trackId: String, accessToken: String): TidalPlaybackSource {
+        val url = Uri.parse("https://openapi.tidal.com/v2/trackManifests/${Uri.encode(trackId)}")
+            .buildUpon()
+            .appendQueryParameter("manifestType", "HLS")
+            .appendQueryParameter("formats", "FLAC_HIRES")
+            .appendQueryParameter("formats", "FLAC")
+            .appendQueryParameter("formats", "AACLC")
+            .appendQueryParameter("uriScheme", "HTTPS")
+            .appendQueryParameter("usage", "PLAYBACK")
+            .appendQueryParameter("adaptive", "false")
+            .build().toString()
+        val response = request(
+            url,
+            "GET",
+            authorization = "Bearer $accessToken",
+            accept = "application/vnd.api+json",
+        )
+        response.requireSuccess("TIDAL playback source failed")
+        val attributes = JSONObject(response.body).optJSONObject("data")
+            ?.optJSONObject("attributes") ?: error("TIDAL returned no playback attributes")
+        val uri = attributes.string("uri")
+        check(uri.startsWith("https://", true)) {
+            "TIDAL returned an unsupported playback URL"
+        }
+        return TidalPlaybackSource(
+            uri = uri,
+            manifestType = attributes.string("manifestType").ifBlank { "HLS" },
+            presentation = attributes.string("trackPresentation").ifBlank { null },
+            previewReason = attributes.string("previewReason").ifBlank { null },
         )
     }
 
@@ -215,6 +267,10 @@ class TidalClient {
     private fun requireBrowseConfiguration() = check(
         BuildConfig.TIDAL_BROWSE_CLIENT_ID.isNotBlank() && BuildConfig.TIDAL_BROWSE_CLIENT_SECRET.isNotBlank(),
     ) { "TIDAL catalog credentials were not available when this APK was built" }
+
+    private fun requireRefreshConfiguration() = check(
+        BuildConfig.TIDAL_REFRESH_CLIENT_ID.isNotBlank() && BuildConfig.TIDAL_REFRESH_CLIENT_SECRET.isNotBlank(),
+    ) { "TIDAL refresh credentials were not available when this APK was built" }
 
     private data class HttpResponse(val code: Int, val body: String) {
         fun requireSuccess(message: String) {

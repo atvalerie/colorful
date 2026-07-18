@@ -51,6 +51,8 @@ android {
         buildConfigField("String", "TIDAL_BROWSE_CLIENT_SECRET", javaString(providerValue("TIDAL_CLIENT_SECRET")))
         buildConfigField("String", "TIDAL_DEVICE_CLIENT_ID", javaString(providerValue("TIDAL_DEVICE_CLIENT_ID")))
         buildConfigField("String", "TIDAL_DEVICE_CLIENT_SECRET", javaString(providerValue("TIDAL_DEVICE_CLIENT_SECRET")))
+        buildConfigField("String", "TIDAL_REFRESH_CLIENT_ID", javaString(providerValue("TIDAL_REFRESH_CLIENT_ID", providerValue("TIDAL_CLIENT_ID"))))
+        buildConfigField("String", "TIDAL_REFRESH_CLIENT_SECRET", javaString(providerValue("TIDAL_REFRESH_CLIENT_SECRET", providerValue("TIDAL_CLIENT_SECRET"))))
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild {
             cmake { arguments += "-DCOLORFUL_CORE_DIR=${rustOutput.get().asFile.absolutePath}" }
@@ -78,6 +80,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.media3:media3-exoplayer:1.10.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.10.1")
     implementation("androidx.media3:media3-session:1.10.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

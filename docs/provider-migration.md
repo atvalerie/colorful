@@ -68,6 +68,16 @@ The visual layer derives contrast-safe accents and gradients from the result.
 
 TIDAL search-result normalization now exists in `colorful-core`. It owns ISO
 duration parsing, version-aware display titles, artist and album relationships,
-and artwork selection. The TypeScript provider host still owns network requests,
-authorization, subscription checks, and playback manifest retrieval while those
-pieces are migrated and covered with equivalent sanitized fixtures.
+and artwork selection.
+
+Android now has a complete native TIDAL vertical slice. Device authorization
+survives Activity/process recreation, refresh tokens are encrypted with Android
+Keystore, account country is cached from `/oauth2/me`, and the MediaSession
+service owns refresh, manifest resolution, Rust queue commands, HLS Media3
+playback, and periodic position checkpoints. The UI communicates with the
+service through explicit Media3 session commands, so playback and queue work do
+not depend on the Activity staying alive.
+
+The Linux shell still uses the TypeScript provider host for network requests,
+authorization, subscription checks, and playback manifest retrieval while
+those pieces are migrated behind shared provider contracts and fixtures.

@@ -64,6 +64,12 @@ This is a migration, not a rewrite performed all at once.
 - notifications and download foreground services
 - native UI and accessibility
 
+On Android the `MediaSessionService` is the long-lived native playback owner.
+It holds the portable engine handle, resolves provider sources off the main
+thread, maps Rust queue operations to a Media3 playlist, and checkpoints player
+position. Compose Activities are controllers of that service rather than
+owners of playback or provider sessions.
+
 ### DSP
 
 EQ, gain, limiter, loudness normalization, and crossfade belong behind a common
