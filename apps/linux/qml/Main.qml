@@ -470,7 +470,9 @@ ApplicationWindow {
                 spacing: 20
 
                 Item {
+                    Layout.fillWidth: true
                     Layout.preferredWidth: 280
+                    Layout.minimumWidth: 200
                     Layout.fillHeight: true
 
                     RowLayout {
@@ -611,7 +613,9 @@ ApplicationWindow {
                 }
 
                 Item {
+                    Layout.fillWidth: true
                     Layout.preferredWidth: 280
+                    Layout.minimumWidth: 200
                     Layout.fillHeight: true
 
                     RowLayout {
