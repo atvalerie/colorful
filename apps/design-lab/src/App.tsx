@@ -74,15 +74,23 @@ function PlayerDock({
         <Cover palette={palettes[current.palette]!} size="small" />
         <span><strong>{current.title}</strong><small>{current.artist}</small></span>
       </button>
-      <div className="player-dock__controls">
-        <button className="icon-button"><Glyph>‹</Glyph></button>
-        <button className="play-button" onClick={onToggle}>{playing ? "Ⅱ" : "▶"}</button>
-        <button className="icon-button"><Glyph>›</Glyph></button>
+      <div className="player-dock__center">
+        <div className="player-dock__controls">
+          <button className="transport-button" aria-label="Shuffle"><Glyph>↝</Glyph></button>
+          <button className="transport-button" aria-label="Previous"><Glyph>‹</Glyph></button>
+          <button className="play-button" onClick={onToggle} aria-label={playing ? "Pause" : "Play"}>{playing ? "Ⅱ" : "▶"}</button>
+          <button className="transport-button" aria-label="Next"><Glyph>›</Glyph></button>
+          <button className="transport-button" aria-label="Repeat"><Glyph>↻</Glyph></button>
+        </div>
+        <div className="player-dock__timeline">
+          <span>1:17</span><i><b style={{ width: "38%" }} /></i><span>{current.duration}</span>
+        </div>
       </div>
-      <div className="player-dock__timeline">
-        <span>1:17</span><i><b style={{ width: "38%" }} /></i><span>{current.duration}</span>
+      <div className="player-dock__utilities">
+        <button className="transport-button" aria-label="Volume"><Glyph>◖</Glyph></button>
+        <i className="volume"><b style={{ width: "72%" }} /></i>
+        <button className="transport-button" aria-label="Queue"><Glyph>≡</Glyph></button>
       </div>
-      <button className="icon-button player-dock__queue"><Glyph>≡</Glyph></button>
     </div>
   );
 }
@@ -90,7 +98,6 @@ function PlayerDock({
 function Navigation({ screen, onScreen }: { screen: Screen; onScreen: (screen: Screen) => void }) {
   return (
     <nav className="navigation">
-      <button className="brand" onClick={() => onScreen("discover")}><span>c</span><strong>colorful</strong></button>
       <div className="navigation__items">
         <button className={screen === "discover" ? "is-active" : ""} onClick={() => onScreen("discover")}><Glyph>⌁</Glyph><span>Discover</span></button>
         <button className={screen === "album" ? "is-active" : ""} onClick={() => onScreen("album")}><Glyph>◫</Glyph><span>Library</span></button>
@@ -159,7 +166,7 @@ function FullPlayer({ current, playing, queue, onToggle }: { current: Track; pla
       <header className="topbar"><button className="round-button"><Glyph>⌄</Glyph></button><span className="eyebrow">NOW PLAYING</span><button className="round-button"><Glyph>⋯</Glyph></button></header>
       <section className="full-player__body">
         <Cover palette={palette} size="hero" />
-        <div className="full-player__info"><span className="eyebrow">FROM {current.album.toUpperCase()}</span><h1>{current.title}</h1><p>{current.artist}</p><div className="big-timeline"><i><b style={{ width: "38%" }} /></i><span>1:17</span><span>{current.duration}</span></div><div className="big-controls"><button><Glyph>↝</Glyph></button><button><Glyph>‹</Glyph></button><button className="play-button play-button--large" onClick={onToggle}>{playing ? "Ⅱ" : "▶"}</button><button><Glyph>›</Glyph></button><button><Glyph>↻</Glyph></button></div></div>
+        <div className="full-player__info"><span className="eyebrow">FROM {current.album.toUpperCase()}</span><h1>{current.title}</h1><p>{current.artist}</p><div className="big-controls"><button><Glyph>↝</Glyph></button><button><Glyph>‹</Glyph></button><button className="play-button play-button--large" onClick={onToggle}>{playing ? "Ⅱ" : "▶"}</button><button><Glyph>›</Glyph></button><button><Glyph>↻</Glyph></button></div><div className="big-timeline"><i><b style={{ width: "38%" }} /></i><span>1:17</span><span>{current.duration}</span></div></div>
         <aside className="up-next"><span className="eyebrow">UP NEXT</span><h2>{queue[0]?.title ?? tracks[1]!.title}</h2><p>{queue[0]?.artist ?? tracks[1]!.artist}</p></aside>
       </section>
     </main>
@@ -198,7 +205,7 @@ export function App() {
   return (
     <div className="lab" style={{ "--lab-accent": palette.primary } as React.CSSProperties}>
       <header className="lab-toolbar">
-        <div className="lab-toolbar__title"><span>c</span><div><strong>Colorful Design Lab</strong><small>Disposable UI prototype</small></div></div>
+        <div className="lab-toolbar__title"><div><strong>Colorful Design Lab</strong><small>Disposable UI prototype</small></div></div>
         <div className="lab-control"><span>Canvas</span><div className="segmented"><button className={viewport === "desktop" ? "is-active" : ""} onClick={() => setViewport("desktop")}>Desktop</button><button className={viewport === "mobile" ? "is-active" : ""} onClick={() => setViewport("mobile")}>Mobile</button></div></div>
         <div className="lab-control"><span>Screen</span><div className="segmented">{(Object.keys(screenLabels) as Screen[]).map((value) => <button key={value} className={screen === value ? "is-active" : ""} onClick={() => setScreen(value)}>{screenLabels[value]}</button>)}</div></div>
         <div className="lab-control palette-control"><span>Album color</span><div>{palettes.map((value, index) => <button key={value.name} className={index === paletteIndex ? "is-active" : ""} style={{ background: value.primary }} onClick={() => setPaletteIndex(index)} aria-label={value.name} />)}</div></div>
