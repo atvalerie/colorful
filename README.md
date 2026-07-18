@@ -32,6 +32,7 @@ and troubleshooting.
 - `docs/architecture.md`: component boundaries and delivery order
 - `docs/connectivity.md`: LAN, NAT traversal, relay, and party synchronization
 - `docs/sync.md`: proposed encrypted multi-device sync and playback handoff
+- `docs/storage.md`: device-local SQLite schema and migration rules
 - `docs/provider-migration.md`: what to reuse from `backend` and `mocha`
 - `docs/macos-ci.md`: practical iOS builds without owning a Mac
 
@@ -39,6 +40,7 @@ and troubleshooting.
 
 ```bash
 ./scripts/test-linux.sh
+./scripts/test-storage-schema.sh
 ```
 
 ## Non-goals

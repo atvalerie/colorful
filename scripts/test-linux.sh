@@ -5,6 +5,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 
 cargo test --manifest-path "$repo_dir/Cargo.toml" --workspace
+"$script_dir/test-storage-schema.sh"
 
 (
   cd "$repo_dir/packages/provider-kit"
