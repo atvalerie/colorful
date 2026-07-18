@@ -1,8 +1,11 @@
 # Android shell
 
-Planned stack: Kotlin, Jetpack Compose, a Media3 media session, Android Keystore,
-Room/SQLite integration, and Rust bindings for the Colorful engine.
+Kotlin/Compose shell backed by the portable Rust engine. Build with:
 
-The project will be generated after the core command/event boundary is stable,
-to avoid committing a decorative Gradle skeleton with no executable feature.
+```bash
+./scripts/build-android.sh
+```
 
+The build produces arm64 phone and x86_64 emulator libraries under the ignored
+`apps/android/build` directory. Press **Write persistence marker**, force-close,
+and relaunch; the library count proves Kotlin, JNI, Rust, and SQLite reconnect.
