@@ -14,11 +14,23 @@ qt_add_executable(colorful-linux
     src/main.cpp
     src/backend.cpp
     src/backend.h
+    src/corebridge.cpp
+    src/corebridge.h
     src/discordpresence.cpp
     src/discordpresence.h
     src/mpris.cpp
     src/mpris.h
 )
+
+set(COLORFUL_CORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/libcolorful_core.so"
+    CACHE FILEPATH "Path to the colorful-core shared library")
+add_library(colorful-core SHARED IMPORTED GLOBAL)
+set_target_properties(colorful-core PROPERTIES
+    IMPORTED_LOCATION "${COLORFUL_CORE_LIBRARY}"
+    IMPORTED_NO_SONAME TRUE
+)
+target_include_directories(colorful-linux PRIVATE ../../crates/colorful-core/include)
+set_target_properties(colorful-linux PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
 
 qt_add_qml_module(colorful-linux
     URI colorful
@@ -78,7 +90,10 @@ target_link_libraries(colorful-linux PRIVATE
     Qt6::Multimedia
     Qt6::Network
     Qt6::DBus
+    colorful-core
+    ${CMAKE_DL_LIBS}
 )
 
 install(TARGETS colorful-linux RUNTIME DESTINATION bin)
+install(FILES "${COLORFUL_CORE_LIBRARY}" DESTINATION lib)
 install(FILES applications/colorful.desktop DESTINATION share/applications)

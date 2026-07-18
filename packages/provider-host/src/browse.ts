@@ -91,16 +91,11 @@ export class BrowseClient {
     });
     let response = await request(false);
     if (response.status === 401) response = await request(true);
-    if (!response.ok) throw new Error(`TIDAL search failed (${response.status}): ${await response.text()}`);
+    if (!response.ok) throw new Error(`TIDAL catalog request failed (${response.status}): ${await response.text()}`);
     return response.json();
   }
 
-  async searchTracks(query: string, limit = 30): Promise<TrackSummary[]> {
-    const document = await this.get(`searchResults/${encodeURIComponent(query)}/relationships/tracks`, {
-      include: "tracks.albums,tracks.artists",
-      "page[limit]": String(Math.max(1, Math.min(limit, 50))),
-    });
-    const tracks = mapTracks(document);
+  private async hydrateMissingArtwork(tracks: TrackSummary[]): Promise<TrackSummary[]> {
     const missingAlbumIds = [...new Set(tracks.filter((track) => !track.coverUrl && track.albumId).map((track) => track.albumId!))];
     if (missingAlbumIds.length === 0) return tracks;
     try {
@@ -120,5 +115,21 @@ export class BrowseClient {
     } catch {
       return tracks;
     }
+  }
+
+  async searchTracks(query: string, limit = 30): Promise<TrackSummary[]> {
+    const document = await this.get(`searchResults/${encodeURIComponent(query)}/relationships/tracks`, {
+      include: "tracks.albums,tracks.artists",
+      "page[limit]": String(Math.max(1, Math.min(limit, 50))),
+    });
+    return this.hydrateMissingArtwork(mapTracks(document));
+  }
+
+  async relatedTracks(trackId: string, limit = 20): Promise<TrackSummary[]> {
+    const document = await this.get(`tracks/${encodeURIComponent(trackId)}/relationships/similarTracks`, {
+      include: "similarTracks.albums,similarTracks.artists",
+      "page[limit]": String(Math.max(1, Math.min(limit, 50))),
+    });
+    return this.hydrateMissingArtwork(mapTracks(document));
   }
 }

@@ -212,6 +212,7 @@ impl From<EngineEvent> for WireEvent {
 struct Snapshot<'a> {
     abi_version: u32,
     queue: crate::queue::QueueSnapshot,
+    queue_tracks: Vec<Track>,
     playback: &'a crate::playback::PlaybackState,
     library: Vec<Track>,
     downloads: Vec<DownloadJob>,
@@ -347,6 +348,7 @@ pub extern "C" fn colorful_engine_snapshot(handle: u64) -> *mut c_char {
         let snapshot = Snapshot {
             abi_version: ABI_VERSION,
             queue: engine.queue().snapshot(),
+            queue_tracks: engine.queue_tracks().map_err(|error| error.to_string())?,
             playback: engine.playback(),
             library: engine.library().map_err(|error| error.to_string())?,
             downloads: engine.downloads().map_err(|error| error.to_string())?,
@@ -424,6 +426,12 @@ mod tests {
 
         let snapshot = response(colorful_engine_snapshot(handle));
         assert_eq!(snapshot["value"]["abiVersion"], ABI_VERSION);
+        assert!(
+            snapshot["value"]["queueTracks"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         assert!(colorful_engine_close(handle));
         assert!(!colorful_engine_close(handle));
     }

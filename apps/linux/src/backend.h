@@ -1,6 +1,7 @@
 #pragma once
 
 #include "discordpresence.h"
+#include "corebridge.h"
 
 #include <QAudioOutput>
 #include <QColor>
@@ -30,6 +31,7 @@ class Backend final : public QObject
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
+    Q_PROPERTY(QVariantList library READ library NOTIFY libraryChanged)
     Q_PROPERTY(int currentQueueIndex READ currentQueueIndex NOTIFY currentTrackChanged)
     Q_PROPERTY(QVariantMap currentTrack READ currentTrack NOTIFY currentTrackChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
@@ -37,6 +39,7 @@ class Backend final : public QObject
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(QColor accent READ accent NOTIFY accentChanged)
+    Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
 
 public:
     explicit Backend(QObject *parent = nullptr);
@@ -53,6 +56,7 @@ public:
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList queue() const { return m_queue; }
+    QVariantList library() const { return m_library; }
     int currentQueueIndex() const { return m_currentIndex; }
     QVariantMap currentTrack() const;
     bool playing() const;
@@ -60,6 +64,7 @@ public:
     qint64 duration() const;
     double volume() const { return m_audioOutput.volume(); }
     QColor accent() const { return m_accent; }
+    bool autoplayEnabled() const { return m_autoplayEnabled; }
 
     QString playbackStatus() const;
     QVariantMap mprisMetadata() const;
@@ -76,6 +81,9 @@ public:
     Q_INVOKABLE void playSearchResult(int index);
     Q_INVOKABLE void playQueueIndex(int index);
     Q_INVOKABLE void removeQueueIndex(int index);
+    Q_INVOKABLE void addSearchResultToLibrary(int index);
+    Q_INVOKABLE void playLibraryIndex(int index);
+    Q_INVOKABLE void removeLibraryIndex(int index);
     Q_INVOKABLE void togglePlay();
     Q_INVOKABLE void play();
     Q_INVOKABLE void pause();
@@ -85,6 +93,7 @@ public:
     Q_INVOKABLE void seek(qint64 positionMs);
     Q_INVOKABLE void seekBy(qint64 offsetMs);
     Q_INVOKABLE void setVolume(double volume);
+    Q_INVOKABLE void setAutoplayEnabled(bool enabled);
 
 signals:
     void providerReadyChanged();
@@ -96,12 +105,14 @@ signals:
     void statusMessageChanged();
     void searchResultsChanged();
     void queueChanged();
+    void libraryChanged();
     void currentTrackChanged();
     void playbackChanged();
     void positionChanged();
     void durationChanged();
     void volumeChanged();
     void accentChanged();
+    void autoplayEnabledChanged();
     void seeked(qint64 positionMs);
     void quitRequested();
     void raiseRequested();
@@ -120,7 +131,13 @@ private:
     void setStatus(const QString &message);
     void setEntitlementWarning(bool visible, const QString &message = {});
     void playTrackAt(int index);
-    void resolveCurrentSource();
+    void resolveCurrentSource(qint64 startPositionMs = 0, bool autoplay = true);
+    void requestRelatedAndContinue();
+    bool openCore();
+    QJsonObject dispatchCore(const QJsonObject &command);
+    void refreshCoreSnapshot();
+    static QJsonObject variantTrackToCore(const QVariantMap &track);
+    static QVariantMap coreTrackToVariant(const QJsonObject &track);
     void loadAccent(const QString &artworkUrl);
     void updateDiscordPresence();
     void resetPositionClock(qint64 positionMs, bool running);
@@ -135,6 +152,7 @@ private:
     QMediaPlayer m_player;
     QElapsedTimer m_positionClock;
     QTimer m_positionTicker;
+    QTimer m_checkpointTimer;
     qint64 m_positionAnchor = 0;
     bool m_positionClockRunning = false;
     QAudioOutput m_audioOutput;
@@ -143,7 +161,10 @@ private:
     QVariantAnimation m_accentAnimation;
     QVariantList m_searchResults;
     QVariantList m_queue;
+    QVariantList m_library;
+    QList<qint64> m_queueEntryIds;
     int m_currentIndex = -1;
+    CoreBridge m_core;
     bool m_providerReady = false;
     bool m_linked = false;
     bool m_authPending = false;
@@ -155,4 +176,6 @@ private:
     QString m_entitlementMessage;
     QColor m_accent = QColor(QStringLiteral("#ff4f91"));
     QString m_pendingArtworkUrl;
+    bool m_autoplayEnabled = true;
+    bool m_relatedPending = false;
 };

@@ -3,12 +3,14 @@
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDBusObjectPath>
+#include <QDir>
 #include <QFileInfo>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QProcessEnvironment>
+#include <QSet>
 #include <QStandardPaths>
 #include <QUrl>
 #include <algorithm>
@@ -99,6 +101,13 @@ Backend::Backend(QObject *parent)
         if (m_positionClockRunning) emit positionChanged();
     });
     m_positionTicker.start();
+    m_checkpointTimer.setInterval(10'000);
+    connect(&m_checkpointTimer, &QTimer::timeout, this, [this] {
+        if (m_currentIndex < 0 || !playing()) return;
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
+                      {QStringLiteral("position_ms"), position()}});
+    });
+    m_checkpointTimer.start();
 
     connect(&m_provider, &QProcess::readyReadStandardOutput, this, &Backend::processProviderOutput);
     connect(&m_provider, &QProcess::readyReadStandardError, this, [this] {
@@ -151,11 +160,16 @@ Backend::Backend(QObject *parent)
         if (status == QMediaPlayer::EndOfMedia) next();
     });
 
+    openCore();
     startProviderHost();
 }
 
 Backend::~Backend()
 {
+    if (m_currentIndex >= 0) {
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
+                      {QStringLiteral("position_ms"), position()}});
+    }
     if (m_provider.state() != QProcess::NotRunning) {
         m_provider.closeWriteChannel();
         m_provider.terminate();
@@ -168,6 +182,138 @@ QVariantMap Backend::currentTrack() const
     return m_currentIndex >= 0 && m_currentIndex < m_queue.size()
         ? m_queue.at(m_currentIndex).toMap()
         : QVariantMap{};
+}
+
+bool Backend::openCore()
+{
+    const auto dataDirectory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (!QDir().mkpath(dataDirectory)) {
+        setStatus(QStringLiteral("Could not create colorful's data directory"));
+        return false;
+    }
+    QString error;
+    if (!m_core.open(QDir(dataDirectory).filePath(QStringLiteral("colorful.sqlite3")), &error)) {
+        setStatus(QStringLiteral("Could not open the local library: %1").arg(error));
+        return false;
+    }
+    refreshCoreSnapshot();
+    return true;
+}
+
+QJsonObject Backend::dispatchCore(const QJsonObject &command)
+{
+    QString error;
+    const auto response = m_core.dispatch(command, &error);
+    if (!response.value(QStringLiteral("ok")).toBool()) {
+        if (!error.isEmpty()) setStatus(QStringLiteral("Local engine: %1").arg(error));
+        return {};
+    }
+    refreshCoreSnapshot();
+    return response.value(QStringLiteral("value")).toObject();
+}
+
+void Backend::refreshCoreSnapshot()
+{
+    QString error;
+    const auto response = m_core.snapshot(&error);
+    if (!response.value(QStringLiteral("ok")).toBool()) {
+        if (!error.isEmpty()) setStatus(QStringLiteral("Local engine: %1").arg(error));
+        return;
+    }
+    const auto snapshot = response.value(QStringLiteral("value")).toObject();
+    const auto playback = snapshot.value(QStringLiteral("playback")).toObject();
+    if (m_player.source().isEmpty() && m_player.playbackState() == QMediaPlayer::StoppedState) {
+        resetPositionClock(playback.value(QStringLiteral("positionMs")).toInteger(), false);
+        emit positionChanged();
+    }
+    const auto queue = snapshot.value(QStringLiteral("queue")).toObject();
+    const auto entries = queue.value(QStringLiteral("entries")).toArray();
+    const auto tracks = snapshot.value(QStringLiteral("queueTracks")).toArray();
+    const auto currentEntryId = queue.value(QStringLiteral("current")).toInteger(-1);
+
+    QVariantList nextQueue;
+    QList<qint64> nextEntryIds;
+    int nextCurrentIndex = -1;
+    const auto count = std::min(entries.size(), tracks.size());
+    for (qsizetype index = 0; index < count; ++index) {
+        const auto entryId = entries.at(index).toObject().value(QStringLiteral("id")).toInteger();
+        nextEntryIds.append(entryId);
+        nextQueue.append(coreTrackToVariant(tracks.at(index).toObject()));
+        if (entryId == currentEntryId) nextCurrentIndex = static_cast<int>(index);
+    }
+
+    QVariantList nextLibrary;
+    for (const auto &track : snapshot.value(QStringLiteral("library")).toArray()) {
+        nextLibrary.append(coreTrackToVariant(track.toObject()));
+    }
+
+    const bool queueWasChanged = nextQueue != m_queue || nextEntryIds != m_queueEntryIds;
+    const bool currentWasChanged = nextCurrentIndex != m_currentIndex;
+    const bool libraryWasChanged = nextLibrary != m_library;
+    m_queue = std::move(nextQueue);
+    m_queueEntryIds = std::move(nextEntryIds);
+    m_currentIndex = nextCurrentIndex;
+    m_library = std::move(nextLibrary);
+    if (queueWasChanged) emit queueChanged();
+    if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
+    if (libraryWasChanged) emit libraryChanged();
+}
+
+QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
+{
+    QJsonArray artists;
+    for (const auto &name : track.value(QStringLiteral("artists")).toStringList()) {
+        artists.append(QJsonObject{{QStringLiteral("id"), QJsonValue::Null},
+                                   {QStringLiteral("name"), name}});
+    }
+    const auto albumId = track.value(QStringLiteral("albumId")).toString();
+    const auto coverUrl = track.value(QStringLiteral("coverUrl")).toString();
+    const auto durationMs = track.value(QStringLiteral("durationMs")).toLongLong();
+    return {
+        {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                           {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}},
+        {QStringLiteral("title"), track.value(QStringLiteral("title")).toString()},
+        {QStringLiteral("version"), track.value(QStringLiteral("version")).toString().isEmpty()
+                                           ? QJsonValue(QJsonValue::Null) : QJsonValue(track.value(QStringLiteral("version")).toString())},
+        {QStringLiteral("artists"), artists},
+        {QStringLiteral("albumId"), albumId.isEmpty() ? QJsonValue(QJsonValue::Null)
+            : QJsonValue(QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                     {QStringLiteral("providerId"), albumId}})},
+        {QStringLiteral("albumTitle"), track.value(QStringLiteral("albumTitle")).toString().isEmpty()
+                                                ? QJsonValue(QJsonValue::Null) : QJsonValue(track.value(QStringLiteral("albumTitle")).toString())},
+        {QStringLiteral("artwork"), coverUrl.isEmpty() ? QJsonValue(QJsonValue::Null)
+            : QJsonValue(QJsonObject{{QStringLiteral("url"), coverUrl},
+                                     {QStringLiteral("localKey"), QJsonValue::Null},
+                                     {QStringLiteral("width"), QJsonValue::Null},
+                                     {QStringLiteral("height"), QJsonValue::Null}})},
+        {QStringLiteral("durationMs"), durationMs > 0 ? QJsonValue(durationMs) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("isrc"), track.value(QStringLiteral("isrc")).toString().isEmpty()
+                                        ? QJsonValue(QJsonValue::Null) : QJsonValue(track.value(QStringLiteral("isrc")).toString())},
+        {QStringLiteral("explicit"), QJsonValue::Null},
+    };
+}
+
+QVariantMap Backend::coreTrackToVariant(const QJsonObject &track)
+{
+    QStringList artists;
+    for (const auto &artist : track.value(QStringLiteral("artists")).toArray()) {
+        artists.append(artist.toObject().value(QStringLiteral("name")).toString());
+    }
+    const auto artwork = track.value(QStringLiteral("artwork")).toObject();
+    const auto id = track.value(QStringLiteral("id")).toObject();
+    return {
+        {QStringLiteral("provider"), id.value(QStringLiteral("provider")).toString()},
+        {QStringLiteral("id"), id.value(QStringLiteral("providerId")).toString()},
+        {QStringLiteral("title"), track.value(QStringLiteral("title")).toString()},
+        {QStringLiteral("version"), track.value(QStringLiteral("version")).toString()},
+        {QStringLiteral("artists"), artists},
+        {QStringLiteral("artistText"), artists.join(QStringLiteral(", "))},
+        {QStringLiteral("albumId"), track.value(QStringLiteral("albumId")).toObject().value(QStringLiteral("providerId")).toString()},
+        {QStringLiteral("albumTitle"), track.value(QStringLiteral("albumTitle")).toString()},
+        {QStringLiteral("durationMs"), track.value(QStringLiteral("durationMs")).toInteger()},
+        {QStringLiteral("isrc"), track.value(QStringLiteral("isrc")).toString()},
+        {QStringLiteral("coverUrl"), artwork.value(QStringLiteral("url")).toString()},
+    };
 }
 
 bool Backend::playing() const
@@ -404,8 +550,8 @@ void Backend::search(const QString &query)
 void Backend::enqueueSearchResult(int index)
 {
     if (index < 0 || index >= m_searchResults.size()) return;
-    m_queue.append(m_searchResults.at(index));
-    emit queueChanged();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
+                  {QStringLiteral("track"), variantTrackToCore(m_searchResults.at(index).toMap())}});
     setStatus(QStringLiteral("Added %1 to the queue")
                   .arg(m_searchResults.at(index).toMap().value(QStringLiteral("title")).toString()));
 }
@@ -413,8 +559,8 @@ void Backend::enqueueSearchResult(int index)
 void Backend::playSearchResult(int index)
 {
     if (index < 0 || index >= m_searchResults.size()) return;
-    m_queue.append(m_searchResults.at(index));
-    emit queueChanged();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
+                  {QStringLiteral("track"), variantTrackToCore(m_searchResults.at(index).toMap())}});
     playTrackAt(m_queue.size() - 1);
 }
 
@@ -422,34 +568,56 @@ void Backend::playQueueIndex(int index) { playTrackAt(index); }
 
 void Backend::removeQueueIndex(int index)
 {
-    if (index < 0 || index >= m_queue.size()) return;
+    if (index < 0 || index >= m_queueEntryIds.size()) return;
     const bool removingCurrent = index == m_currentIndex;
-    m_queue.removeAt(index);
-    if (index < m_currentIndex) --m_currentIndex;
-    else if (removingCurrent) {
+    const bool wasPlaying = playing();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("remove")},
+                  {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
+    if (removingCurrent) {
         m_player.stop();
-        if (m_queue.isEmpty()) m_currentIndex = -1;
-        else {
-            m_currentIndex = std::min(index, static_cast<int>(m_queue.size() - 1));
-            resolveCurrentSource();
-        }
-        emit currentTrackChanged();
+        if (m_currentIndex >= 0) resolveCurrentSource(0, wasPlaying);
+        else m_player.setSource(QUrl());
     }
-    emit queueChanged();
+}
+
+void Backend::addSearchResultToLibrary(int index)
+{
+    if (index < 0 || index >= m_searchResults.size()) return;
+    const auto track = m_searchResults.at(index).toMap();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("add_to_library")},
+                  {QStringLiteral("track"), variantTrackToCore(track)}});
+    setStatus(QStringLiteral("Saved %1 to your library").arg(track.value(QStringLiteral("title")).toString()));
+}
+
+void Backend::playLibraryIndex(int index)
+{
+    if (index < 0 || index >= m_library.size()) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
+                  {QStringLiteral("track"), variantTrackToCore(m_library.at(index).toMap())}});
+    playTrackAt(m_queue.size() - 1);
+}
+
+void Backend::removeLibraryIndex(int index)
+{
+    if (index < 0 || index >= m_library.size()) return;
+    const auto track = m_library.at(index).toMap();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_from_library")},
+                  {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                                     {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
+    setStatus(QStringLiteral("Removed %1 from your library").arg(track.value(QStringLiteral("title")).toString()));
 }
 
 void Backend::playTrackAt(int index)
 {
-    if (index < 0 || index >= m_queue.size()) return;
+    if (index < 0 || index >= m_queueEntryIds.size()) return;
     m_player.stop();
     resetPositionClock(0, false);
-    m_currentIndex = index;
-    emit currentTrackChanged();
-    emit queueChanged();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("select")},
+                  {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
     resolveCurrentSource();
 }
 
-void Backend::resolveCurrentSource()
+void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
 {
     const auto track = currentTrack();
     if (track.isEmpty()) return;
@@ -457,8 +625,9 @@ void Backend::resolveCurrentSource()
     setBusy(true);
     setStatus(QStringLiteral("Getting playback source for %1…").arg(track.value(QStringLiteral("title")).toString()));
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());
-    request(QStringLiteral("source"), {{QStringLiteral("trackId"), requestedTrackId}},
-            [this, requestedTrackId](const QJsonObject &message) {
+    request(QStringLiteral("source"), {{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                        {QStringLiteral("trackId"), requestedTrackId}},
+            [this, requestedTrackId, startPositionMs, autoplay](const QJsonObject &message) {
         if (currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
         if (!message.value(QStringLiteral("ok")).toBool()) {
             setBusy(false);
@@ -479,31 +648,104 @@ void Backend::resolveCurrentSource()
             return;
         }
         m_player.setSource(QUrl(uri));
-        m_player.play();
+        if (startPositionMs > 0) m_player.setPosition(startPositionMs);
+        if (autoplay) m_player.play();
     });
 }
 
 void Backend::togglePlay() { playing() ? pause() : play(); }
-void Backend::play() { if (m_currentIndex < 0 && !m_queue.isEmpty()) playTrackAt(0); else m_player.play(); }
-void Backend::pause() { m_player.pause(); }
-void Backend::stop() { m_player.stop(); resetPositionClock(0, false); emit positionChanged(); }
+void Backend::play()
+{
+    if (m_currentIndex < 0 && !m_queue.isEmpty()) {
+        playTrackAt(0);
+        return;
+    }
+    if (m_currentIndex < 0) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("play")}});
+    if (m_player.source().isEmpty()) resolveCurrentSource(position(), true);
+    else m_player.play();
+}
+void Backend::pause()
+{
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
+                  {QStringLiteral("position_ms"), position()}});
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("pause")}});
+    m_player.pause();
+}
+void Backend::stop()
+{
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("stop")}});
+    m_player.stop();
+    resetPositionClock(0, false);
+    emit positionChanged();
+}
 
 void Backend::next()
 {
-    if (canGoNext()) playTrackAt(m_currentIndex + 1);
-    else stop();
+    if (!canGoNext()) {
+        if (m_autoplayEnabled && m_currentIndex >= 0) requestRelatedAndContinue();
+        else stop();
+        return;
+    }
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
+                  {QStringLiteral("position_ms"), position()}});
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_next")}});
+    resolveCurrentSource();
+}
+
+void Backend::requestRelatedAndContinue()
+{
+    if (m_relatedPending) return;
+    const auto seed = currentTrack();
+    if (seed.isEmpty()) { stop(); return; }
+    m_relatedPending = true;
+    setStatus(QStringLiteral("Finding something related…"));
+    request(QStringLiteral("related"), {{QStringLiteral("provider"), seed.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                         {QStringLiteral("trackId"), seed.value(QStringLiteral("id")).toString()},
+                                         {QStringLiteral("limit"), 12}}, [this](const QJsonObject &message) {
+        m_relatedPending = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            setStatus(message.value(QStringLiteral("error")).toString());
+            stop();
+            return;
+        }
+        QSet<QString> queuedIds;
+        for (const auto &value : m_queue) queuedIds.insert(value.toMap().value(QStringLiteral("id")).toString());
+        int added = 0;
+        for (const auto &value : message.value(QStringLiteral("data")).toObject().value(QStringLiteral("tracks")).toArray()) {
+            const auto track = jsonTrackToVariant(value.toObject());
+            const auto id = track.value(QStringLiteral("id")).toString();
+            if (id.isEmpty() || queuedIds.contains(id)) continue;
+            dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
+                          {QStringLiteral("track"), variantTrackToCore(track)}});
+            queuedIds.insert(id);
+            if (++added >= 10) break;
+        }
+        if (canGoNext()) {
+            setStatus(QStringLiteral("Autoplay added %1 related tracks").arg(added));
+            next();
+        } else {
+            setStatus(QStringLiteral("No new related tracks were available"));
+            stop();
+        }
+    });
 }
 
 void Backend::previous()
 {
     if (position() > 3000 || m_currentIndex <= 0) seek(0);
-    else playTrackAt(m_currentIndex - 1);
+    else {
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_previous")}});
+        resolveCurrentSource();
+    }
 }
 
 void Backend::seek(qint64 positionMs)
 {
     const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, duration()));
     resetPositionClock(target, playing());
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("seek_to")},
+                  {QStringLiteral("position_ms"), target}});
     m_player.setPosition(target);
     emit positionChanged();
     emit seeked(target);
@@ -521,6 +763,13 @@ void Backend::resetPositionClock(qint64 positionMs, bool running)
 void Backend::setVolume(double volume)
 {
     m_audioOutput.setVolume(std::clamp(volume, 0.0, 1.0));
+}
+
+void Backend::setAutoplayEnabled(bool enabled)
+{
+    if (m_autoplayEnabled == enabled) return;
+    m_autoplayEnabled = enabled;
+    emit autoplayEnabledChanged();
 }
 
 void Backend::updateDiscordPresence()
@@ -649,6 +898,7 @@ QVariantMap Backend::jsonTrackToVariant(const QJsonObject &track)
     QStringList artists;
     for (const auto &artist : track.value(QStringLiteral("artists")).toArray()) artists.append(artist.toString());
     return {
+        {QStringLiteral("provider"), QStringLiteral("tidal")},
         {QStringLiteral("id"), track.value(QStringLiteral("id")).toString()},
         {QStringLiteral("title"), track.value(QStringLiteral("title")).toString()},
         {QStringLiteral("version"), track.value(QStringLiteral("version")).toString()},

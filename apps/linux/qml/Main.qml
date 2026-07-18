@@ -18,6 +18,7 @@ ApplicationWindow {
     readonly property var now: colorful.currentTrack
     property bool queueOpen: false
     property string submittedQuery: ""
+    property string currentSection: "search"
 
     function formatTime(milliseconds) {
         if (!milliseconds || milliseconds < 0) return "0:00"
@@ -29,6 +30,7 @@ ApplicationWindow {
         const query = searchField.text.trim()
         if (!query || colorful.busy || !colorful.providerReady) return
         submittedQuery = query
+        currentSection = "search"
         colorful.search(query)
     }
 
@@ -178,8 +180,9 @@ ApplicationWindow {
                         IconButton {
                             anchors.fill: parent
                             iconSource: "icons/home.svg"
-                            selected: true
+                            selected: window.currentSection === "search"
                             tooltipText: "Search"
+                            onClicked: window.currentSection = "search"
                         }
                         Rectangle {
                             anchors.left: parent.left
@@ -187,14 +190,16 @@ ApplicationWindow {
                             width: 3
                             height: 26
                             color: colorful.accent
+                            visible: window.currentSection === "search"
                         }
                     }
 
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/library.svg"
-                        enabled: false
-                        tooltipText: "Library is coming next"
+                        selected: window.currentSection === "library"
+                        tooltipText: "Library"
+                        onClicked: window.currentSection = "library"
                     }
 
                     IconButton {
@@ -308,14 +313,16 @@ ApplicationWindow {
                             spacing: 10
 
                             Text {
-                                text: window.submittedQuery.length > 0 ? "Search results" : "Search"
+                                text: window.currentSection === "library"
+                                      ? "Your library"
+                                      : window.submittedQuery.length > 0 ? "Search results" : "Search"
                                 color: window.ink
                                 font.weight: Font.Bold
                                 font.pixelSize: 24
                             }
                             Text {
-                                visible: colorful.searchResults.length > 0
-                                text: colorful.searchResults.length
+                                visible: (window.currentSection === "library" ? colorful.library.length : colorful.searchResults.length) > 0
+                                text: window.currentSection === "library" ? colorful.library.length : colorful.searchResults.length
                                 color: window.mutedInk
                                 font.pixelSize: 11
                             }
@@ -326,7 +333,7 @@ ApplicationWindow {
                             id: resultsList
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            model: colorful.searchResults
+                            model: window.currentSection === "library" ? colorful.library : colorful.searchResults
                             spacing: 0
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
@@ -336,8 +343,14 @@ ApplicationWindow {
                                 required property int index
                                 required property var modelData
                                 track: modelData
-                                onPlayRequested: colorful.playSearchResult(index)
+                                libraryMode: window.currentSection === "library"
+                                showSaveAction: window.currentSection === "search"
+                                onPlayRequested: window.currentSection === "library"
+                                                 ? colorful.playLibraryIndex(index)
+                                                 : colorful.playSearchResult(index)
                                 onAddRequested: colorful.enqueueSearchResult(index)
+                                onRemoveRequested: colorful.removeLibraryIndex(index)
+                                onSaveRequested: colorful.addSearchResultToLibrary(index)
                             }
 
                             Column {
@@ -350,13 +363,16 @@ ApplicationWindow {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     width: 28
                                     height: 28
-                                    iconSource: window.submittedQuery.length > 0 ? "icons/search.svg" : "icons/music.svg"
+                                    iconSource: window.currentSection === "library" ? "icons/library.svg"
+                                                : window.submittedQuery.length > 0 ? "icons/search.svg" : "icons/music.svg"
                                     opacity: 0.3
                                 }
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     width: parent.width
-                                    text: window.submittedQuery.length > 0
+                                    text: window.currentSection === "library"
+                                          ? "Tracks you save will live here on this device"
+                                          : window.submittedQuery.length > 0
                                           ? "No tracks found for “" + window.submittedQuery + "”"
                                           : colorful.linked
                                             ? "Search TIDAL to start listening"
@@ -401,6 +417,13 @@ ApplicationWindow {
                                     text: colorful.queue.length
                                     color: window.mutedInk
                                     font.pixelSize: 11
+                                }
+                                ColorButton {
+                                    text: colorful.autoplayEnabled ? "Autoplay on" : "Autoplay off"
+                                    quiet: true
+                                    implicitWidth: 94
+                                    implicitHeight: 30
+                                    onClicked: colorful.autoplayEnabled = !colorful.autoplayEnabled
                                 }
                                 Item { Layout.fillWidth: true }
                                 IconButton {

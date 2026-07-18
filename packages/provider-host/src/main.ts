@@ -91,8 +91,20 @@ async function handle(request: RequestMessage): Promise<void> {
       send({ id: request.id, ok: true, data: { tracks } });
       return;
     }
+    case "related": {
+      const provider = String(request.payload?.provider ?? "tidal");
+      if (provider !== "tidal") throw new Error(`Related tracks are not implemented for ${provider}`);
+      const trackId = String(request.payload?.trackId ?? "").trim();
+      if (!trackId) throw new Error("Track ID is empty");
+      const requestedLimit = Number(request.payload?.limit ?? 20);
+      const limit = Number.isFinite(requestedLimit) ? requestedLimit : 20;
+      send({ id: request.id, ok: true, data: { tracks: await browse.relatedTracks(trackId, limit) } });
+      return;
+    }
     case "source": {
       if (!session) throw new Error("Connect your TIDAL account before playing music");
+      const provider = String(request.payload?.provider ?? "tidal");
+      if (provider !== "tidal") throw new Error(`Playback is not implemented for ${provider}`);
       const trackId = String(request.payload?.trackId ?? "").trim();
       if (!trackId) throw new Error("Track ID is empty");
       send({ id: request.id, ok: true, data: await session.sourceFor(trackId) });

@@ -41,6 +41,11 @@ actual network and filesystem work, while `save_download` persists the portable
 job state and emits `download_changed`; engine snapshots include all jobs needed
 to restore an interrupted transfer after process death.
 
+Snapshots also expose `queueTracks`, aligned with the visible `queue.entries`
+array. Stable entry IDs remain the control identity, while the hydrated tracks
+let native shells restore artwork and metadata without maintaining a second
+queue database.
+
 The ABI registry serializes access to each SQLite-backed engine, catches Rust
 panics before they cross the C boundary, validates UTF-8/JSON, and reports stale
 handles as errors. `colorful_core_abi_version()` lets a shell reject an

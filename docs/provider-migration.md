@@ -80,4 +80,8 @@ not depend on the Activity staying alive.
 
 The Linux shell still uses the TypeScript provider host for network requests,
 authorization, subscription checks, and playback manifest retrieval while
-those pieces are migrated behind shared provider contracts and fixtures.
+those pieces are migrated behind shared provider contracts and fixtures. Its
+queue, current selection, and saved library now live in the same Rust/SQLite
+engine used by Android instead of transient Qt models. TIDAL similar tracks are
+available through the provider-neutral related-tracks contract and feed the
+desktop autoplay tail without displacing manually queued tracks.

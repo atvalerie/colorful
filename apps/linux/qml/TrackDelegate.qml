@@ -7,9 +7,12 @@ ItemDelegate {
     required property var track
     property bool active: false
     property bool queueMode: false
+    property bool libraryMode: false
+    property bool showSaveAction: false
     signal playRequested()
     signal addRequested()
     signal removeRequested()
+    signal saveRequested()
 
     width: ListView.view ? ListView.view.width : 500
     height: 54
@@ -81,9 +84,19 @@ ItemDelegate {
         IconButton {
             implicitWidth: 36
             implicitHeight: 36
-            iconSource: root.queueMode ? "icons/close.svg" : "icons/add.svg"
-            tooltipText: root.queueMode ? "Remove from queue" : "Add to queue"
-            onClicked: root.queueMode ? root.removeRequested() : root.addRequested()
+            iconSource: root.queueMode || root.libraryMode ? "icons/close.svg" : "icons/add.svg"
+            tooltipText: root.queueMode ? "Remove from queue"
+                         : root.libraryMode ? "Remove from library" : "Add to queue"
+            onClicked: root.queueMode || root.libraryMode ? root.removeRequested() : root.addRequested()
+        }
+
+        IconButton {
+            visible: root.showSaveAction
+            implicitWidth: visible ? 36 : 0
+            implicitHeight: 36
+            iconSource: "icons/library.svg"
+            tooltipText: "Save to library"
+            onClicked: root.saveRequested()
         }
     }
 

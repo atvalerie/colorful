@@ -16,6 +16,16 @@ export type SearchResult = {
   page?: CatalogPage;
 };
 
+export type RelatedOptions = {
+  countryCode?: string;
+  explicit?: boolean;
+  limit?: number;
+};
+
+export type RelatedResult = {
+  tracks: Track[];
+};
+
 export type StreamQuality = "low" | "high" | "lossless" | "hires";
 
 export type SourcePlan = {
@@ -32,7 +42,7 @@ export interface ProviderAdapter {
   readonly provider: ProviderName;
   search(query: string, options?: SearchOptions): Promise<SearchResult>;
   getTrack(ref: MediaRef): Promise<Track>;
+  getRelatedTracks?(ref: MediaRef, options?: RelatedOptions): Promise<RelatedResult>;
   getStreamSource(ref: MediaRef, quality: StreamQuality): Promise<SourcePlan>;
   getDownloadSource?(ref: MediaRef, quality: StreamQuality): Promise<SourcePlan>;
 }
-

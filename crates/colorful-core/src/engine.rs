@@ -139,6 +139,21 @@ impl Engine {
         Ok(self.storage.library()?)
     }
 
+    /// Hydrates the visible queue order for native shells. Queue snapshots use
+    /// stable entry IDs and media IDs; shells also need the persisted metadata
+    /// to render a queue after a process restart.
+    pub fn queue_tracks(&self) -> EngineResult<Vec<Track>> {
+        self.queue
+            .entries()
+            .iter()
+            .map(|entry| {
+                self.storage
+                    .track(&entry.media_id)?
+                    .ok_or_else(|| EngineError::MissingTrack(entry.media_id.clone()))
+            })
+            .collect()
+    }
+
     pub fn setting(&self, key: &str) -> EngineResult<Option<String>> {
         Ok(self.storage.setting(key)?)
     }
@@ -422,6 +437,15 @@ mod tests {
         )));
         assert_eq!(engine.playback.current.as_ref().unwrap().provider_id, "a");
         assert!(engine.playback.playing);
+        assert_eq!(
+            engine
+                .queue_tracks()
+                .unwrap()
+                .into_iter()
+                .map(|track| track.id.provider_id)
+                .collect::<Vec<_>>(),
+            vec!["a".to_owned(), "b".to_owned()]
+        );
     }
 
     #[test]
