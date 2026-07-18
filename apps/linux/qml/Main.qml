@@ -118,23 +118,6 @@ ApplicationWindow {
 
                     Item { Layout.fillHeight: true }
 
-                    Rectangle {
-                        Layout.alignment: Qt.AlignHCenter
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: colorful.providerReady
-                               ? (colorful.linked ? "#61d99d" : "#e8b85d")
-                               : "#e05c73"
-                        ToolTip.visible: providerStatusArea.containsMouse
-                        ToolTip.text: colorful.statusMessage
-                        MouseArea {
-                            id: providerStatusArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                        }
-                    }
-
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/user.svg"
@@ -382,36 +365,6 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 26
-                    color: Qt.rgba(0.025, 0.025, 0.03, 0.92)
-                    border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.06)
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 7
-
-                        Rectangle {
-                            width: 7
-                            height: 7
-                            radius: 4
-                            color: colorful.providerReady
-                                   ? (colorful.linked ? "#61d99d" : "#e8b85d")
-                                   : "#e05c73"
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: colorful.statusMessage
-                            color: Qt.rgba(1, 1, 1, 0.42)
-                            elide: Text.ElideRight
-                            font.pixelSize: 10
-                        }
-                    }
-                }
             }
         }
 
