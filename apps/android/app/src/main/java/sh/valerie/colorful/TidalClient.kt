@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Base64
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.UnknownHostException
 import java.net.URL
 import java.net.URLEncoder
 
@@ -121,6 +122,28 @@ class TidalClient {
         method: String,
         authorization: String? = null,
         form: Map<String, String>? = null,
+    ): HttpResponse {
+        repeat(3) { attempt ->
+            try {
+                return requestOnce(url, method, authorization, form)
+            } catch (error: UnknownHostException) {
+                if (attempt == 2) {
+                    throw IllegalStateException(
+                        "Android cannot resolve ${URL(url).host}; check the active network or Private DNS",
+                        error,
+                    )
+                }
+                Thread.sleep(500L * (attempt + 1))
+            }
+        }
+        error("unreachable")
+    }
+
+    private fun requestOnce(
+        url: String,
+        method: String,
+        authorization: String?,
+        form: Map<String, String>?,
     ): HttpResponse {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
