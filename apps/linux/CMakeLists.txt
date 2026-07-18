@@ -39,7 +39,9 @@ qt_add_qml_module(colorful-linux
         qml/icons/minimize.svg
         qml/icons/music.svg
         qml/icons/next.svg
+        qml/icons/pause-dark.svg
         qml/icons/pause.svg
+        qml/icons/play-dark.svg
         qml/icons/play.svg
         qml/icons/previous.svg
         qml/icons/queue.svg

@@ -545,7 +545,7 @@ ApplicationWindow {
                         IconButton {
                             implicitWidth: 42
                             implicitHeight: 42
-                            iconSource: colorful.playing ? "icons/pause.svg" : "icons/play.svg"
+                            iconSource: colorful.playing ? "icons/pause-dark.svg" : "icons/play-dark.svg"
                             tooltipText: colorful.playing ? "Pause" : "Play"
                             strong: true
                             enabled: Object.keys(window.now).length > 0
