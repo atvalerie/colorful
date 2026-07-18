@@ -67,7 +67,7 @@ ApplicationWindow {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 36
+            Layout.preferredHeight: 28
             color: window.active ? "#17171b" : "#131316"
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, window.active ? 0.09 : 0.055)
@@ -87,7 +87,7 @@ ApplicationWindow {
                         text: window.title
                         color: Qt.rgba(1, 1, 1, window.active ? 0.68 : 0.38)
                         font.weight: Font.DemiBold
-                        font.pixelSize: 11
+                        font.pixelSize: 10
                     }
 
                     DragHandler {
