@@ -1,0 +1,24 @@
+/target/
+/node_modules/
+/.idea/
+/.vscode/
+*.iml
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Local music, artwork, credentials, databases, and download state.
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.flac
+*.m4a
+*.mp3
+*.opus
+*.ogg
+
