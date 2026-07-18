@@ -8,7 +8,7 @@ type Screen = "discover" | "album" | "player";
 const screenLabels: Record<Screen, string> = {
   discover: "Discover",
   album: "Album",
-  player: "Full player",
+  player: "Player",
 };
 
 function Cover({ palette, size = "regular" }: { palette: Palette; size?: "small" | "regular" | "hero" }) {
@@ -35,18 +35,22 @@ function ToolIcon({ name }: { name: IconName }) {
 function TrackRow({
   track,
   active,
+  number,
   onPlay,
   onQueue,
 }: {
   track: Track;
   active: boolean;
+  number?: number;
   onPlay: () => void;
   onQueue: () => void;
 }) {
   return (
     <div className={`track-row ${active ? "is-active" : ""}`}>
       <button className="track-row__main" onClick={onPlay}>
-        <Cover palette={palettes[track.palette]!} size="small" />
+        {number === undefined
+          ? <Cover palette={palettes[track.palette]!} size="small" />
+          : <span className="track-row__number">{active ? <ToolIcon name="pause" /> : number}</span>}
         <span className="track-row__copy">
           <strong>{track.title}</strong>
           <span>{track.artist} · {track.album}</span>
@@ -61,20 +65,25 @@ function TrackRow({
 function PlayerDock({
   current,
   playing,
+  queueCount,
   onToggle,
   onExpand,
 }: {
   current: Track;
   playing: boolean;
+  queueCount: number;
   onToggle: () => void;
   onExpand: () => void;
 }) {
   return (
     <div className="player-dock">
-      <button className="player-dock__track" onClick={onExpand}>
-        <Cover palette={palettes[current.palette]!} size="small" />
-        <span><strong>{current.title}</strong><small>{current.artist}</small></span>
-      </button>
+      <div className="player-dock__identity">
+        <button className="player-dock__track" onClick={onExpand}>
+          <Cover palette={palettes[current.palette]!} size="small" />
+          <span><strong>{current.title}</strong><small>{current.artist}</small></span>
+        </button>
+        <button className="transport-button player-dock__like" aria-label="Save track"><ToolIcon name="heart" /></button>
+      </div>
       <div className="player-dock__center">
         <div className="player-dock__controls">
           <button className="transport-button" aria-label="Shuffle"><ToolIcon name="shuffle" /></button>
@@ -90,7 +99,8 @@ function PlayerDock({
       <div className="player-dock__utilities">
         <button className="transport-button" aria-label="Volume"><ToolIcon name="volume" /></button>
         <i className="volume"><b style={{ width: "72%" }} /></i>
-        <button className="transport-button" aria-label="Queue"><ToolIcon name="queue" /></button>
+        <button className="transport-button" aria-label="Available devices"><ToolIcon name="device" /></button>
+        <button className="transport-button queue-button" aria-label={`Queue, ${queueCount} tracks`}><ToolIcon name="queue" />{queueCount > 0 && <span>{queueCount}</span>}</button>
       </div>
     </div>
   );
@@ -109,22 +119,25 @@ function Navigation({ screen, onScreen }: { screen: Screen; onScreen: (screen: S
   );
 }
 
-function Discover({ current, onPlay, onQueue }: { current: Track; onPlay: (track: Track) => void; onQueue: (track: Track) => void }) {
+function Discover({ current, onOpenAlbum, onPlay, onQueue }: { current: Track; onOpenAlbum: (track: Track) => void; onPlay: (track: Track) => void; onQueue: (track: Track) => void }) {
   return (
     <main className="screen discover-screen">
       <header className="topbar">
+        <div className="history-controls">
+          <button className="round-button" aria-label="Go back"><ToolIcon name="back" /></button>
+          <button className="round-button" aria-label="Go forward"><ToolIcon name="forward" /></button>
+        </div>
         <label className="search"><ToolIcon name="search" /><input placeholder="Search music, artists, albums" /></label>
         <button className="round-button"><ToolIcon name="more" /></button>
       </header>
       <section className="welcome">
-        <span className="eyebrow">GOOD EVENING, VALERIE</span>
-        <h1>Pick a color.<br />Find a feeling.</h1>
+        <h1>Good evening, Valerie</h1>
       </section>
       <section className="section-block">
-        <div className="section-heading"><div><span className="eyebrow">MADE FOR RIGHT NOW</span><h2>Recently glowing</h2></div><button>See all</button></div>
+        <div className="section-heading"><div><h2>Recently played</h2></div><button>See all</button></div>
         <div className="album-strip">
           {palettes.map((palette, index) => (
-            <button className="album-card" key={palette.name} onClick={() => onPlay(tracks[index] ?? tracks[0]!)}>
+            <button className="album-card" key={palette.name} onClick={() => onOpenAlbum(tracks[index] ?? tracks[0]!)}>
               <Cover palette={palette} />
               <strong>{tracks[index]?.album ?? palette.name}</strong>
               <span>{tracks[index]?.artist ?? "Colorful mix"}</span>
@@ -133,7 +146,7 @@ function Discover({ current, onPlay, onQueue }: { current: Track; onPlay: (track
         </div>
       </section>
       <section className="section-block tracks-block">
-        <div className="section-heading"><div><span className="eyebrow">BACK IN ROTATION</span><h2>Keep listening</h2></div></div>
+        <div className="section-heading"><div><h2>Keep listening</h2></div></div>
         <div className="track-list">
           {tracks.slice(0, 4).map((track) => <TrackRow key={track.id} track={track} active={track.id === current.id} onPlay={() => onPlay(track)} onQueue={() => onQueue(track)} />)}
         </div>
@@ -142,33 +155,32 @@ function Discover({ current, onPlay, onQueue }: { current: Track; onPlay: (track
   );
 }
 
-function AlbumScreen({ current, onPlay, onQueue }: { current: Track; onPlay: (track: Track) => void; onQueue: (track: Track) => void }) {
+function AlbumScreen({ current, onBack, onPlay, onQueue }: { current: Track; onBack: () => void; onPlay: (track: Track) => void; onQueue: (track: Track) => void }) {
   const palette = palettes[current.palette]!;
   return (
     <main className="screen album-screen">
-      <header className="topbar"><button className="round-button"><ToolIcon name="back" /></button><span /><button className="round-button"><ToolIcon name="more" /></button></header>
+      <header className="topbar"><button className="round-button" onClick={onBack}><ToolIcon name="back" /></button><span /><button className="round-button"><ToolIcon name="more" /></button></header>
       <section className="album-hero">
         <Cover palette={palette} size="hero" />
         <div className="album-hero__copy"><span className="eyebrow">ALBUM · 2026</span><h1>{current.album}</h1><p>{current.artist}</p><div><button className="primary-action" onClick={() => onPlay(current)}><ToolIcon name="play" /> Play</button><button className="round-button"><ToolIcon name="add" /></button></div></div>
       </section>
       <section className="album-tracks">
         {tracks.filter((track) => track.palette === current.palette).concat(tracks.slice(0, 3)).map((track, index) => (
-          <TrackRow key={`${track.id}-${index}`} track={track} active={track.id === current.id} onPlay={() => onPlay(track)} onQueue={() => onQueue(track)} />
+          <TrackRow key={`${track.id}-${index}`} track={track} number={index + 1} active={track.id === current.id} onPlay={() => onPlay(track)} onQueue={() => onQueue(track)} />
         ))}
       </section>
     </main>
   );
 }
 
-function FullPlayer({ current, playing, queue, onToggle }: { current: Track; playing: boolean; queue: Track[]; onToggle: () => void }) {
+function FullPlayer({ current, playing, onCollapse, onToggle }: { current: Track; playing: boolean; onCollapse: () => void; onToggle: () => void }) {
   const palette = palettes[current.palette]!;
   return (
     <main className="screen full-player">
-      <header className="topbar"><button className="round-button"><ToolIcon name="collapse" /></button><span className="eyebrow">NOW PLAYING</span><button className="round-button"><ToolIcon name="more" /></button></header>
+      <header className="topbar"><button className="round-button" onClick={onCollapse}><ToolIcon name="collapse" /></button><span /><button className="round-button"><ToolIcon name="more" /></button></header>
       <section className="full-player__body">
         <Cover palette={palette} size="hero" />
-        <div className="full-player__info"><span className="eyebrow">FROM {current.album.toUpperCase()}</span><h1>{current.title}</h1><p>{current.artist}</p><div className="big-controls"><button><ToolIcon name="shuffle" /></button><button><ToolIcon name="previous" /></button><button className="play-button play-button--large" onClick={onToggle}><ToolIcon name={playing ? "pause" : "play"} /></button><button><ToolIcon name="next" /></button><button><ToolIcon name="repeat" /></button></div><div className="big-timeline"><i><b style={{ width: "38%" }} /></i><span>1:17</span><span>{current.duration}</span></div></div>
-        <aside className="up-next"><span className="eyebrow">UP NEXT</span><h2>{queue[0]?.title ?? tracks[1]!.title}</h2><p>{queue[0]?.artist ?? tracks[1]!.artist}</p></aside>
+        <div className="full-player__info"><h1>{current.title}</h1><p>{current.artist} · {current.album}</p><div className="big-controls"><button><ToolIcon name="shuffle" /></button><button><ToolIcon name="previous" /></button><button className="play-button play-button--large" onClick={onToggle}><ToolIcon name={playing ? "pause" : "play"} /></button><button><ToolIcon name="next" /></button><button><ToolIcon name="repeat" /></button></div><div className="big-timeline"><i><b style={{ width: "38%" }} /></i><span>1:17</span><span>{current.duration}</span></div><div className="player-secondary"><button><ToolIcon name="heart" /> Save</button><button><ToolIcon name="queue" /> Queue</button><button><ToolIcon name="device" /> This device</button></div></div>
       </section>
     </main>
   );
@@ -183,16 +195,16 @@ function Prototype({ viewport, screen, paletteIndex, onScreen }: { viewport: Vie
 
   const queueTrack = (track: Track) => setQueue((value) => value.some((item) => item.id === track.id) ? value : [...value, track]);
   const playTrack = (track: Track) => { setCurrent(track); setPlaying(true); };
+  const openAlbum = (track: Track) => { setCurrent(track); onScreen("album"); };
 
   return (
     <div className={`prototype is-${viewport}`} style={{ "--accent": palette.primary, "--accent-2": palette.secondary, "--deep": palette.deep, "--glow": palette.glow } as React.CSSProperties}>
       <div className="prototype__wash" />
       <Navigation screen={screen} onScreen={onScreen} />
-      {screen === "discover" && <Discover current={current} onPlay={playTrack} onQueue={queueTrack} />}
-      {screen === "album" && <AlbumScreen current={current} onPlay={playTrack} onQueue={queueTrack} />}
-      {screen === "player" && <FullPlayer current={current} playing={playing} queue={queue} onToggle={() => setPlaying((value) => !value)} />}
-      {screen !== "player" && <PlayerDock current={current} playing={playing} onToggle={() => setPlaying((value) => !value)} onExpand={() => onScreen("player")} />}
-      {queue.length > 0 && <div className="queue-toast">{queue.length} queued</div>}
+      {screen === "discover" && <Discover current={current} onOpenAlbum={openAlbum} onPlay={playTrack} onQueue={queueTrack} />}
+      {screen === "album" && <AlbumScreen current={current} onBack={() => onScreen("discover")} onPlay={playTrack} onQueue={queueTrack} />}
+      {screen === "player" && <FullPlayer current={current} playing={playing} onCollapse={() => onScreen("discover")} onToggle={() => setPlaying((value) => !value)} />}
+      {screen !== "player" && <PlayerDock current={current} playing={playing} queueCount={queue.length} onToggle={() => setPlaying((value) => !value)} onExpand={() => onScreen("player")} />}
     </div>
   );
 }

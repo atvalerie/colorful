@@ -1,17 +1,19 @@
 import type { SVGProps } from "react";
 
 export type IconName =
-  | "add" | "back" | "collapse" | "discover" | "download" | "forward"
-  | "library" | "more" | "next" | "pause" | "play" | "previous"
+  | "add" | "back" | "collapse" | "device" | "discover" | "download" | "forward"
+  | "heart" | "library" | "more" | "next" | "pause" | "play" | "previous"
   | "queue" | "repeat" | "search" | "shuffle" | "volume";
 
 const paths: Record<Exclude<IconName, "pause" | "play">, string> = {
   add: "M12 5v14M5 12h14",
   back: "m15 18-6-6 6-6",
   collapse: "m6 9 6 6 6-6",
-  discover: "M3 11.5 12 4l9 7.5V20H7v-8h10v8M10 20v-5h4v5",
+  device: "M4 5h16v11H4V5Zm5 16h6M12 16v5",
+  discover: "M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3V10.5Z",
   download: "M12 3v12m-5-5 5 5 5-5M5 21h14",
   forward: "m9 18 6-6-6-6",
+  heart: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z",
   library: "M4 5v14M9 5v14M14 7v12m5-14v14",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   next: "m9 18 6-6-6-6M18 6v12",
