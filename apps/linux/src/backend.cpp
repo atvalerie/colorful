@@ -111,8 +111,15 @@ Backend::Backend(QObject *parent)
         setStatus(QStringLiteral("TIDAL provider stopped (exit %1)").arg(exitCode));
     });
 
-    connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this] { emit playbackChanged(); });
-    connect(this, &Backend::currentTrackChanged, this, &Backend::durationChanged);
+    connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this] {
+        emit playbackChanged();
+        updateDiscordPresence();
+    });
+    connect(this, &Backend::currentTrackChanged, this, [this] {
+        emit durationChanged();
+        updateDiscordPresence();
+    });
+    connect(this, &Backend::seeked, this, [this] { updateDiscordPresence(); });
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 value) {
         Q_UNUSED(value)
         emit positionChanged();
@@ -412,6 +419,7 @@ void Backend::removeQueueIndex(int index)
 void Backend::playTrackAt(int index)
 {
     if (index < 0 || index >= m_queue.size()) return;
+    m_player.stop();
     m_currentIndex = index;
     emit currentTrackChanged();
     emit queueChanged();
@@ -481,6 +489,23 @@ void Backend::seekBy(qint64 offsetMs) { seek(m_player.position() + offsetMs); }
 void Backend::setVolume(double volume)
 {
     m_audioOutput.setVolume(std::clamp(volume, 0.0, 1.0));
+}
+
+void Backend::updateDiscordPresence()
+{
+    const auto track = currentTrack();
+    if (track.isEmpty() || m_player.playbackState() == QMediaPlayer::StoppedState) {
+        m_discordPresence.clear();
+        return;
+    }
+    m_discordPresence.update(
+        track.value(QStringLiteral("title")).toString(),
+        track.value(QStringLiteral("artistText")).toString(),
+        track.value(QStringLiteral("albumTitle")).toString(),
+        track.value(QStringLiteral("coverUrl")).toString(),
+        m_player.position(),
+        duration(),
+        playing());
 }
 
 void Backend::loadAccent(const QString &artworkUrl)

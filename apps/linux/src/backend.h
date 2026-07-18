@@ -1,5 +1,7 @@
 #pragma once
 
+#include "discordpresence.h"
+
 #include <QAudioOutput>
 #include <QColor>
 #include <QHash>
@@ -118,6 +120,7 @@ private:
     void playTrackAt(int index);
     void resolveCurrentSource();
     void loadAccent(const QString &artworkUrl);
+    void updateDiscordPresence();
     QColor paletteColor(const QImage &image) const;
     static QVariantMap jsonTrackToVariant(const QJsonObject &track);
 
@@ -128,6 +131,7 @@ private:
 
     QMediaPlayer m_player;
     QAudioOutput m_audioOutput;
+    DiscordPresence m_discordPresence;
     QNetworkAccessManager m_network;
     QVariantAnimation m_accentAnimation;
     QVariantList m_searchResults;

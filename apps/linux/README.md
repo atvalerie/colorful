@@ -14,6 +14,10 @@ The launcher builds the app when necessary and loads the existing TIDAL client
 configuration from `../mocha/.env`. It does not copy or print those credentials.
 You can instead provide the same `TIDAL_*` variables in your environment.
 
+When a Discord-compatible desktop client is running, Colorful publishes the
+current track through local Rich Presence IPC. Set
+`COLORFUL_DISABLE_DISCORD_RPC=1` before launching to disable it.
+
 ## Test flow
 
 1. Click **Connect**, then **Open TIDAL to approve**.
@@ -34,4 +38,3 @@ qdbus6 org.mpris.MediaPlayer2.colorful /org/mpris/MediaPlayer2 \
 
 If playback fails, the bottom status line reports the Qt Multimedia error. Run
 with `QT_LOGGING_RULES="qt.multimedia.*=true"` for backend details.
-

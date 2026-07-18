@@ -14,6 +14,8 @@ qt_add_executable(colorful-linux
     src/main.cpp
     src/backend.cpp
     src/backend.h
+    src/discordpresence.cpp
+    src/discordpresence.h
     src/mpris.cpp
     src/mpris.h
 )
