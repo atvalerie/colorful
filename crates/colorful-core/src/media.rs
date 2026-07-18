@@ -19,6 +19,18 @@ impl fmt::Display for Provider {
     }
 }
 
+impl Provider {
+    pub fn from_wire_name(value: &str) -> Option<Self> {
+        match value {
+            "tidal" => Some(Self::Tidal),
+            "soundcloud" => Some(Self::SoundCloud),
+            "youtube" => Some(Self::YouTube),
+            "local" => Some(Self::Local),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MediaId {
     pub provider: Provider,
@@ -75,5 +87,10 @@ mod tests {
     #[test]
     fn provider_names_are_stable_wire_values() {
         assert_eq!(Provider::SoundCloud.to_string(), "soundcloud");
+        assert_eq!(
+            Provider::from_wire_name("soundcloud"),
+            Some(Provider::SoundCloud)
+        );
+        assert_eq!(Provider::from_wire_name("unknown"), None);
     }
 }

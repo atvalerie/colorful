@@ -2,12 +2,18 @@
 //!
 //! Platform audio, secure storage, and UI deliberately live outside this crate.
 
+pub mod engine;
 pub mod media;
 pub mod party;
 pub mod playback;
 pub mod queue;
+pub mod storage;
 
+pub use engine::{
+    Engine, EngineCommand, EngineError, EngineEvent, EngineResult, PlaybackDirective,
+};
 pub use media::{MediaId, Provider, Track};
 pub use party::{ConnectivityPolicy, NetworkObservation, Transport};
 pub use playback::{PlaybackCommand, PlaybackState, RepeatMode};
-pub use queue::{PlaybackQueue, QueueEntry, QueueEntryId};
+pub use queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
+pub use storage::{Storage, StorageError, StorageResult, StoredPlayback};

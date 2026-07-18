@@ -13,12 +13,35 @@ impl QueueEntryId {
     pub fn get(self) -> u64 {
         self.0
     }
+
+    pub fn from_raw(value: u64) -> Option<Self> {
+        (value > 0).then_some(Self(value))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueueEntry {
     pub id: QueueEntryId,
     pub media_id: MediaId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueueSnapshot {
+    pub entries: Vec<QueueEntry>,
+    pub play_order: Vec<QueueEntryId>,
+    pub current: Option<QueueEntryId>,
+    pub shuffle: bool,
+    pub shuffle_seed: u64,
+    pub next_entry_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QueueSnapshotError {
+    InvalidEntryId,
+    DuplicateEntryId,
+    InvalidPlayOrder,
+    MissingCurrentEntry,
+    InvalidNextEntryId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -73,6 +96,65 @@ impl PlaybackQueue {
 
     pub fn shuffle_enabled(&self) -> bool {
         self.shuffle
+    }
+
+    pub fn snapshot(&self) -> QueueSnapshot {
+        QueueSnapshot {
+            entries: self.entries.clone(),
+            play_order: self.play_order.clone(),
+            current: self.current,
+            shuffle: self.shuffle,
+            shuffle_seed: self.shuffle_seed,
+            next_entry_id: self.next_entry_id,
+        }
+    }
+
+    pub fn from_snapshot(snapshot: QueueSnapshot) -> Result<Self, QueueSnapshotError> {
+        use std::collections::HashSet;
+
+        let entry_ids: HashSet<_> = snapshot.entries.iter().map(|entry| entry.id).collect();
+        if snapshot.entries.iter().any(|entry| entry.id.get() == 0) {
+            return Err(QueueSnapshotError::InvalidEntryId);
+        }
+        if entry_ids.len() != snapshot.entries.len() {
+            return Err(QueueSnapshotError::DuplicateEntryId);
+        }
+        let play_ids: HashSet<_> = snapshot.play_order.iter().copied().collect();
+        if play_ids.len() != snapshot.play_order.len()
+            || play_ids != entry_ids
+            || (!snapshot.shuffle
+                && snapshot.play_order
+                    != snapshot
+                        .entries
+                        .iter()
+                        .map(|entry| entry.id)
+                        .collect::<Vec<_>>())
+        {
+            return Err(QueueSnapshotError::InvalidPlayOrder);
+        }
+        if snapshot
+            .current
+            .is_some_and(|current| !entry_ids.contains(&current))
+        {
+            return Err(QueueSnapshotError::MissingCurrentEntry);
+        }
+        let maximum_id = snapshot
+            .entries
+            .iter()
+            .map(|entry| entry.id.get())
+            .max()
+            .unwrap_or(0);
+        if snapshot.next_entry_id == 0 || snapshot.next_entry_id <= maximum_id {
+            return Err(QueueSnapshotError::InvalidNextEntryId);
+        }
+        Ok(Self {
+            entries: snapshot.entries,
+            play_order: snapshot.play_order,
+            current: snapshot.current,
+            shuffle: snapshot.shuffle,
+            shuffle_seed: snapshot.shuffle_seed,
+            next_entry_id: snapshot.next_entry_id,
+        })
     }
 
     pub fn replace(&mut self, media: impl IntoIterator<Item = MediaId>) {
@@ -397,6 +479,35 @@ mod tests {
                 .advance(RepeatMode::Off)
                 .map(|entry| entry.media_id.provider_id.as_str()),
             Some("c")
+        );
+    }
+
+    #[test]
+    fn snapshots_round_trip_duplicate_tracks_and_shuffle_order() {
+        let mut queue = PlaybackQueue::new();
+        queue.replace([media("a"), media("a"), media("b")]);
+        queue.set_shuffle(true, 41);
+        queue.advance(RepeatMode::Off);
+        let snapshot = queue.snapshot();
+
+        assert_eq!(
+            PlaybackQueue::from_snapshot(snapshot.clone())
+                .unwrap()
+                .snapshot(),
+            snapshot
+        );
+    }
+
+    #[test]
+    fn rejects_corrupt_snapshot_play_order() {
+        let mut queue = PlaybackQueue::new();
+        queue.replace([media("a"), media("b")]);
+        let mut snapshot = queue.snapshot();
+        snapshot.play_order.pop();
+
+        assert_eq!(
+            PlaybackQueue::from_snapshot(snapshot),
+            Err(QueueSnapshotError::InvalidPlayOrder)
         );
     }
 }

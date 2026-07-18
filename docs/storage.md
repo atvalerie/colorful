@@ -17,6 +17,13 @@ Queue rows distinguish `visible_position` from `play_position`. This keeps manua
 reordering predictable while shuffle is active and allows the portable queue
 state machine to reconstruct the exact sequence after a restart.
 
+`colorful_core::Storage` owns migration and repository behavior. It enables
+foreign keys, WAL mode, normal synchronous durability, and a five-second busy
+timeout on every connection. `colorful_core::Engine` is the platform boundary:
+native shells send typed commands and receive state events plus explicit
+`Load`, `Pause`, `Stop`, and `Seek` playback directives. Playback itself remains
+native and provider credentials never enter this database.
+
 Schema migrations are append-only. A released migration is never edited; a new
 numbered migration advances both `schema_migrations` and `PRAGMA user_version`.
 The app must enable SQLite foreign keys on every connection.

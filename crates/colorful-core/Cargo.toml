@@ -8,3 +8,4 @@ publish = false
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
+rusqlite = { version = "0.40.1", features = ["bundled"] }

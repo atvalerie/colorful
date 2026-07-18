@@ -18,6 +18,8 @@ CREATE TABLE tracks (
     album_title TEXT,
     artwork_url TEXT,
     artwork_local_key TEXT,
+    artwork_width INTEGER CHECK (artwork_width IS NULL OR artwork_width > 0),
+    artwork_height INTEGER CHECK (artwork_height IS NULL OR artwork_height > 0),
     duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
     isrc TEXT,
     explicit INTEGER CHECK (explicit IS NULL OR explicit IN (0, 1)),
