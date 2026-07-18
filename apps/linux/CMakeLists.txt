@@ -55,4 +55,4 @@ target_link_libraries(colorful-linux PRIVATE
 )
 
 install(TARGETS colorful-linux RUNTIME DESTINATION bin)
-install(FILES colorful.desktop DESTINATION share/applications)
+install(FILES applications/colorful.desktop DESTINATION share/applications)

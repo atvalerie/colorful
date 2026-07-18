@@ -126,7 +126,9 @@ void Backend::startProviderHost()
         return;
     }
     const auto sourceRoot = QString::fromUtf8(COLORFUL_SOURCE_DIR);
-    const auto host = sourceRoot + QStringLiteral("/packages/provider-host/src/main.ts");
+    const auto host = qEnvironmentVariable(
+        "COLORFUL_PROVIDER_HOST",
+        sourceRoot + QStringLiteral("/packages/provider-host/src/main.ts"));
     m_provider.setWorkingDirectory(sourceRoot);
     m_provider.setProcessChannelMode(QProcess::SeparateChannels);
     m_provider.start(bun, {host});
@@ -146,6 +148,8 @@ void Backend::startProviderHost()
         } else {
             setStatus(m_linked ? QStringLiteral("TIDAL account restored") : QStringLiteral("Connect TIDAL, then search for something good"));
         }
+        const auto smokeSearch = qEnvironmentVariable("COLORFUL_SMOKE_SEARCH");
+        if (!smokeSearch.isEmpty()) search(smokeSearch);
     });
 }
 

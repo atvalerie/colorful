@@ -16,4 +16,5 @@ if [[ ! -x "$repo_dir/build/linux/colorful-linux" ]]; then
   "$script_dir/build-linux.sh"
 fi
 
+export XDG_DATA_DIRS="$repo_dir/apps/linux:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 exec "$repo_dir/build/linux/colorful-linux" "$@"

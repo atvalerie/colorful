@@ -36,6 +36,8 @@ dbus-run-session -- bash -c '
   }
   trap cleanup EXIT
   QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+    COLORFUL_PROVIDER_HOST="$repo_dir/apps/linux/tests/fake-provider.ts" \
+    COLORFUL_SMOKE_SEARCH="fixture" \
     "$repo_dir/build/linux/colorful-linux" >"$log_file" 2>&1 &
   app_pid=$!
   for _ in {1..40}; do
@@ -51,6 +53,10 @@ dbus-run-session -- bash -c '
     org.freedesktop.DBus.Properties.Get org.mpris.MediaPlayer2.Player PlaybackStatus)"
   [[ "$identity" == "Colorful" ]]
   [[ "$status" == "Stopped" ]]
+  if grep -E "ReferenceError|TypeError|QQmlApplicationEngine failed" "$log_file"; then
+    echo "QML runtime error detected" >&2
+    exit 1
+  fi
 ' _ "$repo_dir"
 
 echo "Colorful Linux checks passed"

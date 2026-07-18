@@ -234,6 +234,7 @@ ApplicationWindow {
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: ScrollBar {}
                     delegate: TrackDelegate {
+                        required property int index
                         required property var modelData
                         track: modelData
                         onPlayRequested: colorful.playSearchResult(index)
@@ -297,6 +298,7 @@ ApplicationWindow {
                         clip: true
                         ScrollBar.vertical: ScrollBar {}
                         delegate: TrackDelegate {
+                            required property int index
                             required property var modelData
                             track: modelData
                             queueMode: true
