@@ -23,6 +23,7 @@ and troubleshooting.
 
 ## Repository map
 
+- `apps/design-lab`: disposable React prototype for collaborative UI iteration
 - `crates/colorful-core`: portable Rust domain and state-machine code
 - `packages/provider-kit`: strict TypeScript provider contracts and migration
   fixtures derived from the existing backend

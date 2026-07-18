@@ -1,6 +1,10 @@
 /target/
 /build/
 node_modules/
+dist/
+*.tsbuildinfo
+/apps/design-lab/vite.config.js
+/apps/design-lab/vite.config.d.ts
 /.idea/
 /.vscode/
 *.iml
