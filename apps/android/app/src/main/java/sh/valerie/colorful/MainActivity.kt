@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
             refreshSnapshot()
         }.onFailure { status = it.message ?: "Core startup failed" }
         connectPlaybackSession()
+        resumePendingTidalLogin()
 
         setContent {
             MaterialTheme {
@@ -197,21 +198,42 @@ class MainActivity : ComponentActivity() {
         loginBusy = true
         providerMessage = "Starting device authorization…"
         providerExecutor.execute {
-            runCatching { tidal.startDeviceAuthorization() }
-                .onSuccess { authorization ->
+            runCatching {
+                tokenStore.savePendingTidalAuthorization(tidal.startDeviceAuthorization())
+            }
+                .onSuccess { pending ->
+                    val authorization = pending.authorization
                     runOnUiThread {
                         if (generation != loginGeneration.get()) return@runOnUiThread
                         deviceAuthorization = authorization
                         providerMessage = "Approve this device in TIDAL; colorful is waiting."
                     }
-                    pollTidalLogin(generation, authorization)
+                    pollTidalLogin(generation, authorization, pending.expiresAtMs)
                 }
                 .onFailure { error -> finishProviderFailure(generation, error) }
         }
     }
 
-    private fun pollTidalLogin(generation: Int, authorization: DeviceAuthorization) {
-        val deadline = System.currentTimeMillis() + authorization.expiresInSeconds * 1000L
+    private fun resumePendingTidalLogin() {
+        if (tidalLinked) {
+            tokenStore.clearPendingTidalAuthorization()
+            return
+        }
+        val pending = tokenStore.pendingTidalAuthorization() ?: return
+        val generation = loginGeneration.incrementAndGet()
+        loginBusy = true
+        deviceAuthorization = pending.authorization
+        providerMessage = "Resuming TIDAL authorization…"
+        providerExecutor.execute {
+            pollTidalLogin(generation, pending.authorization, pending.expiresAtMs)
+        }
+    }
+
+    private fun pollTidalLogin(
+        generation: Int,
+        authorization: DeviceAuthorization,
+        deadline: Long,
+    ) {
         var delayMs = authorization.intervalSeconds * 1000L
         while (generation == loginGeneration.get() && System.currentTimeMillis() < deadline) {
             try {
@@ -221,6 +243,7 @@ class MainActivity : ComponentActivity() {
                         val countryCode = tidal.accountCountryCode(result.token.accessToken)
                         tokenStore.saveTidalRefreshToken(result.token.refreshToken)
                         tokenStore.saveTidalCountryCode(countryCode)
+                        tokenStore.clearPendingTidalAuthorization()
                         runOnUiThread {
                             if (generation != loginGeneration.get()) return@runOnUiThread
                             tidalLinked = true
@@ -247,6 +270,7 @@ class MainActivity : ComponentActivity() {
     private fun unlinkTidal() {
         loginGeneration.incrementAndGet()
         tokenStore.clearTidalRefreshToken()
+        tokenStore.clearPendingTidalAuthorization()
         tidalLinked = false
         tidalCountry = "US"
         loginBusy = false
@@ -285,6 +309,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun finishProviderFailure(generation: Int, error: Throwable) {
+        if (generation != loginGeneration.get()) return
+        tokenStore.clearPendingTidalAuthorization()
         runOnUiThread {
             if (generation != loginGeneration.get()) return@runOnUiThread
             loginBusy = false

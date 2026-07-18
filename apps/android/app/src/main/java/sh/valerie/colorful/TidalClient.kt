@@ -16,6 +16,11 @@ data class DeviceAuthorization(
     val intervalSeconds: Long,
 )
 
+data class PendingDeviceAuthorization(
+    val authorization: DeviceAuthorization,
+    val expiresAtMs: Long,
+)
+
 data class TidalUserToken(val accessToken: String, val refreshToken: String)
 
 sealed interface DevicePollResult {

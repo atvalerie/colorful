@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import org.json.JSONObject
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -40,7 +41,8 @@ class SecureTokenStore(context: Context) {
     }
 
     fun clearTidalRefreshToken() {
-        preferences.edit().remove(TIDAL_TOKEN).remove(TIDAL_IV).remove(TIDAL_COUNTRY).apply()
+        preferences.edit().remove(TIDAL_TOKEN).remove(TIDAL_IV).remove(TIDAL_COUNTRY)
+            .remove(TIDAL_PENDING_AUTH).apply()
     }
 
     fun tidalCountryCode(): String = preferences.getString(TIDAL_COUNTRY, null)
@@ -52,6 +54,53 @@ class SecureTokenStore(context: Context) {
         val normalized = countryCode.trim().uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }
             ?: DEFAULT_COUNTRY
         preferences.edit().putString(TIDAL_COUNTRY, normalized).apply()
+    }
+
+    fun savePendingTidalAuthorization(
+        authorization: DeviceAuthorization,
+    ): PendingDeviceAuthorization {
+        val pending = PendingDeviceAuthorization(
+            authorization,
+            System.currentTimeMillis() + authorization.expiresInSeconds * 1000L,
+        )
+        val value = JSONObject()
+            .put("deviceCode", authorization.deviceCode)
+            .put("userCode", authorization.userCode)
+            .put("verificationUrl", authorization.verificationUrl)
+            .put("intervalSeconds", authorization.intervalSeconds)
+            .put("expiresAtMs", pending.expiresAtMs)
+        check(preferences.edit().putString(TIDAL_PENDING_AUTH, value.toString()).commit()) {
+            "Could not persist pending TIDAL authorization"
+        }
+        return pending
+    }
+
+    fun pendingTidalAuthorization(): PendingDeviceAuthorization? {
+        val encoded = preferences.getString(TIDAL_PENDING_AUTH, null) ?: return null
+        val pending = runCatching {
+            val value = JSONObject(encoded)
+            val expiresAtMs = value.getLong("expiresAtMs")
+            PendingDeviceAuthorization(
+                authorization = DeviceAuthorization(
+                    deviceCode = value.getString("deviceCode"),
+                    userCode = value.getString("userCode"),
+                    verificationUrl = value.getString("verificationUrl"),
+                    expiresInSeconds = ((expiresAtMs - System.currentTimeMillis()) / 1000L)
+                        .coerceAtLeast(0L),
+                    intervalSeconds = value.optLong("intervalSeconds", 5L).coerceAtLeast(1L),
+                ),
+                expiresAtMs = expiresAtMs,
+            )
+        }.getOrNull()
+        if (pending == null || pending.expiresAtMs <= System.currentTimeMillis()) {
+            clearPendingTidalAuthorization()
+            return null
+        }
+        return pending
+    }
+
+    fun clearPendingTidalAuthorization() {
+        preferences.edit().remove(TIDAL_PENDING_AUTH).apply()
     }
 
     private fun key(): SecretKey {
@@ -75,6 +124,7 @@ class SecureTokenStore(context: Context) {
         const val TIDAL_TOKEN = "tidal_refresh_token"
         const val TIDAL_IV = "tidal_refresh_iv"
         const val TIDAL_COUNTRY = "tidal_country_code"
+        const val TIDAL_PENDING_AUTH = "tidal_pending_authorization"
         const val DEFAULT_COUNTRY = "US"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
