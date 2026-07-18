@@ -129,11 +129,13 @@ ApplicationWindow {
                 }
 
                 TitleButton {
+                    id: minimizeButton
                     iconSource: "icons/minimize.svg"
                     tooltipText: "Minimize"
                     onClicked: window.showMinimized()
                 }
                 TitleButton {
+                    id: maximizeButton
                     iconSource: window.visibility === Window.Maximized
                                 ? "icons/restore.svg" : "icons/maximize.svg"
                     tooltipText: window.visibility === Window.Maximized ? "Restore" : "Maximize"
@@ -141,6 +143,7 @@ ApplicationWindow {
                                ? window.showNormal() : window.showMaximized()
                 }
                 TitleButton {
+                    id: closeButton
                     iconSource: "icons/close.svg"
                     tooltipText: "Close"
                     danger: true
@@ -681,6 +684,45 @@ ApplicationWindow {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Preserve desktop title-bar edge targeting without making the visible
+    // controls taller. These hit targets cover the accent strip above them.
+    Row {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        width: 114
+        height: 2
+        z: 1001
+
+        Item {
+            width: 38
+            height: 2
+            HoverHandler { onHoveredChanged: minimizeButton.edgeHovered = hovered }
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onTapped: window.showMinimized()
+            }
+        }
+        Item {
+            width: 38
+            height: 2
+            HoverHandler { onHoveredChanged: maximizeButton.edgeHovered = hovered }
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onTapped: window.visibility === Window.Maximized
+                          ? window.showNormal() : window.showMaximized()
+            }
+        }
+        Item {
+            width: 38
+            height: 2
+            HoverHandler { onHoveredChanged: closeButton.edgeHovered = hovered }
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onTapped: window.close()
             }
         }
     }
