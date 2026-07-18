@@ -30,6 +30,7 @@ and troubleshooting.
 - `apps/*`: remaining native application integration plans
 - `docs/architecture.md`: component boundaries and delivery order
 - `docs/connectivity.md`: LAN, NAT traversal, relay, and party synchronization
+- `docs/sync.md`: proposed encrypted multi-device sync and playback handoff
 - `docs/provider-migration.md`: what to reuse from `backend` and `mocha`
 - `docs/macos-ci.md`: practical iOS builds without owning a Mac
 
