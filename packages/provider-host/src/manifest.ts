@@ -22,6 +22,21 @@ export function requiresEntitlementRefresh(attributes: ManifestAttributes): bool
     && attributes.previewReason === "FULL_REQUIRES_SUBSCRIPTION";
 }
 
+export function buildPlaybackManifestUrl(apiBaseUrl: string, trackId: string): URL {
+  const base = apiBaseUrl.endsWith("/") ? apiBaseUrl : `${apiBaseUrl}/`;
+  const url = new URL(`trackManifests/${encodeURIComponent(trackId)}`, base);
+  url.searchParams.append("manifestType", "HLS");
+  for (const format of ["FLAC_HIRES", "FLAC", "AACLC"]) url.searchParams.append("formats", format);
+  url.searchParams.set("uriScheme", "HTTPS");
+  url.searchParams.set("usage", "PLAYBACK");
+  // Qt/FFmpeg treats TIDAL's adaptive audio master as simultaneous programs.
+  // The resulting timelines wrap independently, freezing position and making
+  // seeks unreliable. TIDAL still chooses the best entitled format from the
+  // preference list when adaptive playback is disabled.
+  url.searchParams.set("adaptive", "false");
+  return url;
+}
+
 export class UserSession {
   constructor(
     private readonly config: TidalConfig,
@@ -38,13 +53,7 @@ export class UserSession {
   }
 
   async sourceFor(trackId: string): Promise<PlaybackSource> {
-    const base = this.config.apiBaseUrl.endsWith("/") ? this.config.apiBaseUrl : `${this.config.apiBaseUrl}/`;
-    const url = new URL(`trackManifests/${encodeURIComponent(trackId)}`, base);
-    url.searchParams.append("manifestType", "HLS");
-    for (const format of ["FLAC_HIRES", "FLAC", "AACLC"]) url.searchParams.append("formats", format);
-    url.searchParams.set("uriScheme", "HTTPS");
-    url.searchParams.set("usage", "PLAYBACK");
-    url.searchParams.set("adaptive", "true");
+    const url = buildPlaybackManifestUrl(this.config.apiBaseUrl, trackId);
     const request = async (force: boolean) => fetch(url, {
       headers: { Authorization: `Bearer ${await this.accessToken(force)}`, Accept: "application/vnd.api+json" },
     });
