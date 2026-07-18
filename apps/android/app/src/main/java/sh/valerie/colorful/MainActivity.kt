@@ -1,5 +1,6 @@
 package sh.valerie.colorful
 
+import android.content.ComponentName
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,11 +24,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
 import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private var engineHandle = 0L
+    private var controllerFuture: ListenableFuture<MediaController>? = null
     private var librarySize by mutableIntStateOf(0)
     private var status by mutableStateOf("Opening portable engine…")
 
@@ -37,6 +43,7 @@ class MainActivity : ComponentActivity() {
             engineHandle = NativeCore.openEngine(getDatabasePath("colorful.sqlite").absolutePath)
             refreshSnapshot()
         }.onFailure { status = it.message ?: "Core startup failed" }
+        connectPlaybackSession()
 
         setContent {
             MaterialTheme {
@@ -67,8 +74,25 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        controllerFuture?.let(MediaController::releaseFuture)
         if (engineHandle != 0L) NativeCore.close(engineHandle)
         super.onDestroy()
+    }
+
+    private fun connectPlaybackSession() {
+        val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
+        val future = MediaController.Builder(this, token).buildAsync()
+        controllerFuture = future
+        future.addListener(
+            {
+                runCatching { future.get() }
+                    .onSuccess {
+                        status = "ABI ${NativeCore.abiVersion()} · SQLite + Media3 session ready"
+                    }
+                    .onFailure { status = it.message ?: "Media3 session failed" }
+            },
+            ContextCompat.getMainExecutor(this),
+        )
     }
 
     private fun refreshSnapshot() {

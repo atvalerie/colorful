@@ -98,6 +98,33 @@ device resolves the track through its own provider account and starts locally.
 
 This does not restream TIDAL audio or transfer provider tokens.
 
+## Active-device presence
+
+Paired devices may publish an optional short-lived presence record containing
+the active device ID, provider track reference, display metadata, playing or
+paused state, position, start time, and a monotonically increasing generation.
+It contains no provider credential, source URL, or audio data.
+
+The record enables a desktop colorful instance to represent phone playback to
+local integrations. The first consumer is Discord Rich Presence: while music
+plays on Android and a paired PC is online, the PC receives the encrypted
+presence and publishes it through its local Discord IPC connection. Discord
+does not need to run on Android, and the phone never receives Discord secrets.
+
+Presence arbitration follows deterministic rules:
+
+- a device that is actively producing audio owns presence;
+- playback local to the desktop RPC bridge takes priority over remote presence;
+- a newer generation from the same device replaces its older state;
+- paused and disconnected owners expire after a short timeout;
+- simultaneous active devices are resolved by explicit user selection, then a
+  stable device-ID tie-breaker rather than rapidly switching RPC ownership.
+
+On the same network, presence uses the authenticated LAN channel and requires
+no port forwarding. Across networks it may use the live P2P/relay path or the
+encrypted mailbox with a deliberately short expiry. Disabling listening-status
+sync prevents these records from being created at all.
+
 ## Relationship to parties
 
 Sync and parties may share discovery, authenticated transport, relay, and
@@ -117,6 +144,7 @@ Party guests never gain access to the personal sync collection.
 5. Add encrypted mailbox store-and-forward.
 6. Reuse ICE/TURN connectivity for remote direct sync.
 7. Add playback handoff after durable library sync is reliable.
+8. Add active-device presence and desktop integration bridges.
 
 ## Acceptance criteria
 
@@ -127,4 +155,4 @@ Party guests never gain access to the personal sync collection.
 - A new device can bootstrap from a snapshot and then apply newer operations.
 - P2P-only mode works without a mailbox and clearly reports delayed sync.
 - Downloads and provider credentials never transfer implicitly.
-
+- Stale or competing presence records cannot make integrations oscillate.
