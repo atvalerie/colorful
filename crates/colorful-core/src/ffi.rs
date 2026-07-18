@@ -365,6 +365,26 @@ pub extern "C" fn colorful_engine_close(handle: u64) -> bool {
     .unwrap_or(false)
 }
 
+/// Maps a TIDAL JSON:API catalog document into colorful's portable track
+/// representation without requiring an engine instance.
+///
+/// # Safety
+///
+/// `document_json` must point to a valid NUL-terminated UTF-8 string for the
+/// duration of this call. The returned string must be released with
+/// [`colorful_string_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn colorful_tidal_map_tracks(document_json: *const c_char) -> *mut c_char {
+    guarded(|| {
+        let json = unsafe { required_string(document_json, "document_json") }?;
+        let document = serde_json::from_str(&json)
+            .map_err(|error| format!("invalid TIDAL catalog document: {error}"))?;
+        let tracks =
+            crate::providers::tidal::map_tracks(&document).map_err(|error| error.to_string())?;
+        Ok(success(tracks))
+    })
+}
+
 /// # Safety
 ///
 /// `value` must be a pointer returned by a colorful C ABI function and must be
@@ -419,5 +439,14 @@ mod tests {
                 .unwrap()
                 .contains("invalid command")
         );
+    }
+
+    #[test]
+    fn c_abi_maps_tidal_catalog_documents_without_an_engine() {
+        let fixture =
+            CString::new(include_str!("../../../fixtures/tidal/search-tracks.json")).unwrap();
+        let mapped = response(unsafe { colorful_tidal_map_tracks(fixture.as_ptr()) });
+        assert!(mapped["ok"].as_bool().unwrap());
+        assert_eq!(mapped["value"][0]["title"], "Brutal (Instrumental)");
     }
 }

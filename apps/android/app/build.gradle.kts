@@ -6,6 +6,25 @@ plugins {
 }
 
 val repositoryRoot = rootProject.layout.projectDirectory.dir("../..").asFile
+val providerEnvironment = repositoryRoot.parentFile.resolve("mocha/.env")
+    .takeIf { it.isFile }
+    ?.readLines()
+    ?.mapNotNull { line ->
+        val clean = line.trim()
+        if (clean.isEmpty() || clean.startsWith("#") || !clean.contains('=')) null
+        else clean.substringBefore('=').trim() to clean.substringAfter('=').trim()
+            .removeSurrounding("\"").removeSurrounding("'")
+    }
+    ?.toMap()
+    .orEmpty()
+
+fun providerValue(name: String, fallback: String = ""): String =
+    System.getenv(name) ?: providerEnvironment[name] ?: fallback
+
+fun javaString(value: String): String = "\"" + value
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\n", "\\n") + "\""
 val rustOutput = rootProject.layout.buildDirectory.dir("rustJniLibs")
 val buildRustCore by tasks.registering(Exec::class) {
     workingDir(repositoryRoot)
@@ -28,12 +47,16 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "TIDAL_BROWSE_CLIENT_ID", javaString(providerValue("TIDAL_CLIENT_ID")))
+        buildConfigField("String", "TIDAL_BROWSE_CLIENT_SECRET", javaString(providerValue("TIDAL_CLIENT_SECRET")))
+        buildConfigField("String", "TIDAL_DEVICE_CLIENT_ID", javaString(providerValue("TIDAL_DEVICE_CLIENT_ID")))
+        buildConfigField("String", "TIDAL_DEVICE_CLIENT_SECRET", javaString(providerValue("TIDAL_DEVICE_CLIENT_SECRET")))
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild {
             cmake { arguments += "-DCOLORFUL_CORE_DIR=${rustOutput.get().asFile.absolutePath}" }
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")

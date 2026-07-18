@@ -42,6 +42,11 @@ extern "C" JNIEXPORT jbyteArray JNICALL
 Java_sh_valerie_colorful_NativeCore_snapshot(JNIEnv* env, jobject, jlong handle) {
     return response(env, colorful_engine_snapshot(static_cast<uint64_t>(handle)));
 }
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_sh_valerie_colorful_NativeCore_mapTidalTracks(JNIEnv* env, jobject, jbyteArray document) {
+    auto value = bytes(env, document);
+    return response(env, colorful_tidal_map_tracks(value.data()));
+}
 extern "C" JNIEXPORT jboolean JNICALL
 Java_sh_valerie_colorful_NativeCore_close(JNIEnv*, jobject, jlong handle) {
     return colorful_engine_close(static_cast<uint64_t>(handle)) ? JNI_TRUE : JNI_FALSE;
