@@ -22,7 +22,9 @@ cargo test --manifest-path "$repo_dir/Cargo.toml" --workspace
 
 qmllint -I "$repo_dir/build/linux" \
   "$repo_dir/apps/linux/qml/Main.qml" \
+  "$repo_dir/apps/linux/qml/AppIcon.qml" \
   "$repo_dir/apps/linux/qml/ColorButton.qml" \
+  "$repo_dir/apps/linux/qml/IconButton.qml" \
   "$repo_dir/apps/linux/qml/TrackDelegate.qml"
 
 dbus-run-session -- bash -c '

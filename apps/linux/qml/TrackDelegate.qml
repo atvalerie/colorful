@@ -12,88 +12,78 @@ ItemDelegate {
     signal removeRequested()
 
     width: ListView.view ? ListView.view.width : 500
-    height: 70
+    height: 54
     hoverEnabled: true
-    padding: 8
+    padding: 6
     onDoubleClicked: playRequested()
 
     background: Rectangle {
-        radius: 15
-        color: root.active ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.24)
-                           : root.hovered ? Qt.rgba(1, 1, 1, 0.075) : "transparent"
+        color: root.active ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.12)
+                           : root.hovered ? Qt.rgba(1, 1, 1, 0.045) : "transparent"
         border.width: root.active ? 1 : 0
-        border.color: Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.5)
-        Behavior on color { ColorAnimation { duration: 150 } }
+        border.color: Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.42)
+        Behavior on color { ColorAnimation { duration: 100 } }
     }
 
     contentItem: RowLayout {
-        spacing: 12
+        spacing: 10
 
         Rectangle {
-            Layout.preferredWidth: 52
-            Layout.preferredHeight: 52
-            radius: 11
-            color: Qt.rgba(1, 1, 1, 0.08)
+            Layout.preferredWidth: 40
+            Layout.preferredHeight: 40
+            color: Qt.rgba(1, 1, 1, 0.07)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.09)
             clip: true
+
             Image {
                 anchors.fill: parent
                 source: root.track.coverUrl || ""
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
             }
-            Text {
+            AppIcon {
                 anchors.centerIn: parent
+                width: 18
+                height: 18
+                iconSource: "icons/music.svg"
+                opacity: 0.34
                 visible: !root.track.coverUrl
-                text: "♪"
-                color: Qt.rgba(1, 1, 1, 0.45)
-                font.pixelSize: 21
             }
         }
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 2
+            spacing: 1
             Text {
                 Layout.fillWidth: true
                 text: root.track.title || "Unknown title"
-                color: "#fffafc"
+                color: "#f5f5f5"
                 elide: Text.ElideRight
-                font.family: "Nunito"
                 font.weight: Font.DemiBold
-                font.pixelSize: 15
+                font.pixelSize: 13
             }
             Text {
                 Layout.fillWidth: true
                 text: root.track.artistText || "Unknown artist"
-                color: Qt.rgba(1, 1, 1, 0.6)
+                color: Qt.rgba(1, 1, 1, 0.48)
                 elide: Text.ElideRight
-                font.family: "Nunito"
-                font.pixelSize: 12
+                font.pixelSize: 11
             }
         }
 
         Text {
             text: root.track.durationMs ? formatDuration(root.track.durationMs) : ""
-            color: Qt.rgba(1, 1, 1, 0.46)
-            font.family: "Nunito"
-            font.pixelSize: 12
+            color: Qt.rgba(1, 1, 1, 0.4)
+            font.pixelSize: 10
         }
 
-        ToolButton {
-            text: root.queueMode ? "×" : "+"
-            font.pixelSize: root.queueMode ? 22 : 20
+        IconButton {
+            implicitWidth: 36
+            implicitHeight: 36
+            iconSource: root.queueMode ? "icons/close.svg" : "icons/add.svg"
+            tooltipText: root.queueMode ? "Remove from queue" : "Add to queue"
             onClicked: root.queueMode ? root.removeRequested() : root.addRequested()
-            contentItem: Text {
-                text: parent.text
-                color: parent.hovered ? "white" : Qt.rgba(1, 1, 1, 0.58)
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font.pixelSize: parent.font.pixelSize
-            }
-            background: Rectangle {
-                radius: width / 2
-                color: parent.hovered ? Qt.rgba(1, 1, 1, 0.1) : "transparent"
-            }
         }
     }
 
@@ -102,4 +92,3 @@ ItemDelegate {
         return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0")
     }
 }
-

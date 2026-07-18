@@ -23,8 +23,25 @@ qt_add_qml_module(colorful-linux
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/AppIcon.qml
         qml/ColorButton.qml
+        qml/IconButton.qml
         qml/TrackDelegate.qml
+    RESOURCES
+        qml/icons/add.svg
+        qml/icons/close.svg
+        qml/icons/download.svg
+        qml/icons/home.svg
+        qml/icons/library.svg
+        qml/icons/music.svg
+        qml/icons/next.svg
+        qml/icons/pause.svg
+        qml/icons/play.svg
+        qml/icons/previous.svg
+        qml/icons/queue.svg
+        qml/icons/search.svg
+        qml/icons/user.svg
+        qml/icons/volume.svg
 )
 
 set_source_files_properties(
