@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val providerExecutor = Executors.newSingleThreadExecutor()
     private val loginGeneration = AtomicInteger(0)
+    private val activityForeground = java.util.concurrent.atomic.AtomicBoolean(false)
     private val tidal = TidalClient()
     private lateinit var tokenStore: SecureTokenStore
 
@@ -173,6 +174,16 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    override fun onStart() {
+        super.onStart()
+        activityForeground.set(true)
+    }
+
+    override fun onStop() {
+        activityForeground.set(false)
+        super.onStop()
+    }
+
     private fun connectPlaybackSession() {
         val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
         val future = MediaController.Builder(this, token).buildAsync()
@@ -237,7 +248,12 @@ class MainActivity : ComponentActivity() {
         var delayMs = authorization.intervalSeconds * 1000L
         while (generation == loginGeneration.get() && System.currentTimeMillis() < deadline) {
             try {
+                while (!activityForeground.get() && generation == loginGeneration.get()) {
+                    Thread.sleep(250L)
+                }
+                if (generation != loginGeneration.get()) return
                 Thread.sleep(delayMs)
+                if (!activityForeground.get()) continue
                 when (val result = tidal.pollDeviceAuthorization(authorization)) {
                     is DevicePollResult.Complete -> {
                         val countryCode = tidal.accountCountryCode(result.token.accessToken)
