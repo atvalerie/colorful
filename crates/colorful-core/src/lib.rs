@@ -3,6 +3,7 @@
 //! Platform audio, secure storage, and UI deliberately live outside this crate.
 
 pub mod engine;
+pub mod ffi;
 pub mod media;
 pub mod party;
 pub mod playback;

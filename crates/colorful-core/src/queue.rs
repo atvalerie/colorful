@@ -1,12 +1,14 @@
 use crate::media::MediaId;
 use crate::playback::RepeatMode;
+use serde::{Deserialize, Serialize};
 
 /// Identifies one occurrence of a track in the queue.
 ///
 /// A media ID is not sufficient because the same track may be queued more than
 /// once. Entry IDs remain stable while entries are reordered or shuffle is
 /// toggled.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct QueueEntryId(u64);
 
 impl QueueEntryId {
@@ -19,13 +21,15 @@ impl QueueEntryId {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueEntry {
     pub id: QueueEntryId,
     pub media_id: MediaId,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueSnapshot {
     pub entries: Vec<QueueEntry>,
     pub play_order: Vec<QueueEntryId>,

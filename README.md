@@ -33,6 +33,7 @@ and troubleshooting.
 - `docs/connectivity.md`: LAN, NAT traversal, relay, and party synchronization
 - `docs/sync.md`: proposed encrypted multi-device sync and playback handoff
 - `docs/storage.md`: device-local SQLite schema and migration rules
+- `docs/core-abi.md`: versioned C/JSON boundary for native platform shells
 - `docs/provider-migration.md`: what to reuse from `backend` and `mocha`
 - `docs/macos-ci.md`: practical iOS builds without owning a Mac
 

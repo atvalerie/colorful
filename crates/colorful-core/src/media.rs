@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Provider {
     Tidal,
     SoundCloud,
@@ -31,7 +33,8 @@ impl Provider {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MediaId {
     pub provider: Provider,
     pub provider_id: String,
@@ -47,13 +50,15 @@ impl MediaId {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ArtistCredit {
     pub id: Option<MediaId>,
     pub name: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Artwork {
     pub url: Option<String>,
     pub local_key: Option<String>,
@@ -61,7 +66,8 @@ pub struct Artwork {
     pub height: Option<u32>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Track {
     pub id: MediaId,
     pub title: String,

@@ -1,6 +1,8 @@
 use crate::media::MediaId;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RepeatMode {
     #[default]
     Off,
@@ -19,7 +21,8 @@ pub enum PlaybackCommand {
     SetShuffle(bool),
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlaybackState {
     pub current: Option<MediaId>,
     pub position_ms: u64,
