@@ -48,6 +48,7 @@ Backend::Backend(QObject *parent)
     });
 
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this] { emit playbackChanged(); });
+    connect(this, &Backend::currentTrackChanged, this, &Backend::durationChanged);
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 value) {
         Q_UNUSED(value)
         emit positionChanged();
@@ -89,6 +90,16 @@ QVariantMap Backend::currentTrack() const
 bool Backend::playing() const
 {
     return m_player.playbackState() == QMediaPlayer::PlayingState;
+}
+
+qint64 Backend::duration() const
+{
+    // HLS backends sometimes expose only the duration of the currently parsed
+    // media window even though playback continues past it. TIDAL's catalog
+    // duration describes the complete track and is stable for the timeline,
+    // seeking, and MPRIS metadata.
+    const auto catalogDuration = currentTrack().value(QStringLiteral("durationMs")).toLongLong();
+    return catalogDuration > 0 ? catalogDuration : m_player.duration();
 }
 
 QString Backend::playbackStatus() const
@@ -367,7 +378,7 @@ void Backend::previous()
 
 void Backend::seek(qint64 positionMs)
 {
-    const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, m_player.duration()));
+    const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, duration()));
     m_player.setPosition(target);
     emit seeked(target);
 }

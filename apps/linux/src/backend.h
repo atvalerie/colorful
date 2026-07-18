@@ -48,7 +48,7 @@ public:
     QVariantMap currentTrack() const;
     bool playing() const;
     qint64 position() const { return m_player.position(); }
-    qint64 duration() const { return m_player.duration(); }
+    qint64 duration() const;
     double volume() const { return m_audioOutput.volume(); }
     QColor accent() const { return m_accent; }
 
