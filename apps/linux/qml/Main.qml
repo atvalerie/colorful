@@ -778,6 +778,61 @@ ApplicationWindow {
     }
 
     Popup {
+        id: entitlementPopup
+        anchors.centerIn: Overlay.overlay
+        width: 410
+        height: 230
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        visible: colorful.entitlementWarningVisible
+        padding: 0
+
+        background: Rectangle {
+            color: "#19191e"
+            border.width: 1
+            border.color: Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.72)
+        }
+
+        contentItem: ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 24
+            spacing: 12
+
+            Text {
+                text: "TIDAL playback unavailable"
+                color: window.ink
+                font.weight: Font.Bold
+                font.pixelSize: 20
+            }
+            Text {
+                Layout.fillWidth: true
+                text: colorful.entitlementMessage
+                color: window.mutedInk
+                wrapMode: Text.WordWrap
+                font.pixelSize: 13
+            }
+            Item { Layout.fillHeight: true }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Item { Layout.fillWidth: true }
+                ColorButton {
+                    text: "Dismiss"
+                    quiet: true
+                    onClicked: colorful.dismissEntitlementWarning()
+                }
+                ColorButton {
+                    text: "Open TIDAL account"
+                    onClicked: {
+                        colorful.openTidalAccount()
+                        colorful.dismissEntitlementWarning()
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
         id: authPopup
         anchors.centerIn: Overlay.overlay
         width: 420

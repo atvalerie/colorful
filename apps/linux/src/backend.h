@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QVariantList>
+#include <QVariantAnimation>
 #include <functional>
 
 class Backend final : public QObject
@@ -18,6 +19,8 @@ class Backend final : public QObject
     Q_PROPERTY(bool linked READ linked NOTIFY linkedChanged)
     Q_PROPERTY(bool authPending READ authPending NOTIFY authPendingChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(bool entitlementWarningVisible READ entitlementWarningVisible NOTIFY entitlementChanged)
+    Q_PROPERTY(QString entitlementMessage READ entitlementMessage NOTIFY entitlementChanged)
     Q_PROPERTY(QString userCode READ userCode NOTIFY authDetailsChanged)
     Q_PROPERTY(QString verificationUrl READ verificationUrl NOTIFY authDetailsChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
@@ -39,6 +42,8 @@ public:
     bool linked() const { return m_linked; }
     bool authPending() const { return m_authPending; }
     bool busy() const { return m_busy; }
+    bool entitlementWarningVisible() const { return m_entitlementWarningVisible; }
+    QString entitlementMessage() const { return m_entitlementMessage; }
     QString userCode() const { return m_userCode; }
     QString verificationUrl() const { return m_verificationUrl; }
     QString statusMessage() const { return m_statusMessage; }
@@ -60,6 +65,8 @@ public:
     Q_INVOKABLE void startLogin();
     Q_INVOKABLE void openVerificationUrl();
     Q_INVOKABLE void unlink();
+    Q_INVOKABLE void dismissEntitlementWarning();
+    Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void enqueueSearchResult(int index);
     Q_INVOKABLE void playSearchResult(int index);
@@ -80,6 +87,7 @@ signals:
     void linkedChanged();
     void authPendingChanged();
     void busyChanged();
+    void entitlementChanged();
     void authDetailsChanged();
     void statusMessageChanged();
     void searchResultsChanged();
@@ -106,6 +114,7 @@ private:
     void setLinked(bool linked);
     void setBusy(bool busy);
     void setStatus(const QString &message);
+    void setEntitlementWarning(bool visible, const QString &message = {});
     void playTrackAt(int index);
     void resolveCurrentSource();
     void loadAccent(const QString &artworkUrl);
@@ -120,6 +129,7 @@ private:
     QMediaPlayer m_player;
     QAudioOutput m_audioOutput;
     QNetworkAccessManager m_network;
+    QVariantAnimation m_accentAnimation;
     QVariantList m_searchResults;
     QVariantList m_queue;
     int m_currentIndex = -1;
@@ -127,9 +137,11 @@ private:
     bool m_linked = false;
     bool m_authPending = false;
     bool m_busy = false;
+    bool m_entitlementWarningVisible = false;
     QString m_userCode;
     QString m_verificationUrl;
     QString m_statusMessage = QStringLiteral("Starting Colorful…");
+    QString m_entitlementMessage;
     QColor m_accent = QColor(QStringLiteral("#ff4f91"));
     QString m_pendingArtworkUrl;
 };

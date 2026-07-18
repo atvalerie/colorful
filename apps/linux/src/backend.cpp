@@ -12,6 +12,7 @@
 #include <QStandardPaths>
 #include <QUrl>
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace {
@@ -23,11 +24,74 @@ QString safeTrackPath(const QVariantMap &track)
     for (const auto character : id) safe.append(character.isLetterOrNumber() ? character : QChar('_'));
     return QStringLiteral("/org/mpris/MediaPlayer2/track/%1").arg(safe.isEmpty() ? QStringLiteral("unknown") : safe);
 }
+
+double linearRgbChannel(int value)
+{
+    const double normalized = value / 255.0;
+    return normalized <= 0.03928
+        ? normalized / 12.92
+        : std::pow((normalized + 0.055) / 1.055, 2.4);
+}
+
+double relativeLuminance(const QColor &color)
+{
+    return linearRgbChannel(color.red()) * 0.2126
+        + linearRgbChannel(color.green()) * 0.7152
+        + linearRgbChannel(color.blue()) * 0.0722;
+}
+
+double contrastRatio(const QColor &first, const QColor &second)
+{
+    const auto firstLuminance = relativeLuminance(first);
+    const auto secondLuminance = relativeLuminance(second);
+    const auto lighter = std::max(firstLuminance, secondLuminance);
+    const auto darker = std::min(firstLuminance, secondLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+QColor mixToward(const QColor &color, int target, double amount)
+{
+    const auto mix = [target, amount](int value) {
+        return qRound(value + (target - value) * amount);
+    };
+    return QColor(mix(color.red()), mix(color.green()), mix(color.blue()));
+}
+
+QColor normalizeAlbumAccent(const QColor &sampled)
+{
+    float hue = 0;
+    float saturation = 0;
+    float lightness = 0;
+    float alpha = 1;
+    sampled.getHslF(&hue, &saturation, &lightness, &alpha);
+    if (saturation < 0.08) return QColor(QStringLiteral("#f5f5f5"));
+
+    const auto base = QColor::fromHslF(
+        hue,
+        std::max(0.3f, saturation),
+        std::clamp(lightness, 0.34f, 0.64f),
+        alpha);
+    const QColor background(QStringLiteral("#121212"));
+    for (double amount = 0; amount <= 0.72 + 0.001; amount += 0.08) {
+        const auto candidate = mixToward(base, 255, amount);
+        if (contrastRatio(candidate, background) >= 4.5) return candidate;
+    }
+    return Qt::white;
+}
 }
 
 Backend::Backend(QObject *parent)
     : QObject(parent)
 {
+    m_accentAnimation.setDuration(720);
+    m_accentAnimation.setEasingCurve(QEasingCurve::OutCubic);
+    connect(&m_accentAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        const auto color = value.value<QColor>();
+        if (!color.isValid() || color == m_accent) return;
+        m_accent = color;
+        emit accentChanged();
+    });
+
     m_audioOutput.setVolume(0.78);
     m_player.setAudioOutput(&m_audioOutput);
 
@@ -222,6 +286,18 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("warning")) {
         setStatus(message.value(QStringLiteral("error")).toString());
+    } else if (event == QStringLiteral("subscription.status")) {
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        if (data.value(QStringLiteral("canStreamFull")).toBool()) {
+            setEntitlementWarning(false);
+        } else {
+            const auto overdue = data.value(QStringLiteral("paymentOverdue")).toBool();
+            setEntitlementWarning(
+                true,
+                overdue
+                    ? QStringLiteral("TIDAL reports that payment is overdue, so only track previews are available.")
+                    : QStringLiteral("TIDAL is only granting preview playback to this account. Check the subscription before trying again."));
+        }
     }
 }
 
@@ -259,9 +335,20 @@ void Backend::unlink()
             return;
         }
         setLinked(false);
+        setEntitlementWarning(false);
         stop();
         setStatus(QStringLiteral("TIDAL account disconnected"));
     });
+}
+
+void Backend::dismissEntitlementWarning()
+{
+    setEntitlementWarning(false);
+}
+
+void Backend::openTidalAccount()
+{
+    QDesktopServices::openUrl(QUrl(QStringLiteral("https://account.tidal.com")));
 }
 
 void Backend::search(const QString &query)
@@ -344,7 +431,13 @@ void Backend::resolveCurrentSource()
         if (currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
         if (!message.value(QStringLiteral("ok")).toBool()) {
             setBusy(false);
-            setStatus(message.value(QStringLiteral("error")).toString());
+            const auto error = message.value(QStringLiteral("error")).toString();
+            setStatus(error);
+            if (error.contains(QStringLiteral("only returned a preview"), Qt::CaseInsensitive)) {
+                setEntitlementWarning(
+                    true,
+                    QStringLiteral("TIDAL is only granting preview playback to this account. Check the subscription before trying again."));
+            }
             return;
         }
         const auto source = message.value(QStringLiteral("data")).toObject();
@@ -402,47 +495,96 @@ void Backend::loadAccent(const QString &artworkUrl)
         QImage image;
         if (!image.loadFromData(bytes)) return;
         const auto color = paletteColor(image);
-        if (color != m_accent) {
-            m_accent = color;
-            emit accentChanged();
-        }
+        const auto target = m_accentAnimation.endValue().value<QColor>();
+        if (color == m_accent || (m_accentAnimation.state() == QAbstractAnimation::Running && color == target)) return;
+        m_accentAnimation.stop();
+        m_accentAnimation.setStartValue(m_accent);
+        m_accentAnimation.setEndValue(color);
+        m_accentAnimation.start();
     });
 }
 
 QColor Backend::paletteColor(const QImage &source) const
 {
-    const auto image = source.scaled(48, 48, Qt::KeepAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
-    struct Bucket { double red = 0; double green = 0; double blue = 0; double score = 0; int count = 0; };
+    const auto image = source.scaled(96, 96, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
+    struct Bucket { double red = 0; double green = 0; double blue = 0; int count = 0; };
+    struct HueBin { double red = 0; double green = 0; double blue = 0; double weight = 0; };
     QHash<int, Bucket> buckets;
+    std::array<HueBin, 24> hueBins{};
+    int usefulPixelCount = 0;
+    int chromaticPixelCount = 0;
+
     for (int y = 0; y < image.height(); ++y) {
         for (int x = 0; x < image.width(); ++x) {
             const QColor color(image.pixel(x, y));
-            const double lightness = color.lightnessF();
-            const double saturation = color.hsvSaturationF();
-            const double edge = std::min({x + 1.0, y + 1.0, image.width() - x + 0.0, image.height() - y + 0.0});
-            const double centerWeight = 0.6 + std::min(1.0, edge / 10.0) * 0.4;
-            const double lightnessWeight = lightness < 0.06 || lightness > 0.96 ? 0.05 : 1.0;
-            const int key = (color.red() >> 4) << 8 | (color.green() >> 4) << 4 | (color.blue() >> 4);
+            const int maximum = std::max({color.red(), color.green(), color.blue()});
+            const int minimum = std::min({color.red(), color.green(), color.blue()});
+            if (maximum <= 8) continue;
+            ++usefulPixelCount;
+
+            const int chroma = maximum - minimum;
+            if (maximum >= 40 && chroma >= 16 && color.hsvHueF() >= 0) {
+                const auto binIndex = std::min(23, static_cast<int>(std::floor(color.hsvHueF() * 24.0)));
+                auto &bin = hueBins.at(binIndex);
+                bin.red += color.red() * chroma;
+                bin.green += color.green() * chroma;
+                bin.blue += color.blue() * chroma;
+                bin.weight += chroma;
+                ++chromaticPixelCount;
+            }
+
+            const int key = (qRound(color.red() / 24.0) << 16)
+                | (qRound(color.green() / 24.0) << 8)
+                | qRound(color.blue() / 24.0);
             auto bucket = buckets.value(key);
             bucket.red += color.red();
             bucket.green += color.green();
             bucket.blue += color.blue();
             bucket.count++;
-            bucket.score += centerWeight * lightnessWeight * (0.15 + saturation * 2.8);
             buckets.insert(key, bucket);
         }
     }
-    QColor best = m_accent;
-    double bestScore = -1;
+
+    if (buckets.isEmpty()) return m_accent;
+    QColor sampled = m_accent;
+    int bestCount = -1;
     for (const auto &bucket : buckets) {
-        if (bucket.score > bestScore && bucket.count > 0) {
-            bestScore = bucket.score;
-            best = QColor(qRound(bucket.red / bucket.count), qRound(bucket.green / bucket.count), qRound(bucket.blue / bucket.count));
+        if (bucket.count > bestCount) {
+            bestCount = bucket.count;
+            sampled = QColor(qRound(bucket.red / bucket.count), qRound(bucket.green / bucket.count), qRound(bucket.blue / bucket.count));
         }
     }
-    if (best.lightnessF() < 0.22) best = best.lighter(165);
-    if (best.lightnessF() > 0.78) best = best.darker(125);
-    return best;
+
+    if (chromaticPixelCount >= std::max(12, qRound(usefulPixelCount * 0.01))) {
+        int bestStart = 0;
+        double bestWeight = -1;
+        for (int start = 0; start < 24; ++start) {
+            const auto weight = hueBins.at(start).weight
+                + hueBins.at((start + 1) % 24).weight
+                + hueBins.at((start + 2) % 24).weight;
+            if (weight > bestWeight) {
+                bestWeight = weight;
+                bestStart = start;
+            }
+        }
+
+        HueBin cluster;
+        for (int offset = 0; offset < 3; ++offset) {
+            const auto &bin = hueBins.at((bestStart + offset) % 24);
+            cluster.red += bin.red;
+            cluster.green += bin.green;
+            cluster.blue += bin.blue;
+            cluster.weight += bin.weight;
+        }
+        if (cluster.weight > 0) {
+            sampled = QColor(
+                qRound(cluster.red / cluster.weight),
+                qRound(cluster.green / cluster.weight),
+                qRound(cluster.blue / cluster.weight));
+        }
+    }
+
+    return normalizeAlbumAccent(sampled);
 }
 
 QVariantMap Backend::jsonTrackToVariant(const QJsonObject &track)
@@ -466,3 +608,11 @@ void Backend::setProviderReady(bool ready) { if (m_providerReady != ready) { m_p
 void Backend::setLinked(bool linked) { if (m_linked != linked) { m_linked = linked; emit linkedChanged(); } }
 void Backend::setBusy(bool busy) { if (m_busy != busy) { m_busy = busy; emit busyChanged(); } }
 void Backend::setStatus(const QString &message) { if (m_statusMessage != message) { m_statusMessage = message; emit statusMessageChanged(); } }
+void Backend::setEntitlementWarning(bool visible, const QString &message)
+{
+    const auto nextMessage = visible ? message : QString{};
+    if (m_entitlementWarningVisible == visible && m_entitlementMessage == nextMessage) return;
+    m_entitlementWarningVisible = visible;
+    m_entitlementMessage = nextMessage;
+    emit entitlementChanged();
+}

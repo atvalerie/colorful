@@ -9,6 +9,19 @@ export type PlaybackSource = {
   previewReason: string | null;
 };
 
+type ManifestAttributes = {
+  uri?: unknown;
+  manifestType?: unknown;
+  formats?: unknown;
+  trackPresentation?: unknown;
+  previewReason?: unknown;
+};
+
+export function requiresEntitlementRefresh(attributes: ManifestAttributes): boolean {
+  return attributes.trackPresentation === "PREVIEW"
+    && attributes.previewReason === "FULL_REQUIRES_SUBSCRIPTION";
+}
+
 export class UserSession {
   constructor(
     private readonly config: TidalConfig,
@@ -38,8 +51,18 @@ export class UserSession {
     let response = await request(false);
     if (response.status === 401) response = await request(true);
     if (!response.ok) throw new Error(`TIDAL playback source failed (${response.status}): ${await response.text()}`);
-    const document = await response.json() as any;
-    const attributes = document.data?.attributes ?? {};
+    let document = await response.json() as { data?: { attributes?: ManifestAttributes } };
+    let attributes = document.data?.attributes ?? {};
+    if (requiresEntitlementRefresh(attributes)) {
+      response = await request(true);
+      if (!response.ok) throw new Error(`TIDAL playback entitlement refresh failed (${response.status}): ${await response.text()}`);
+      document = await response.json() as { data?: { attributes?: ManifestAttributes } };
+      attributes = document.data?.attributes ?? {};
+    }
+    if (attributes.trackPresentation === "PREVIEW") {
+      const reason = typeof attributes.previewReason === "string" ? attributes.previewReason : "unknown reason";
+      throw new Error(`TIDAL only returned a preview (${reason})`);
+    }
     const uri = String(attributes.uri ?? "");
     if (!/^https?:\/\//i.test(uri)) throw new Error("TIDAL returned an unsupported non-HTTPS playback manifest");
     return {
@@ -51,4 +74,3 @@ export class UserSession {
     };
   }
 }
-

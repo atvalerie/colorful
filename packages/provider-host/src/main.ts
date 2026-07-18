@@ -3,6 +3,7 @@ import { BrowseClient } from "./browse";
 import { readTidalConfig } from "./config";
 import { UserSession } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
+import { loadSubscriptionStatus } from "./subscription";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -26,12 +27,22 @@ async function installSession(token: UserToken): Promise<void> {
   });
 }
 
+async function publishSubscriptionStatus(): Promise<void> {
+  if (!session) return;
+  try {
+    send({ event: "subscription.status", ok: true, data: await loadSubscriptionStatus(await session.accessToken()) });
+  } catch (error) {
+    send({ event: "subscription.check_failed", ok: false, error: publicError(error) });
+  }
+}
+
 async function restoreSession(): Promise<void> {
   const refreshToken = await loadRefreshToken();
   if (!refreshToken) return;
   try {
     await installSession(await refreshUserToken(config, refreshToken));
     send({ event: "auth.restored", ok: true, data: { linked: true } });
+    void publishSubscriptionStatus();
   } catch (error) {
     send({ event: "warning", ok: false, error: `Stored TIDAL login could not be refreshed: ${publicError(error)}` });
   }
@@ -60,6 +71,7 @@ async function handle(request: RequestMessage): Promise<void> {
         await installSession(token);
         const persisted = await saveRefreshToken(token.refreshToken);
         send({ event: "auth.completed", ok: true, data: { linked: true, persisted } });
+        void publishSubscriptionStatus();
       }).catch((error) => {
         if (!authAbort?.signal.aborted) send({ event: "auth.failed", ok: false, error: publicError(error) });
       });
