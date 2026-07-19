@@ -1034,7 +1034,10 @@ void Backend::playCatalogCollection()
     const auto kind = m_catalogPage.value(QStringLiteral("kind")).toString();
     if (kind == QStringLiteral("album") || kind == QStringLiteral("playlist")) tracks = m_catalogPage.value(QStringLiteral("tracks")).toList();
     else if (kind == QStringLiteral("artist")) tracks = m_catalogPage.value(QStringLiteral("topTracks")).toList();
-    else if (kind == QStringLiteral("track")) tracks = {m_catalogPage.value(QStringLiteral("track"))};
+    else if (kind == QStringLiteral("track")) {
+        playSingleTrack(m_catalogPage.value(QStringLiteral("track")).toMap());
+        return;
+    }
     if (kind == QStringLiteral("album") && !m_catalogPage.value(QStringLiteral("trackCursor")).toString().isEmpty()) {
         const auto generation = m_catalogGeneration;
         m_catalogMoreLoading = true;
@@ -1058,16 +1061,12 @@ void Backend::playCatalogCollection()
             m_catalogPage.insert(QStringLiteral("trackCursor"), QString{});
             emit catalogPageChanged();
             if (allTracks.isEmpty()) return;
-            const auto firstIndex = m_queue.size();
-            for (const auto &value : allTracks) enqueueTrack(value.toMap());
-            playTrackAt(firstIndex);
+            playTracks(allTracks);
         });
         return;
     }
     if (tracks.isEmpty()) return;
-    const auto firstIndex = m_queue.size();
-    for (const auto &value : tracks) enqueueTrack(value.toMap());
-    playTrackAt(firstIndex);
+    playTracks(tracks);
 }
 
 void Backend::enqueueSearchResult(int index)
@@ -1100,6 +1099,25 @@ void Backend::removeQueueIndex(int index)
         else m_playback.clearSource();
     } else prepareNextSource();
     notify(QStringLiteral("Removed %1 from the queue").arg(title));
+}
+
+void Backend::clearQueue()
+{
+    if (m_queue.isEmpty()) return;
+    finishListeningSession();
+    ++m_sourceGeneration;
+    m_relatedContinueWhenReady = false;
+    invalidatePreparedNext();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("play_tracks")},
+                  {QStringLiteral("tracks"), QJsonArray{}}});
+    m_playback.clearSource();
+    m_playbackReady = false;
+    m_playingLocalSource = false;
+    m_resumePositionMs = 0;
+    m_displayPositionOverride = -1;
+    setBusy(false);
+    setStatus(QStringLiteral("Queue cleared"));
+    notify(QStringLiteral("Cleared the queue"));
 }
 
 void Backend::addSearchResultToLibrary(int index)
@@ -1428,10 +1446,21 @@ void Backend::playTrackAt(int index)
 
 void Backend::playSingleTrack(const QVariantMap &track)
 {
-    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    playTracks(QVariantList{track});
+}
+
+void Backend::playTracks(const QVariantList &tracks)
+{
+    QJsonArray coreTracks;
+    for (const auto &value : tracks) {
+        const auto track = value.toMap();
+        if (!track.value(QStringLiteral("id")).toString().isEmpty())
+            coreTracks.append(variantTrackToCore(track));
+    }
+    if (coreTracks.isEmpty()) return;
     finishListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("play_tracks")},
-                  {QStringLiteral("tracks"), QJsonArray{variantTrackToCore(track)}}});
+                  {QStringLiteral("tracks"), coreTracks}});
     resolveCurrentSource();
 }
 

@@ -140,6 +140,7 @@ public:
     Q_INVOKABLE void playSearchResult(int index);
     Q_INVOKABLE void playQueueIndex(int index);
     Q_INVOKABLE void removeQueueIndex(int index);
+    Q_INVOKABLE void clearQueue();
     Q_INVOKABLE void addSearchResultToLibrary(int index);
     Q_INVOKABLE void playLibraryIndex(int index);
     Q_INVOKABLE void removeLibraryIndex(int index);
@@ -218,6 +219,7 @@ private:
     void setEntitlementWarning(bool visible, const QString &message = {});
     void playTrackAt(int index);
     void playSingleTrack(const QVariantMap &track);
+    void playTracks(const QVariantList &tracks);
     void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true);
     void enqueueTrack(const QVariantMap &track);
     void saveTrack(const QVariantMap &track);

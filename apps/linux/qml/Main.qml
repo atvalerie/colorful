@@ -590,6 +590,14 @@ ApplicationWindow {
                                     onClicked: colorful.autoplayEnabled = !colorful.autoplayEnabled
                                 }
                                 Item { Layout.fillWidth: true }
+                                ColorButton {
+                                    text: "Clear"
+                                    quiet: true
+                                    enabled: colorful.queue.length > 0
+                                    implicitWidth: 52
+                                    implicitHeight: 30
+                                    onClicked: colorful.clearQueue()
+                                }
                                 IconButton {
                                     implicitWidth: 36
                                     implicitHeight: 36
