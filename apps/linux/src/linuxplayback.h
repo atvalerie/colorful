@@ -1,9 +1,8 @@
 #pragma once
 
 #include <QObject>
-#include <QTimer>
 #include <QUrl>
-#include <gst/gst.h>
+#include <mpv/client.h>
 
 class LinuxPlayback final : public QObject
 {
@@ -15,7 +14,7 @@ public:
     explicit LinuxPlayback(QObject *parent = nullptr);
     ~LinuxPlayback() override;
 
-    bool isAvailable() const { return m_playbin != nullptr; }
+    bool isAvailable() const { return m_mpv != nullptr; }
     bool hasSource() const { return !m_source.isEmpty(); }
     bool playing() const { return m_state == State::Playing; }
     State state() const { return m_state; }
@@ -45,32 +44,27 @@ signals:
     void aboutToFinish();
 
 private:
-    enum class AsyncOperation { None, SourcePreroll, SourceRestoreSeek, UserSeek, StopSeek };
-
-    void drainBus();
-    void updateQueries(bool allowWhileLoading = false);
-    void handleAsyncDone();
-    bool performSeek(qint64 positionMs, AsyncOperation operation);
-    void applyDesiredState();
+    void drainEvents();
+    void handleProperty(quint64 propertyId, const mpv_event_property &property);
+    bool performSeek(qint64 positionMs);
+    void setPauseProperty(bool paused);
     void setLogicalState(State state);
     void finishLoading();
-    void applyVolume();
-    static void handleAboutToFinish(GstElement *, gpointer userData);
+    void command(const char *arguments[], quint64 requestId = 0);
+    static void handleWakeup(void *userData);
 
-    GstElement *m_playbin = nullptr;
-    GstBus *m_bus = nullptr;
-    QTimer m_pollTimer;
-    QTimer m_seekTimeout;
+    mpv_handle *m_mpv = nullptr;
     QUrl m_source;
     State m_state = State::Stopped;
     State m_desiredState = State::Stopped;
-    AsyncOperation m_asyncOperation = AsyncOperation::None;
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
-    qint64 m_prerollSeekMs = 0;
     qint64 m_confirmingSeekMs = -1;
     qint64 m_queuedSeekMs = -1;
     bool m_seekable = false;
     bool m_loading = false;
+    quint64 m_nextRequestId = 1;
+    quint64 m_seekRequestId = 0;
+    quint64 m_loadRequestId = 0;
     double m_volume = 0.78;
 };

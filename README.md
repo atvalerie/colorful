@@ -9,7 +9,7 @@ the provider and playback boundaries have been exercised here.
 
 ## Try the Linux player
 
-The current client is native Qt 6 Quick/QML with GStreamer playback, TIDAL
+The current client is native Qt 6 Quick/QML with embedded libmpv playback, TIDAL
 device linking, catalog search, a live queue, album-derived colors, secure
 refresh-token storage through Linux Secret Service, and MPRIS controls.
 

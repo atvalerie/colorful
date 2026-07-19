@@ -1,7 +1,7 @@
 # colorful for Linux
 
 The first native client uses Qt 6 Quick/QML for a deeply customizable interface,
-GStreamer `playbin3` with the adaptive DASH/HLS demuxers for playback, Linux
+libmpv for playback, adaptive-stream caching, and Linux audio output, Linux
 Secret Service for the TIDAL refresh token, and QtDBus for MPRIS controls.
 
 From the repository root:
@@ -36,7 +36,6 @@ qdbus6 org.mpris.MediaPlayer2.colorful /org/mpris/MediaPlayer2 \
   org.mpris.MediaPlayer2.Player.PlayPause
 ```
 
-If playback fails, the bottom status line reports the GStreamer error. Run with
-`GST_DEBUG=2` for pipeline diagnostics. Building requires the GStreamer core
-and audio development packages; runtime streaming also needs the `playback`
-and `adaptivedemux2` plugin families.
+If playback fails, the bottom status line reports the libmpv error. Building
+requires the libmpv development package; the packaged application must ship a
+compatible libmpv runtime.

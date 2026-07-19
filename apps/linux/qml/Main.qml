@@ -600,7 +600,9 @@ ApplicationWindow {
                             implicitHeight: 18
                             from: 0
                             to: Math.max(1, colorful.duration)
-                            onMoved: colorful.seek(value)
+                            onPressedChanged: {
+                                if (!pressed) colorful.seek(value)
+                            }
                             Binding on value {
                                 value: colorful.position
                                 when: !progress.pressed
