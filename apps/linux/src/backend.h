@@ -150,6 +150,7 @@ private:
     QTimer m_checkpointTimer;
     quint64 m_sourceGeneration = 0;
     qint64 m_resumePositionMs = 0;
+    qint64 m_displayPositionOverride = -1;
     DiscordPresence m_discordPresence;
     QNetworkAccessManager m_network;
     QVariantAnimation m_accentAnimation;

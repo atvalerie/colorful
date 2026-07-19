@@ -127,7 +127,7 @@ Backend::Backend(QObject *parent)
         updateDiscordPresence();
     });
     connect(this, &Backend::seeked, this, [this] { updateDiscordPresence(); });
-    connect(&m_playback, &LinuxPlayback::positionChanged, this, &Backend::positionChanged);
+    connect(&m_playback, &LinuxPlayback::positionChanged, this, [this] { emit positionChanged(); });
     connect(&m_playback, &LinuxPlayback::durationChanged, this, &Backend::durationChanged);
     connect(&m_playback, &LinuxPlayback::volumeChanged, this, &Backend::volumeChanged);
     connect(&m_playback, &LinuxPlayback::loadingChanged, this, [this](bool loading) {
@@ -141,11 +141,14 @@ Backend::Backend(QObject *parent)
     });
     connect(&m_playback, &LinuxPlayback::seekCompleted, this, [this](qint64 confirmedPositionMs) {
         m_resumePositionMs = confirmedPositionMs;
+        m_displayPositionOverride = -1;
         dispatchCore({{QStringLiteral("command"), QStringLiteral("seek_to")},
                       {QStringLiteral("position_ms"), confirmedPositionMs}});
+        emit positionChanged();
         emit seeked(confirmedPositionMs);
     });
     connect(&m_playback, &LinuxPlayback::seekFailed, this, [this](qint64, const QString &reason) {
+        m_displayPositionOverride = -1;
         setStatus(QStringLiteral("Seek failed: %1").arg(reason));
         emit positionChanged();
     });
@@ -242,7 +245,11 @@ void Backend::refreshCoreSnapshot()
     m_currentIndex = nextCurrentIndex;
     m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
-    if (currentWasChanged) m_resumePositionMs = playback.value(QStringLiteral("positionMs")).toInteger();
+    if (currentWasChanged) {
+        m_resumePositionMs = playback.value(QStringLiteral("positionMs")).toInteger();
+        m_displayPositionOverride = m_resumePositionMs;
+        emit positionChanged();
+    }
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
@@ -312,7 +319,8 @@ bool Backend::playing() const
 
 qint64 Backend::position() const
 {
-    return m_playback.position();
+    if (m_displayPositionOverride >= 0) return m_displayPositionOverride;
+    return !m_playback.hasSource() ? m_resumePositionMs : m_playback.position();
 }
 
 qint64 Backend::duration() const
@@ -558,7 +566,6 @@ void Backend::removeQueueIndex(int index)
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove")},
                   {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
     if (removingCurrent) {
-        m_playback.stop();
         if (m_currentIndex >= 0) resolveCurrentSource(0, wasPlaying);
         else m_playback.clearSource();
     }
@@ -594,7 +601,6 @@ void Backend::removeLibraryIndex(int index)
 void Backend::playTrackAt(int index)
 {
     if (index < 0 || index >= m_queueEntryIds.size()) return;
-    m_playback.stop();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("select")},
                   {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
     resolveCurrentSource();
@@ -633,6 +639,7 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
             setStatus(QStringLiteral("TIDAL returned an empty playback source"));
             return;
         }
+        m_displayPositionOverride = startPositionMs > 0 ? startPositionMs : -1;
         m_playback.setSource(QUrl(uri), startPositionMs, autoplay);
     });
 }
@@ -661,6 +668,7 @@ void Backend::stop()
     ++m_sourceGeneration;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("stop")}});
     m_resumePositionMs = 0;
+    m_displayPositionOverride = -1;
     m_playback.stop();
 }
 
@@ -673,7 +681,6 @@ void Backend::next()
     }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                   {QStringLiteral("position_ms"), position()}});
-    m_playback.stop();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_next")}});
     resolveCurrentSource();
 }
@@ -722,7 +729,6 @@ void Backend::previous()
     else {
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                       {QStringLiteral("position_ms"), position()}});
-        m_playback.stop();
         dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_previous")}});
         resolveCurrentSource();
     }
@@ -731,7 +737,10 @@ void Backend::previous()
 void Backend::seek(qint64 positionMs)
 {
     const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, duration()));
-    m_playback.seek(target);
+    if (m_playback.seek(target)) {
+        m_displayPositionOverride = target;
+        emit positionChanged();
+    }
 }
 
 void Backend::seekBy(qint64 offsetMs) { seek(position() + offsetMs); }
