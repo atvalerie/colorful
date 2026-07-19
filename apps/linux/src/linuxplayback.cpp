@@ -61,6 +61,7 @@ LinuxPlayback::~LinuxPlayback()
 void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay)
 {
     if (!m_mpv || !source.isValid() || source.isEmpty()) return;
+    setSeekSilence(false);
     m_source = source;
     m_positionMs = std::max<qint64>(0, startPositionMs);
     m_durationMs = 0;
@@ -87,6 +88,7 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
 void LinuxPlayback::clearSource()
 {
     if (!m_mpv) return;
+    setSeekSilence(false);
     const char *arguments[] = {"stop", nullptr};
     command(arguments);
     m_source = QUrl();
@@ -121,6 +123,7 @@ void LinuxPlayback::pause()
 void LinuxPlayback::stop()
 {
     if (!m_mpv || !hasSource()) return;
+    setSeekSilence(false);
     m_desiredState = State::Stopped;
     setLogicalState(State::Stopped);
     setPauseProperty(true);
@@ -149,6 +152,10 @@ bool LinuxPlayback::seek(qint64 positionMs)
 
 bool LinuxPlayback::performSeek(qint64 target)
 {
+    // An uncached adaptive-stream seek can temporarily starve and restart the
+    // audio output. Keep that single transition continuous with silence; this
+    // is deliberately disabled again as soon as playback restarts.
+    setSeekSilence(true);
     const auto seconds = QByteArray::number(target / 1000.0, 'f', 3);
     const char *arguments[] = {"seek", seconds.constData(), "absolute+exact", nullptr};
     m_confirmingSeekMs = target;
@@ -195,6 +202,7 @@ void LinuxPlayback::drainEvents()
                 }
                 const auto confirmed = m_confirmingSeekMs;
                 m_confirmingSeekMs = -1;
+                setSeekSilence(false);
                 emit seekCompleted(confirmed);
             }
             finishLoading();
@@ -204,6 +212,7 @@ void LinuxPlayback::drainEvents()
             if (event->reply_userdata == m_seekRequestId && m_confirmingSeekMs >= 0) {
                 const auto target = m_confirmingSeekMs;
                 m_confirmingSeekMs = -1;
+                setSeekSilence(false);
                 emit seekFailed(target, mpvError(event->error));
                 if (m_queuedSeekMs >= 0) {
                     const auto queued = m_queuedSeekMs;
@@ -216,6 +225,7 @@ void LinuxPlayback::drainEvents()
             }
             break;
         case MPV_EVENT_END_FILE: {
+            setSeekSilence(false);
             const auto *end = static_cast<mpv_event_end_file *>(event->data);
             if (end && end->reason == MPV_END_FILE_REASON_EOF) emit endOfMedia();
             else if (end && end->reason == MPV_END_FILE_REASON_ERROR) {
@@ -248,6 +258,14 @@ void LinuxPlayback::handleProperty(quint64 propertyId, const mpv_event_property 
     } else if (propertyId == SeekableProperty && property.format == MPV_FORMAT_FLAG) {
         m_seekable = *static_cast<int *>(property.data) != 0;
     }
+}
+
+void LinuxPlayback::setSeekSilence(bool enabled)
+{
+    if (!m_mpv || m_seekSilenceActive == enabled) return;
+    m_seekSilenceActive = enabled;
+    int value = enabled ? 1 : 0;
+    mpv_set_property_async(m_mpv, 0, "audio-stream-silence", MPV_FORMAT_FLAG, &value);
 }
 
 void LinuxPlayback::setPauseProperty(bool paused)

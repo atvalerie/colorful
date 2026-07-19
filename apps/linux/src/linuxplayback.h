@@ -47,6 +47,7 @@ private:
     void drainEvents();
     void handleProperty(quint64 propertyId, const mpv_event_property &property);
     bool performSeek(qint64 positionMs);
+    void setSeekSilence(bool enabled);
     void setPauseProperty(bool paused);
     void setLogicalState(State state);
     void finishLoading();
@@ -63,6 +64,7 @@ private:
     qint64 m_queuedSeekMs = -1;
     bool m_seekable = false;
     bool m_loading = false;
+    bool m_seekSilenceActive = false;
     quint64 m_nextRequestId = 1;
     quint64 m_seekRequestId = 0;
     quint64 m_loadRequestId = 0;
