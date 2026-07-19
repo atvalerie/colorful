@@ -26,6 +26,9 @@ ApplicationWindow {
         function onSearchResultsChanged() {
             Qt.callLater(function() { resultsList.positionViewAtBeginning() })
         }
+        function onToastRequested(message, kind) {
+            toastOverlay.show(message, kind)
+        }
     }
 
     function formatTime(milliseconds) {
@@ -52,6 +55,15 @@ ApplicationWindow {
     Rectangle {
         anchors.fill: parent
         color: "#101012"
+    }
+
+    ToastOverlay {
+        id: toastOverlay
+        anchors.right: parent.right
+        anchors.rightMargin: 16
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 100
+        z: 997
     }
 
     Rectangle {

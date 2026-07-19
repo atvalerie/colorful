@@ -197,6 +197,7 @@ signals:
     void streamQualityChanged();
     void listenStatsChanged();
     void discordWidgetChanged();
+    void toastRequested(const QString &message, const QString &kind);
     void seeked(qint64 positionMs);
     void quitRequested();
     void raiseRequested();
@@ -213,6 +214,7 @@ private:
     void setLinked(bool linked);
     void setBusy(bool busy);
     void setStatus(const QString &message);
+    void notify(const QString &message, const QString &kind = QStringLiteral("info"));
     void setEntitlementWarning(bool visible, const QString &message = {});
     void playTrackAt(int index);
     void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true);

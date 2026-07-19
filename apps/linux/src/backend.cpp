@@ -601,7 +601,10 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         setStatus(event.endsWith(QStringLiteral("completed"))
                       ? QStringLiteral("TIDAL connected — search is ready")
                       : QStringLiteral("TIDAL account restored securely"));
-        if (event.endsWith(QStringLiteral("completed"))) loadTidalHub(false);
+        if (event.endsWith(QStringLiteral("completed"))) {
+            emit toastRequested(QStringLiteral("TIDAL connected"), QStringLiteral("success"));
+            loadTidalHub(false);
+        }
     } else if (event == QStringLiteral("auth.failed")) {
         m_authPending = false;
         emit authPendingChanged();
@@ -663,7 +666,7 @@ void Backend::unlink()
         emit tidalHubChanged();
         setEntitlementWarning(false);
         stop();
-        setStatus(QStringLiteral("TIDAL account disconnected"));
+        notify(QStringLiteral("TIDAL account disconnected"));
     });
 }
 
@@ -981,13 +984,14 @@ void Backend::saveTrack(const QVariantMap &track)
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("add_to_library")},
                   {QStringLiteral("track"), variantTrackToCore(track)}});
-    setStatus(QStringLiteral("Saved %1 to your library").arg(track.value(QStringLiteral("title")).toString()));
+    notify(QStringLiteral("Saved %1 to your library").arg(track.value(QStringLiteral("title")).toString()),
+           QStringLiteral("success"));
 }
 
 void Backend::enqueueCatalogTrack(const QVariantMap &track)
 {
     enqueueTrack(track);
-    setStatus(QStringLiteral("Added %1 to the queue").arg(track.value(QStringLiteral("title")).toString()));
+    notify(QStringLiteral("Added %1 to the queue").arg(track.value(QStringLiteral("title")).toString()));
 }
 
 void Backend::playCatalogTrack(const QVariantMap &track)
@@ -1044,8 +1048,8 @@ void Backend::enqueueSearchResult(int index)
 {
     if (index < 0 || index >= m_searchResults.size()) return;
     enqueueTrack(m_searchResults.at(index).toMap());
-    setStatus(QStringLiteral("Added %1 to the queue")
-                  .arg(m_searchResults.at(index).toMap().value(QStringLiteral("title")).toString()));
+    notify(QStringLiteral("Added %1 to the queue")
+               .arg(m_searchResults.at(index).toMap().value(QStringLiteral("title")).toString()));
 }
 
 void Backend::playSearchResult(int index)
@@ -1061,6 +1065,7 @@ void Backend::playQueueIndex(int index) { playTrackAt(index); }
 void Backend::removeQueueIndex(int index)
 {
     if (index < 0 || index >= m_queueEntryIds.size()) return;
+    const auto title = m_queue.at(index).toMap().value(QStringLiteral("title")).toString();
     const bool removingCurrent = index == m_currentIndex;
     const bool wasPlaying = playing();
     if (removingCurrent) finishListeningSession();
@@ -1070,6 +1075,7 @@ void Backend::removeQueueIndex(int index)
         if (m_currentIndex >= 0) resolveCurrentSource(0, wasPlaying);
         else m_playback.clearSource();
     }
+    notify(QStringLiteral("Removed %1 from the queue").arg(title));
 }
 
 void Backend::addSearchResultToLibrary(int index)
@@ -1094,7 +1100,7 @@ void Backend::removeLibraryIndex(int index)
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_from_library")},
                   {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                      {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
-    setStatus(QStringLiteral("Removed %1 from your library").arg(track.value(QStringLiteral("title")).toString()));
+    notify(QStringLiteral("Removed %1 from your library").arg(track.value(QStringLiteral("title")).toString()));
 }
 
 QString Backend::downloadsDirectory() const
@@ -1191,13 +1197,14 @@ void Backend::downloadTrack(const QVariantMap &track)
     const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
     if (trackId.isEmpty()) return;
     if (provider != QStringLiteral("tidal")) {
-        setStatus(QStringLiteral("Offline downloads are not implemented for %1 yet").arg(provider));
+        notify(QStringLiteral("Offline downloads are not implemented for %1 yet").arg(provider),
+               QStringLiteral("warning"));
         return;
     }
     const auto existing = downloadForTrack(provider, trackId);
     if (existing.value(QStringLiteral("downloadState")).toString() == QStringLiteral("complete")
         && QFileInfo::exists(existing.value(QStringLiteral("localPath")).toString())) {
-        setStatus(QStringLiteral("%1 is already available offline").arg(track.value(QStringLiteral("title")).toString()));
+        notify(QStringLiteral("%1 is already available offline").arg(track.value(QStringLiteral("title")).toString()));
         return;
     }
     if (!m_activeDownloadTrack.isEmpty()
@@ -1208,7 +1215,7 @@ void Backend::downloadTrack(const QVariantMap &track)
     QFile::remove(downloadPath(track, true));
     saveDownloadState(track, QStringLiteral("queued"));
     m_downloadQueue.append(track);
-    setStatus(QStringLiteral("Queued %1 for offline download").arg(track.value(QStringLiteral("title")).toString()));
+    notify(QStringLiteral("Queued %1 for offline download").arg(track.value(QStringLiteral("title")).toString()));
     beginNextDownload();
 }
 
@@ -1300,23 +1307,26 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                          {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
+        notify(QStringLiteral("Removed offline copy of %1").arg(track.value(QStringLiteral("title")).toString()));
     } else if (cancel) {
         saveDownloadState(track, QStringLiteral("paused"), {}, partialSize);
-        setStatus(QStringLiteral("Paused offline download for %1").arg(track.value(QStringLiteral("title")).toString()));
+        notify(QStringLiteral("Paused offline download for %1").arg(track.value(QStringLiteral("title")).toString()));
     } else if (!succeeded || partialSize <= 0) {
         saveDownloadState(track, QStringLiteral("failed"), {}, partialSize, std::nullopt,
                           QStringLiteral("transfer_failed"));
-        setStatus(QStringLiteral("Download failed: %1").arg(error.isEmpty() ? QStringLiteral("empty output") : error));
+        notify(QStringLiteral("Download failed: %1").arg(error.isEmpty() ? QStringLiteral("empty output") : error),
+               QStringLiteral("error"));
     } else {
         QFile::remove(finalPath);
         if (!QFile::rename(partialPath, finalPath)) {
             saveDownloadState(track, QStringLiteral("failed"), {}, partialSize, std::nullopt,
                               QStringLiteral("finalize_failed"));
-            setStatus(QStringLiteral("Could not finalize the offline file"));
+            notify(QStringLiteral("Could not finalize the offline file"), QStringLiteral("error"));
         } else {
             saveDownloadState(track, QStringLiteral("complete"), finalPath, partialSize, partialSize);
             downloadArtwork(track);
-            setStatus(QStringLiteral("%1 is ready offline").arg(track.value(QStringLiteral("title")).toString()));
+            notify(QStringLiteral("%1 is ready offline").arg(track.value(QStringLiteral("title")).toString()),
+                   QStringLiteral("success"));
         }
     }
     QTimer::singleShot(0, this, &Backend::beginNextDownload);
@@ -1328,6 +1338,8 @@ void Backend::pauseDownload(const QString &trackId)
         if (m_downloadQueue.at(index).value(QStringLiteral("id")).toString() != trackId) continue;
         const auto track = m_downloadQueue.takeAt(index);
         saveDownloadState(track, QStringLiteral("paused"));
+        notify(QStringLiteral("Paused offline download for %1")
+                   .arg(track.value(QStringLiteral("title")).toString()));
         return;
     }
     if (m_activeDownloadTrack.value(QStringLiteral("id")).toString() != trackId) return;
@@ -1355,6 +1367,8 @@ void Backend::removeDownload(const QString &trackId)
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                          {QStringLiteral("providerId"), trackId}}}});
+        notify(QStringLiteral("Removed offline download for %1")
+                   .arg(track.value(QStringLiteral("title")).toString()));
         return;
     }
     if (m_activeDownloadTrack.value(QStringLiteral("id")).toString() == trackId) {
@@ -1372,6 +1386,7 @@ void Backend::removeDownload(const QString &trackId)
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                   {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), existing.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                      {QStringLiteral("providerId"), trackId}}}});
+    notify(QStringLiteral("Removed offline copy of %1").arg(existing.value(QStringLiteral("title")).toString()));
 }
 
 void Backend::openDownloadsFolder()
@@ -1571,7 +1586,7 @@ void Backend::setStreamQuality(const QString &quality)
     m_streamQuality = quality;
     QSettings().setValue(QStringLiteral("playback/streamQuality"), quality);
     emit streamQualityChanged();
-    setStatus(QStringLiteral("Stream quality will apply to the next track"));
+    notify(QStringLiteral("Stream quality will apply to the next track"));
 }
 
 void Backend::setAccentMode(const QString &mode)
@@ -1968,6 +1983,12 @@ void Backend::setProviderReady(bool ready) { if (m_providerReady != ready) { m_p
 void Backend::setLinked(bool linked) { if (m_linked != linked) { m_linked = linked; emit linkedChanged(); } }
 void Backend::setBusy(bool busy) { if (m_busy != busy) { m_busy = busy; emit busyChanged(); } }
 void Backend::setStatus(const QString &message) { if (m_statusMessage != message) { m_statusMessage = message; emit statusMessageChanged(); } }
+
+void Backend::notify(const QString &message, const QString &kind)
+{
+    setStatus(message);
+    emit toastRequested(message, kind);
+}
 void Backend::setEntitlementWarning(bool visible, const QString &message)
 {
     const auto nextMessage = visible ? message : QString{};
