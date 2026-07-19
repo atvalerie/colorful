@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 Item {
@@ -127,7 +128,8 @@ Item {
                                 Text { text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11 }
                             }
                             Rectangle {
-                                width: 42; height: 22
+                                Layout.preferredWidth: 42
+                                Layout.preferredHeight: 22
                                 color: colorful.autoplayEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
                                 border.width: 1; border.color: colorful.autoplayEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
                                 Rectangle { width: 16; height: 16; y: 3; x: colorful.autoplayEnabled ? parent.width - width - 3 : 3; color: colorful.autoplayEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
@@ -282,6 +284,32 @@ Item {
                             }
                         }
                     }
+                    RowLayout {
+                        visible: colorful.accentMode === "fixed"
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Rectangle {
+                            Layout.preferredWidth: 42
+                            Layout.preferredHeight: 42
+                            color: colorful.fixedAccent
+                            border.width: 1
+                            border.color: Qt.rgba(1, 1, 1, 0.35)
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text { text: "Custom color"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12 }
+                            Text { text: colorful.fixedAccent.toString().toUpperCase(); color: Qt.rgba(1, 1, 1, 0.38); font.pixelSize: 10 }
+                        }
+                        ColorButton {
+                            text: "Choose color…"
+                            quiet: true
+                            onClicked: {
+                                accentColorDialog.selectedColor = colorful.fixedAccent
+                                accentColorDialog.open()
+                            }
+                        }
+                    }
                 }
             }
 
@@ -344,6 +372,15 @@ Item {
                     Text { Layout.fillWidth: true; text: "This personal project is entirely AI-made. It exists because its owner needed a stable music client that worked for them."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
                 }
             }
+        }
+    }
+
+    ColorDialog {
+        id: accentColorDialog
+        title: "Choose a colorful accent"
+        onAccepted: {
+            colorful.fixedAccent = selectedColor
+            colorful.accentMode = "fixed"
         }
     }
 }
