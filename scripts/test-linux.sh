@@ -63,7 +63,7 @@ dbus-run-session -- bash -c '
     org.freedesktop.DBus.Properties.Get org.mpris.MediaPlayer2.Player PlaybackStatus)"
   [[ "$identity" == "colorful" ]]
   [[ "$status" == "Stopped" ]]
-  if grep -E "ReferenceError|TypeError|Unable to assign|Binding loop|QQmlApplicationEngine failed" "$log_file"; then
+  if grep -E "ReferenceError|TypeError|Unable to assign|Binding loop|recursive rearrange|QQmlApplicationEngine failed" "$log_file"; then
     echo "QML runtime error detected" >&2
     exit 1
   fi

@@ -10,6 +10,9 @@ Item {
     readonly property string kind: page.kind || ""
     readonly property string pageIdentity: kind + ":" + (page.resourceId || "")
     property string lastScrolledPageIdentity: ""
+    property real paginationAnchorY: 0
+    property string paginationAnchorIdentity: ""
+    readonly property bool moreLoading: colorful.catalogMoreLoading
     readonly property var primary: kind === "track" ? (page.track || {})
                                            : kind === "album" ? (page.album || {})
                                                               : (page.artist || {})
@@ -21,6 +24,20 @@ Item {
         if (!page.resourceId || pageIdentity === lastScrolledPageIdentity) return
         lastScrolledPageIdentity = pageIdentity
         catalogScroll.contentY = 0
+    }
+    onMoreLoadingChanged: {
+        if (moreLoading) {
+            paginationAnchorY = catalogScroll.contentY
+            paginationAnchorIdentity = pageIdentity
+            return
+        }
+        const restoreY = paginationAnchorY
+        const restoreIdentity = paginationAnchorIdentity
+        Qt.callLater(function() {
+            if (root.pageIdentity !== restoreIdentity) return
+            catalogScroll.contentY = Math.max(catalogScroll.originY,
+                Math.min(restoreY, catalogScroll.contentHeight - catalogScroll.height))
+        })
     }
 
     function formatTime(milliseconds) {

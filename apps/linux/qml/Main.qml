@@ -19,11 +19,13 @@ ApplicationWindow {
     property bool queueOpen: false
     property string submittedQuery: ""
     property string currentSection: "search"
-    onCurrentSectionChanged: resultsList.positionViewAtBeginning()
+    onCurrentSectionChanged: Qt.callLater(function() { resultsList.positionViewAtBeginning() })
 
     Connections {
         target: colorful
-        function onSearchResultsChanged() { resultsList.positionViewAtBeginning() }
+        function onSearchResultsChanged() {
+            Qt.callLater(function() { resultsList.positionViewAtBeginning() })
+        }
     }
 
     function formatTime(milliseconds) {
@@ -656,7 +658,9 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 spacing: 5
                                 Row {
-                                    Layout.maximumWidth: parent.width * 0.48
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    visible: (window.now.artistCredits || []).length > 0
                                     spacing: 3
                                     clip: true
                                     Repeater {
@@ -682,9 +686,12 @@ ApplicationWindow {
                                     }
                                 }
                                 Text {
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
                                     visible: !(window.now.artistCredits || []).length
                                     text: "Choose a track"
                                     color: window.mutedInk
+                                    elide: Text.ElideRight
                                     font.pixelSize: 11
                                 }
                                 Text {
@@ -695,6 +702,7 @@ ApplicationWindow {
                                 }
                                 MetadataLink {
                                     Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
                                     visible: Boolean(window.now.albumId)
                                     text: window.now.albumTitle || "Open album"
                                     normalColor: window.mutedInk
