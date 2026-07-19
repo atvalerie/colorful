@@ -3,7 +3,7 @@ import { BrowseClient } from "./browse";
 import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
-import { loadSubscriptionStatus } from "./subscription";
+import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -11,6 +11,9 @@ type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknow
 const config = readTidalConfig();
 const browse = new BrowseClient(config);
 let session: UserSession | null = null;
+let account: SubscriptionStatus | null = null;
+let accountLoad: Promise<SubscriptionStatus> | null = null;
+let userBrowse: BrowseClient | null = null;
 let authAbort: AbortController | null = null;
 
 function send(message: ResponseMessage): void {
@@ -25,12 +28,33 @@ async function installSession(token: UserToken): Promise<void> {
   session = new UserSession(config, token, async (refreshToken) => {
     if (!await saveRefreshToken(refreshToken)) send({ event: "warning", ok: false, error: "Could not persist refreshed TIDAL login in Secret Service" });
   });
+  account = null;
+  accountLoad = null;
+  userBrowse = null;
+}
+
+async function accountStatus(force = false): Promise<SubscriptionStatus> {
+  if (!session) throw new Error("Connect your TIDAL account first");
+  if (!force && account) return account;
+  if (!force && accountLoad) return accountLoad;
+  accountLoad = (async () => {
+    const token = await session!.accessToken(force);
+    const identity = await loadAccountIdentity(token);
+    const details = await loadSubscriptionStatus(token, identity);
+    account = details;
+    userBrowse = new BrowseClient({ ...config, countryCode: details.countryCode }, {
+      getAccessToken: (refresh = false) => session!.accessToken(refresh),
+    });
+    return details;
+  })().finally(() => { accountLoad = null; });
+  return accountLoad;
 }
 
 async function publishSubscriptionStatus(): Promise<void> {
-  if (!session) return;
   try {
-    send({ event: "subscription.status", ok: true, data: await loadSubscriptionStatus(await session.accessToken()) });
+    const data = await accountStatus();
+    send({ event: "subscription.status", ok: true, data });
+    send({ event: "account.status", ok: true, data });
   } catch (error) {
     send({ event: "subscription.check_failed", ok: false, error: publicError(error) });
   }
@@ -81,9 +105,30 @@ async function handle(request: RequestMessage): Promise<void> {
       authAbort?.abort();
       authAbort = null;
       session = null;
+      account = null;
+      accountLoad = null;
+      userBrowse = null;
       await clearRefreshToken();
       send({ id: request.id, ok: true, data: { linked: false } });
       return;
+    case "account":
+      send({ id: request.id, ok: true, data: await accountStatus(Boolean(request.payload?.refresh)) });
+      return;
+    case "collection": {
+      const details = await accountStatus();
+      if (!userBrowse) throw new Error("TIDAL account catalog is not ready");
+      send({ id: request.id, ok: true, data: await userBrowse.userCollection(details.userId) });
+      return;
+    }
+    case "collection.more": {
+      const details = await accountStatus();
+      if (!userBrowse) throw new Error("TIDAL account catalog is not ready");
+      const section = String(request.payload?.section ?? "");
+      const cursor = String(request.payload?.cursor ?? "");
+      if (!section || !cursor) throw new Error("Collection pagination state is incomplete");
+      send({ id: request.id, ok: true, data: await userBrowse.userCollectionMore(details.userId, section, cursor) });
+      return;
+    }
     case "search": {
       const query = String(request.payload?.query ?? "").trim();
       if (!query) throw new Error("Search query is empty");
@@ -99,6 +144,11 @@ async function handle(request: RequestMessage): Promise<void> {
       if (kind === "track") send({ id: request.id, ok: true, data: await browse.trackPage(resourceId) });
       else if (kind === "album") send({ id: request.id, ok: true, data: await browse.albumPage(resourceId) });
       else if (kind === "artist") send({ id: request.id, ok: true, data: await browse.artistPage(resourceId) });
+      else if (kind === "playlist") {
+        await accountStatus();
+        if (!userBrowse) throw new Error("TIDAL account catalog is not ready");
+        send({ id: request.id, ok: true, data: await userBrowse.playlistPage(resourceId) });
+      }
       else throw new Error(`Unsupported catalog page: ${kind}`);
       return;
     }
@@ -110,7 +160,13 @@ async function handle(request: RequestMessage): Promise<void> {
       const section = String(request.payload?.section ?? "");
       const cursor = String(request.payload?.cursor ?? "").trim();
       if (!resourceId || !cursor) throw new Error("Catalog pagination state is incomplete");
-      send({ id: request.id, ok: true, data: await browse.catalogMore(kind, resourceId, section, cursor) });
+      if (kind === "playlist") {
+        await accountStatus();
+        if (!userBrowse) throw new Error("TIDAL account catalog is not ready");
+        send({ id: request.id, ok: true, data: await userBrowse.catalogMore(kind, resourceId, section, cursor) });
+      } else {
+        send({ id: request.id, ok: true, data: await browse.catalogMore(kind, resourceId, section, cursor) });
+      }
       return;
     }
     case "detail.albumTracks": {

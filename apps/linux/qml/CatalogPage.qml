@@ -15,9 +15,10 @@ Item {
     readonly property bool moreLoading: colorful.catalogMoreLoading
     readonly property var primary: kind === "track" ? (page.track || {})
                                            : kind === "album" ? (page.album || {})
-                                                              : (page.artist || {})
+                                           : kind === "playlist" ? (page.playlist || {})
+                                                                 : (page.artist || {})
     readonly property var tracks: kind === "track" ? (page.relatedTracks || [])
-                                         : kind === "album" ? (page.tracks || [])
+                                         : (kind === "album" || kind === "playlist") ? (page.tracks || [])
                                                             : (page.topTracks || [])
 
     onPageIdentityChanged: {
@@ -72,7 +73,7 @@ Item {
                     onClicked: colorful.canNavigateCatalogBack ? colorful.navigateCatalogBack() : colorful.closeCatalog()
                 }
                 Text {
-                    text: root.kind === "track" ? "Track" : root.kind === "album" ? "Album" : "Artist"
+                    text: root.kind === "track" ? "Track" : root.kind === "album" ? "Album" : root.kind === "playlist" ? "Playlist" : "Artist"
                     color: Qt.rgba(1, 1, 1, 0.46)
                     font.pixelSize: 11
                     font.capitalization: Font.AllUppercase
@@ -119,7 +120,9 @@ Item {
                     spacing: 8
                     Text {
                         Layout.fillWidth: true
-                        text: root.kind === "artist" ? (root.primary.name || "Unknown artist") : (root.primary.title || "Unknown title")
+                        text: root.kind === "artist" ? (root.primary.name || "Unknown artist")
+                              : root.kind === "playlist" ? (root.primary.name || "Untitled playlist")
+                              : (root.primary.title || "Unknown title")
                         color: "#f5f5f5"
                         font.bold: true
                         font.pixelSize: 34
@@ -155,6 +158,13 @@ Item {
                         color: Qt.rgba(1, 1, 1, 0.48)
                         font.pixelSize: 11
                     }
+                    Text {
+                        visible: root.kind === "playlist"
+                        text: [root.primary.playlistType, root.primary.numberOfItems ? root.primary.numberOfItems + " tracks" : "",
+                               root.formatTime(root.primary.durationMs)].filter(Boolean).join("  ·  ")
+                        color: Qt.rgba(1, 1, 1, 0.48)
+                        font.pixelSize: 11
+                    }
                     MetadataLink {
                         visible: root.kind === "track" && Boolean(root.primary.albumId)
                         text: root.primary.albumTitle || "Open album"
@@ -166,7 +176,8 @@ Item {
                         Layout.topMargin: 8
                         spacing: 8
                         ColorButton {
-                            text: root.kind === "track" ? "Play track" : root.kind === "album" ? "Play album" : "Play top tracks"
+                            text: root.kind === "track" ? "Play track" : root.kind === "album" ? "Play album"
+                                  : root.kind === "playlist" ? "Play playlist" : "Play top tracks"
                             onClicked: colorful.playCatalogCollection()
                         }
                         ColorButton {
@@ -187,7 +198,7 @@ Item {
 
             Text {
                 visible: root.tracks.length > 0
-                text: root.kind === "track" ? "Related tracks" : root.kind === "album" ? "Tracks" : "Popular tracks"
+                text: root.kind === "track" ? "Related tracks" : (root.kind === "album" || root.kind === "playlist") ? "Tracks" : "Popular tracks"
                 color: "#f5f5f5"
                 font.bold: true
                 font.pixelSize: 18

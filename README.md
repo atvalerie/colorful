@@ -46,7 +46,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 | Target | Status | Current implementation |
 | --- | --- | --- |
-| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL search/streaming, persistent queue/library |
+| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL search/streaming/collection, persistent queue/library |
 | Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking and playback, Rust/SQLite persistence |
 | Windows | Planned | WinUI, Media Foundation/WASAPI, System Media Transport Controls |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
@@ -56,6 +56,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 - TIDAL device linking and subscription-aware full-track playback
 - account-country discovery with a cached fallback
+- TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
 - lossless/adaptive playback with accurate duration and seeking
 - persistent queue, library, playback position, autoplay, and related tracks
 - Linux MPRIS and Discord Rich Presence
@@ -67,8 +68,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 ### On the roadmap
 
-- album, artist, playlist/mix, and categorized search pages
-- TIDAL account library and offline downloads
+- broader TIDAL home/recommendation surfaces and offline downloads
 - gapless/prepared-next playback and a shared DSP contract for EQ
 - SoundCloud public accounts, catalog, and playback
 - encrypted multi-device library sync and playback handoff

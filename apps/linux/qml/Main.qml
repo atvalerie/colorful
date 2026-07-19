@@ -244,9 +244,13 @@ ApplicationWindow {
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/user.svg"
-                        selected: accountPopup.opened
-                        tooltipText: "Accounts and integrations"
-                        onClicked: accountPopup.opened ? accountPopup.close() : accountPopup.open()
+                        selected: window.currentSection === "tidal"
+                        tooltipText: "TIDAL account and collection"
+                        onClicked: {
+                            window.currentSection = "tidal"
+                            colorful.closeCatalog()
+                            colorful.loadTidalHub(false)
+                        }
                     }
                 }
             }
@@ -341,13 +345,22 @@ ApplicationWindow {
                         CatalogPage {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            visible: colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0
+                            visible: window.currentSection !== "tidal"
+                                     && (colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0)
                             page: colorful.catalogPage
                             loading: colorful.catalogLoading
                         }
 
+                        TidalPage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: window.currentSection === "tidal"
+                            onIntegrationsRequested: accountPopup.open()
+                        }
+
                         RowLayout {
-                            visible: !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                            visible: window.currentSection !== "tidal"
+                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                             Layout.fillWidth: true
                             spacing: 10
 
@@ -375,7 +388,8 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             model: window.currentSection === "library" ? colorful.library : colorful.searchResults
-                            visible: !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                            visible: window.currentSection !== "tidal"
+                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                             spacing: 0
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds

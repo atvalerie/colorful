@@ -37,9 +37,31 @@ export type ArtistSummary = {
   pictureUrl: string | null;
 };
 
+export type PlaylistSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  coverUrl: string | null;
+  durationMs: number | null;
+  numberOfItems: number | null;
+  playlistType: string | null;
+  createdAt: string | null;
+  lastModifiedAt: string | null;
+};
+
+export type UserCollectionPage = {
+  tracks: TrackSummary[];
+  albums: AlbumSummary[];
+  artists: ArtistSummary[];
+  playlists: PlaylistSummary[];
+  mixes: PlaylistSummary[];
+  cursors: Record<string, string>;
+};
+
 export type CatalogSearch = { tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[] };
 export type TrackPage = { kind: "track"; track: TrackSummary; relatedTracks: TrackSummary[] };
 export type AlbumPage = { kind: "album"; album: AlbumSummary; tracks: TrackSummary[]; trackCursor?: string };
+export type PlaylistPage = { kind: "playlist"; playlist: PlaylistSummary; tracks: TrackSummary[]; trackCursor?: string };
 export type ArtistPage = {
   kind: "artist";
   artist: ArtistSummary;
@@ -219,17 +241,35 @@ export function mapArtists(document: { data?: Resource | Resource[]; included?: 
   }));
 }
 
-export class BrowseClient {
-  private readonly auth: BrowseAuth;
+export function mapPlaylists(document: { data?: Resource | Resource[]; included?: Resource[] }): PlaylistSummary[] {
+  const resources = resourcesFrom(document);
+  const artwork = new Map(resources.filter((resource) => resource.type === "artworks").map((resource) => [resource.id, resource]));
+  return resources.filter((resource) => resource.type === "playlists").map((playlist) => ({
+    id: playlist.id,
+    name: String(playlist.attributes?.name ?? "Untitled playlist"),
+    description: typeof playlist.attributes?.description === "string" ? playlist.attributes.description : null,
+    coverUrl: artworkUrl(playlist, artwork),
+    durationMs: isoDurationToMs(playlist.attributes?.duration),
+    numberOfItems: Number.isFinite(playlist.attributes?.numberOfItems) ? Number(playlist.attributes?.numberOfItems) : null,
+    playlistType: typeof playlist.attributes?.playlistType === "string" ? playlist.attributes.playlistType : null,
+    createdAt: typeof playlist.attributes?.createdAt === "string" ? playlist.attributes.createdAt : null,
+    lastModifiedAt: typeof playlist.attributes?.lastModifiedAt === "string" ? playlist.attributes.lastModifiedAt : null,
+  }));
+}
 
-  constructor(private readonly config: TidalConfig, auth?: BrowseAuth) {
+type AccessTokenProvider = { getAccessToken(force?: boolean): Promise<string> };
+
+export class BrowseClient {
+  private readonly auth: AccessTokenProvider;
+
+  constructor(private readonly config: TidalConfig, auth?: AccessTokenProvider) {
     this.auth = auth ?? new BrowseAuth(config);
   }
 
-  private async get(path: string, params: Record<string, string> = {}): Promise<any> {
+  private async get(path: string, params: Record<string, string> = {}, useCountryCode = true): Promise<any> {
     const base = this.config.apiBaseUrl.endsWith("/") ? this.config.apiBaseUrl : `${this.config.apiBaseUrl}/`;
     const url = new URL(path, base);
-    url.searchParams.set("countryCode", this.config.countryCode);
+    if (useCountryCode) url.searchParams.set("countryCode", this.config.countryCode);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     const request = async (force: boolean) => fetch(url, {
       headers: { Authorization: `Bearer ${await this.auth.getAccessToken(force)}`, Accept: "application/vnd.api+json" },
@@ -302,6 +342,77 @@ export class BrowseClient {
     } catch {
       return artists;
     }
+  }
+
+  private async hydratePlaylists(playlists: PlaylistSummary[]): Promise<PlaylistSummary[]> {
+    if (playlists.length === 0) return playlists;
+    try {
+      const document = await this.get("playlists", {
+        include: "coverArt",
+        "filter[id]": playlists.slice(0, 20).map((playlist) => playlist.id).join(","),
+      });
+      const hydrated = new Map(mapPlaylists(document).map((playlist) => [playlist.id, playlist]));
+      return playlists.map((playlist) => hydrated.get(playlist.id) ?? playlist);
+    } catch {
+      return playlists;
+    }
+  }
+
+  private async userRelationship(path: string, include: string, cursor?: string): Promise<any> {
+    return this.get(path, {
+      include,
+      locale: "en-US",
+      "page[limit]": "20",
+      ...(cursor ? { "page[cursor]": cursor } : {}),
+    }, false);
+  }
+
+  async userCollection(userId: string): Promise<UserCollectionPage> {
+    const root = `userCollections/${encodeURIComponent(userId)}/relationships`;
+    const [tracks, albums, artists, playlists, myMixes, discoveryMixes] = await Promise.allSettled([
+      this.userRelationship(`${root}/tracks`, "tracks"),
+      this.userRelationship(`${root}/albums`, "albums"),
+      this.userRelationship(`${root}/artists`, "artists"),
+      this.userRelationship(`${root}/playlists`, "playlists"),
+      this.userRelationship("userRecommendations/me/relationships/myMixes", "myMixes"),
+      this.userRelationship("userRecommendations/me/relationships/discoveryMixes", "discoveryMixes"),
+    ]);
+    const collectionResults = [tracks, albums, artists, playlists];
+    if (collectionResults.every((result) => result.status === "rejected")) {
+      throw (tracks as PromiseRejectedResult).reason;
+    }
+    const cursors: Record<string, string> = {};
+    const remember = (section: string, result: PromiseSettledResult<any>) => {
+      if (result.status !== "fulfilled") return;
+      const cursor = cursorFromNextLink(result.value);
+      if (cursor) cursors[section] = cursor;
+    };
+    remember("tracks", tracks); remember("albums", albums); remember("artists", artists); remember("playlists", playlists);
+    const mixDocuments = [myMixes, discoveryMixes].flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    const mixValues = await this.hydratePlaylists([...new Map(mixDocuments.flatMap(mapPlaylists).map((item) => [item.id, item])).values()]);
+    return {
+      tracks: tracks.status === "fulfilled" ? await this.hydrateTracks(mapTracks(tracks.value)) : [],
+      albums: albums.status === "fulfilled" ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(albums.value))) : [],
+      artists: artists.status === "fulfilled" ? await this.hydrateArtists(mapArtists(artists.value)) : [],
+      playlists: playlists.status === "fulfilled" ? await this.hydratePlaylists(mapPlaylists(playlists.value)) : [],
+      mixes: mixValues,
+      cursors,
+    };
+  }
+
+  async userCollectionMore(userId: string, section: string, cursor: string): Promise<{ section: string; items: unknown[]; cursor?: string }> {
+    if (!["tracks", "albums", "artists", "playlists"].includes(section)) throw new Error(`Cannot paginate collection ${section}`);
+    const document = await this.userRelationship(
+      `userCollections/${encodeURIComponent(userId)}/relationships/${section}`,
+      section,
+      cursor,
+    );
+    const items = section === "tracks" ? await this.hydrateTracks(mapTracks(document))
+      : section === "albums" ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(document)))
+      : section === "artists" ? await this.hydrateArtists(mapArtists(document))
+      : await this.hydratePlaylists(mapPlaylists(document));
+    const next = cursorFromNextLink(document);
+    return { section, items, ...(next ? { cursor: next } : {}) };
   }
 
   private async relationshipTrackPage(
@@ -408,6 +519,18 @@ export class BrowseClient {
     return { kind: "album", album, tracks: trackPage.tracks, ...(trackPage.cursor ? { trackCursor: trackPage.cursor } : {}) };
   }
 
+  async playlistPage(playlistId: string): Promise<PlaylistPage> {
+    const encoded = encodeURIComponent(playlistId);
+    const [playlistDocument, trackPage] = await Promise.all([
+      this.get(`playlists/${encoded}`, { include: "coverArt" }),
+      this.relationshipTrackPage(`playlists/${encoded}/relationships/items`, { include: "items" })
+        .catch((): { tracks: TrackSummary[]; cursor?: string } => ({ tracks: [] })),
+    ]);
+    const playlist = mapPlaylists(playlistDocument)[0];
+    if (!playlist) throw new Error("TIDAL did not return that playlist");
+    return { kind: "playlist", playlist, tracks: trackPage.tracks, ...(trackPage.cursor ? { trackCursor: trackPage.cursor } : {}) };
+  }
+
   async artistPage(artistId: string): Promise<ArtistPage> {
     const encoded = encodeURIComponent(artistId);
     const [artistResult, tracksResult, albumsResult] = await Promise.allSettled([
@@ -432,6 +555,10 @@ export class BrowseClient {
     const encoded = encodeURIComponent(resourceId);
     if (kind === "album" && section === "tracks") {
       const page = await this.relationshipTrackPage(`albums/${encoded}/relationships/items`, { include: "items" }, cursor);
+      return { section: "tracks", tracks: page.tracks, ...(page.cursor ? { cursor: page.cursor } : {}) };
+    }
+    if (kind === "playlist" && section === "tracks") {
+      const page = await this.relationshipTrackPage(`playlists/${encoded}/relationships/items`, { include: "items" }, cursor);
       return { section: "tracks", tracks: page.tracks, ...(page.cursor ? { cursor: page.cursor } : {}) };
     }
     if (kind === "artist" && section === "tracks") {

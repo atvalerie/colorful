@@ -51,6 +51,8 @@ qt_add_qml_module(colorful-linux
         qml/TrackDelegate.qml
         qml/CatalogCard.qml
         qml/CatalogPage.qml
+        qml/PlaylistCard.qml
+        qml/TidalPage.qml
         qml/MetadataLink.qml
         qml/ArtworkImage.qml
     RESOURCES

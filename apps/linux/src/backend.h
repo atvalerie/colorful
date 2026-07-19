@@ -38,6 +38,9 @@ class Backend final : public QObject
     Q_PROPERTY(bool canNavigateCatalogBack READ canNavigateCatalogBack NOTIFY catalogPageChanged)
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
     Q_PROPERTY(QVariantList library READ library NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantMap tidalHub READ tidalHub NOTIFY tidalHubChanged)
+    Q_PROPERTY(bool tidalHubLoading READ tidalHubLoading NOTIFY tidalHubChanged)
+    Q_PROPERTY(bool tidalMoreLoading READ tidalMoreLoading NOTIFY tidalHubChanged)
     Q_PROPERTY(int currentQueueIndex READ currentQueueIndex NOTIFY currentTrackChanged)
     Q_PROPERTY(QVariantMap currentTrack READ currentTrack NOTIFY currentTrackChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
@@ -78,6 +81,9 @@ public:
     bool canNavigateCatalogBack() const { return !m_catalogHistory.isEmpty(); }
     QVariantList queue() const { return m_queue; }
     QVariantList library() const { return m_library; }
+    QVariantMap tidalHub() const { return m_tidalHub; }
+    bool tidalHubLoading() const { return m_tidalHubLoading; }
+    bool tidalMoreLoading() const { return m_tidalMoreLoading; }
     int currentQueueIndex() const { return m_currentIndex; }
     QVariantMap currentTrack() const;
     bool playing() const;
@@ -110,6 +116,7 @@ public:
     Q_INVOKABLE void openTrack(const QString &id);
     Q_INVOKABLE void openAlbum(const QString &id);
     Q_INVOKABLE void openArtist(const QString &id);
+    Q_INVOKABLE void openPlaylist(const QString &id);
     Q_INVOKABLE void openTrackArtist(const QVariantMap &track, int artistIndex);
     Q_INVOKABLE void navigateCatalogBack();
     Q_INVOKABLE void closeCatalog();
@@ -125,6 +132,8 @@ public:
     Q_INVOKABLE void addSearchResultToLibrary(int index);
     Q_INVOKABLE void playLibraryIndex(int index);
     Q_INVOKABLE void removeLibraryIndex(int index);
+    Q_INVOKABLE void loadTidalHub(bool refresh = false);
+    Q_INVOKABLE void loadMoreTidal(const QString &section);
     Q_INVOKABLE void togglePlay();
     Q_INVOKABLE void play();
     Q_INVOKABLE void pause();
@@ -157,6 +166,7 @@ signals:
     void catalogPageChanged();
     void queueChanged();
     void libraryChanged();
+    void tidalHubChanged();
     void currentTrackChanged();
     void playbackChanged();
     void positionChanged();
@@ -204,6 +214,7 @@ private:
     static QVariantMap jsonTrackToVariant(const QJsonObject &track);
     static QVariantMap jsonAlbumToVariant(const QJsonObject &album);
     static QVariantMap jsonArtistToVariant(const QJsonObject &artist);
+    static QVariantMap jsonPlaylistToVariant(const QJsonObject &playlist);
     static QVariantMap jsonCatalogPageToVariant(const QJsonObject &page);
 
     QProcess m_provider;
@@ -230,6 +241,9 @@ private:
     quint64 m_catalogGeneration = 0;
     QVariantList m_queue;
     QVariantList m_library;
+    QVariantMap m_tidalHub;
+    bool m_tidalHubLoading = false;
+    bool m_tidalMoreLoading = false;
     QVariantMap m_listenStats;
     QList<qint64> m_queueEntryIds;
     int m_currentIndex = -1;

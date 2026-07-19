@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cursorFromNextLink, deduplicateAlbums, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapTracks, mergeRelatedTracks, type AlbumSummary, type TrackSummary } from "../src/browse";
+import { cursorFromNextLink, deduplicateAlbums, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapPlaylists, mapTracks, mergeRelatedTracks, type AlbumSummary, type TrackSummary } from "../src/browse";
 
 describe("TIDAL browse mapping", () => {
   test("parses ISO durations", () => {
@@ -83,6 +83,20 @@ describe("TIDAL browse mapping", () => {
       coverUrl: "https://example.test/album.jpg",
     }));
     expect(mapArtists(document)[0]).toEqual({ id: "artist-1", name: "Someone", pictureUrl: "https://example.test/artist.jpg" });
+  });
+
+  test("normalizes playlist metadata and cover art", () => {
+    const document = {
+      data: { id: "playlist-1", type: "playlists", attributes: {
+        name: "Night drive", description: "After-hours picks", duration: "PT1H2M3S",
+        numberOfItems: 18, playlistType: "USER", createdAt: "2026-01-01T00:00:00Z",
+      }, relationships: { coverArt: { data: [{ id: "cover-1", type: "artworks" }] } } },
+      included: [{ id: "cover-1", type: "artworks", attributes: { files: [{ href: "https://images.test/playlist.jpg" }] } }],
+    };
+    expect(mapPlaylists(document)[0]).toEqual(expect.objectContaining({
+      id: "playlist-1", name: "Night drive", durationMs: 3_723_000,
+      numberOfItems: 18, playlistType: "USER", coverUrl: "https://images.test/playlist.jpg",
+    }));
   });
 
   test("collapses delivery variants and keeps the best explicit lossless release", () => {
