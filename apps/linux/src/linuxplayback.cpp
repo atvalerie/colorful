@@ -2,7 +2,6 @@
 
 #include <QMetaObject>
 #include <algorithm>
-#include <cmath>
 
 namespace {
 qint64 clockTimeToMs(gint64 value)
@@ -36,30 +35,19 @@ LinuxPlayback::LinuxPlayback(QObject *parent)
         updateQueries();
     });
     m_pollTimer.start();
-    m_fadeTimer.setInterval(5);
-    connect(&m_fadeTimer, &QTimer::timeout, this, [this] {
-        ++m_fadeStep;
-        const auto progress = std::min(1.0, m_fadeStep / static_cast<double>(m_fadeSteps));
-        m_transitionGain = m_fadeStart + (m_fadeTarget - m_fadeStart) * progress;
-        applyVolume();
-        if (progress < 1.0) return;
-        m_fadeTimer.stop();
-        auto completion = std::move(m_fadeCompletion);
-        m_fadeCompletion = {};
-        if (completion) completion();
-    });
     m_seekTimeout.setSingleShot(true);
     m_seekTimeout.setInterval(4000);
     connect(&m_seekTimeout, &QTimer::timeout, this, [this] {
-        if (m_confirmingSeekMs < 0) return;
+        if (m_asyncOperation == AsyncOperation::None) return;
+        const auto operation = m_asyncOperation;
         const auto target = m_confirmingSeekMs;
+        m_asyncOperation = AsyncOperation::None;
         m_confirmingSeekMs = -1;
-        emit seekFailed(target, QStringLiteral("The pipeline did not confirm the seek"));
-        if (m_resumeAfterConfirmedSeek) {
-            m_resumeAfterConfirmedSeek = false;
-            gst_element_set_state(m_playbin, GST_STATE_PLAYING);
-            fadeTo(1, 45);
-        }
+        m_queuedSeekMs = -1;
+        if (operation == AsyncOperation::UserSeek || operation == AsyncOperation::SourceRestoreSeek)
+            emit seekFailed(target, QStringLiteral("The pipeline did not confirm the seek"));
+        finishLoading();
+        applyDesiredState();
     });
 }
 
@@ -74,53 +62,43 @@ LinuxPlayback::~LinuxPlayback()
 void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay)
 {
     if (!m_playbin || !source.isValid() || source.isEmpty()) return;
-    const auto generation = ++m_sourceGeneration;
-    const auto load = [this, generation, source, startPositionMs, autoplay] {
-        if (generation != m_sourceGeneration) return;
-        m_transitionGain = 0;
-        applyVolume();
-        m_logicallyStopped = false;
-        m_source = source;
-        m_positionMs = 0;
-        m_durationMs = 0;
-        m_seekable = false;
-        m_prerollSeekMs = std::max<qint64>(0, startPositionMs);
-        m_confirmingSeekMs = -1;
-        m_seekTimeout.stop();
-        m_autoplayAfterPreroll = autoplay;
-        m_resumeAfterConfirmedSeek = false;
-        m_loading = true;
-        emit positionChanged();
-        emit durationChanged();
-        emit loadingChanged(true);
-        const auto uri = source.toEncoded();
-        // With instant-uri enabled playbin3 replaces uridecodebin3 in place;
-        // playsink and the selected audio sink remain allocated.
-        g_object_set(m_playbin, "uri", uri.constData(), nullptr);
-        gst_element_set_state(m_playbin, GST_STATE_PAUSED);
-    };
-    if (hasSource() && m_state != State::Stopped && m_transitionGain > 0) fadeTo(0, 35, load);
-    else load();
+    m_source = source;
+    m_positionMs = 0;
+    m_durationMs = 0;
+    m_seekable = false;
+    m_prerollSeekMs = std::max<qint64>(0, startPositionMs);
+    m_confirmingSeekMs = -1;
+    m_queuedSeekMs = -1;
+    m_seekTimeout.stop();
+    m_asyncOperation = AsyncOperation::SourcePreroll;
+    m_loading = true;
+    m_desiredState = autoplay ? State::Playing : State::Paused;
+    setLogicalState(m_desiredState);
+    emit positionChanged();
+    emit durationChanged();
+    emit loadingChanged(true);
+    const auto uri = source.toEncoded();
+    // With instant-uri enabled playbin3 replaces uridecodebin3 in place;
+    // playsink and the selected audio sink remain allocated.
+    g_object_set(m_playbin, "uri", uri.constData(), nullptr);
+    gst_element_set_state(m_playbin, GST_STATE_PAUSED);
 }
 
 void LinuxPlayback::clearSource()
 {
     if (!m_playbin) return;
-    ++m_sourceGeneration;
-    m_fadeTimer.stop();
-    m_fadeCompletion = {};
+    m_seekTimeout.stop();
     gst_element_set_state(m_playbin, GST_STATE_NULL);
     m_source = QUrl();
     m_positionMs = 0;
     m_durationMs = 0;
     m_seekable = false;
     m_loading = false;
-    m_logicallyStopped = true;
+    m_desiredState = State::Stopped;
+    m_asyncOperation = AsyncOperation::None;
     m_confirmingSeekMs = -1;
-    m_seekTimeout.stop();
-    m_transitionGain = 1;
-    applyVolume();
-    updateState(GST_STATE_NULL);
+    m_queuedSeekMs = -1;
+    setLogicalState(State::Stopped);
     emit positionChanged();
     emit durationChanged();
     emit loadingChanged(false);
@@ -129,44 +107,36 @@ void LinuxPlayback::clearSource()
 void LinuxPlayback::play()
 {
     if (!m_playbin || !hasSource()) return;
-    m_logicallyStopped = false;
-    gst_element_set_state(m_playbin, GST_STATE_PLAYING);
-    fadeTo(1, 45);
+    m_desiredState = State::Playing;
+    setLogicalState(State::Playing);
+    if (m_asyncOperation == AsyncOperation::None) applyDesiredState();
 }
 
 void LinuxPlayback::pause()
 {
-    if (!m_playbin || !hasSource() || m_state != State::Playing) return;
-    const auto generation = m_sourceGeneration;
-    fadeTo(0, 35, [this, generation] {
-        if (generation == m_sourceGeneration) gst_element_set_state(m_playbin, GST_STATE_PAUSED);
-    });
+    if (!m_playbin || !hasSource() || m_desiredState != State::Playing) return;
+    m_desiredState = State::Paused;
+    setLogicalState(State::Paused);
+    gst_element_set_state(m_playbin, GST_STATE_PAUSED);
 }
 
 void LinuxPlayback::stop()
 {
     if (!m_playbin) return;
-    const auto generation = ++m_sourceGeneration;
+    m_desiredState = State::Stopped;
+    setLogicalState(State::Stopped);
     m_confirmingSeekMs = -1;
+    m_queuedSeekMs = -1;
     m_seekTimeout.stop();
-    fadeTo(0, 35, [this, generation] {
-        if (generation != m_sourceGeneration) return;
-        // A user-visible stop is logical only. Leave the pipeline paused so
-        // the platform audio sink is not destroyed and recreated on resume.
-        gst_element_set_state(m_playbin, GST_STATE_PAUSED);
-        gst_element_seek_simple(
-            m_playbin,
-            GST_FORMAT_TIME,
-            static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT),
-            0);
-        m_logicallyStopped = true;
+    finishLoading();
+    // A user-visible stop is logical only. Leave the pipeline paused so a
+    // later play does not need to reconstruct the entire output graph.
+    gst_element_set_state(m_playbin, GST_STATE_PAUSED);
+    if (!performSeek(0, AsyncOperation::StopSeek)) {
+        m_asyncOperation = AsyncOperation::None;
         m_positionMs = 0;
-        if (m_state != State::Stopped) {
-            m_state = State::Stopped;
-            emit stateChanged();
-        }
         emit positionChanged();
-    });
+    }
 }
 
 bool LinuxPlayback::seek(qint64 positionMs)
@@ -176,12 +146,11 @@ bool LinuxPlayback::seek(qint64 positionMs)
         return false;
     }
     const auto target = std::max<qint64>(0, positionMs);
-    const bool resume = playing();
-    const auto generation = m_sourceGeneration;
-    fadeTo(0, 30, [this, generation, target, resume] {
-        if (generation == m_sourceGeneration) performSeek(target, resume);
-    });
-    return true;
+    if (m_asyncOperation != AsyncOperation::None) {
+        m_queuedSeekMs = target;
+        return true;
+    }
+    return performSeek(target, AsyncOperation::UserSeek);
 }
 
 void LinuxPlayback::setVolume(double volume)
@@ -205,9 +174,11 @@ void LinuxPlayback::drainBus()
             const auto text = error ? QString::fromUtf8(error->message) : QStringLiteral("Unknown GStreamer error");
             if (error) g_error_free(error);
             if (debug) g_free(debug);
-            m_loading = false;
-            updateState(GST_STATE_NULL);
-            emit loadingChanged(false);
+            m_seekTimeout.stop();
+            m_asyncOperation = AsyncOperation::None;
+            m_desiredState = State::Stopped;
+            setLogicalState(State::Stopped);
+            finishLoading();
             emit errorOccurred(text);
             break;
         }
@@ -217,18 +188,11 @@ void LinuxPlayback::drainBus()
             emit endOfMedia();
             break;
         case GST_MESSAGE_ASYNC_DONE:
-            if (GST_MESSAGE_SRC(message) == GST_OBJECT(m_playbin)) applyPrerollSeek();
+            if (GST_MESSAGE_SRC(message) == GST_OBJECT(m_playbin)) handleAsyncDone();
             break;
+        // PAUSED is also used internally for preroll and flushing seeks, so
+        // state-changed messages deliberately do not alter user-visible state.
         case GST_MESSAGE_STATE_CHANGED:
-            if (GST_MESSAGE_SRC(message) == GST_OBJECT(m_playbin)) {
-                GstState oldState;
-                GstState newState;
-                GstState pending;
-                gst_message_parse_state_changed(message, &oldState, &newState, &pending);
-                Q_UNUSED(oldState)
-                Q_UNUSED(pending)
-                updateState(newState);
-            }
             break;
         case GST_MESSAGE_DURATION_CHANGED:
             updateQueries();
@@ -251,17 +215,6 @@ void LinuxPlayback::updateQueries(bool allowWhileLoading)
         if (nextPosition != m_positionMs) {
             m_positionMs = nextPosition;
             emit positionChanged();
-        }
-        if (m_confirmingSeekMs >= 0 && std::abs(m_positionMs - m_confirmingSeekMs) <= 1500) {
-            const auto confirmed = m_positionMs;
-            m_confirmingSeekMs = -1;
-            m_seekTimeout.stop();
-            emit seekCompleted(confirmed);
-            if (m_resumeAfterConfirmedSeek) {
-                m_resumeAfterConfirmedSeek = false;
-                gst_element_set_state(m_playbin, GST_STATE_PLAYING);
-                fadeTo(1, 45);
-            }
         }
     }
     gint64 duration = GST_CLOCK_TIME_NONE;
@@ -287,42 +240,53 @@ void LinuxPlayback::updateQueries(bool allowWhileLoading)
     gst_query_unref(query);
 }
 
-void LinuxPlayback::updateState(GstState state)
+void LinuxPlayback::setLogicalState(State state)
 {
-    const auto next = m_logicallyStopped
-        ? State::Stopped
-        : state == GST_STATE_PLAYING
-        ? State::Playing
-        : state == GST_STATE_PAUSED ? State::Paused : State::Stopped;
-    if (next == m_state) return;
-    m_state = next;
+    if (state == m_state) return;
+    m_state = state;
     emit stateChanged();
 }
 
-void LinuxPlayback::applyPrerollSeek()
+void LinuxPlayback::handleAsyncDone()
 {
+    if (m_asyncOperation == AsyncOperation::None) return;
+    const auto completedOperation = m_asyncOperation;
+    const auto completedTarget = m_confirmingSeekMs;
+    m_asyncOperation = AsyncOperation::None;
+    m_confirmingSeekMs = -1;
+    m_seekTimeout.stop();
     updateQueries(true);
-    if (m_prerollSeekMs > 0) {
+
+    if (completedOperation == AsyncOperation::SourcePreroll && m_prerollSeekMs > 0) {
         const auto target = m_prerollSeekMs;
         m_prerollSeekMs = 0;
-        const bool shouldAutoplay = m_autoplayAfterPreroll;
-        m_autoplayAfterPreroll = false;
-        performSeek(target, shouldAutoplay);
-    } else {
-        const bool shouldAutoplay = m_autoplayAfterPreroll;
-        m_autoplayAfterPreroll = false;
-        if (shouldAutoplay) {
-            gst_element_set_state(m_playbin, GST_STATE_PLAYING);
-            fadeTo(1, 45);
-        }
+        performSeek(target, AsyncOperation::SourceRestoreSeek);
+        return;
     }
-    if (m_loading) {
-        m_loading = false;
-        emit loadingChanged(false);
+
+    if (completedOperation == AsyncOperation::StopSeek) {
+        m_positionMs = 0;
+        emit positionChanged();
     }
+
+    if (m_queuedSeekMs >= 0 && m_desiredState != State::Stopped) {
+        const auto target = m_queuedSeekMs;
+        m_queuedSeekMs = -1;
+        performSeek(target, AsyncOperation::UserSeek);
+        return;
+    }
+
+    if (completedOperation == AsyncOperation::UserSeek
+        || completedOperation == AsyncOperation::SourceRestoreSeek) {
+        const auto confirmed = m_positionMs >= 0 ? m_positionMs : completedTarget;
+        emit seekCompleted(confirmed);
+    }
+
+    finishLoading();
+    applyDesiredState();
 }
 
-bool LinuxPlayback::performSeek(qint64 positionMs, bool resumeAfterConfirmation)
+bool LinuxPlayback::performSeek(qint64 positionMs, AsyncOperation operation)
 {
     const auto accepted = gst_element_seek_simple(
         m_playbin,
@@ -330,36 +294,35 @@ bool LinuxPlayback::performSeek(qint64 positionMs, bool resumeAfterConfirmation)
         static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT),
         positionMs * GST_MSECOND);
     if (!accepted) {
-        emit seekFailed(positionMs, QStringLiteral("GStreamer rejected the seek"));
-        if (resumeAfterConfirmation) fadeTo(1, 45);
+        if (operation == AsyncOperation::UserSeek || operation == AsyncOperation::SourceRestoreSeek)
+            emit seekFailed(positionMs, QStringLiteral("GStreamer rejected the seek"));
+        finishLoading();
+        applyDesiredState();
         return false;
     }
+    m_asyncOperation = operation;
     m_confirmingSeekMs = positionMs;
-    m_resumeAfterConfirmedSeek = resumeAfterConfirmation;
     m_seekTimeout.start();
     return true;
 }
 
-void LinuxPlayback::fadeTo(double target, int durationMs, std::function<void()> completion)
+void LinuxPlayback::applyDesiredState()
 {
-    m_fadeTimer.stop();
-    m_fadeStart = m_transitionGain;
-    m_fadeTarget = std::clamp(target, 0.0, 1.0);
-    m_fadeStep = 0;
-    m_fadeSteps = std::max(1, durationMs / m_fadeTimer.interval());
-    m_fadeCompletion = std::move(completion);
-    if (qFuzzyCompare(m_fadeStart, m_fadeTarget)) {
-        auto immediate = std::move(m_fadeCompletion);
-        m_fadeCompletion = {};
-        if (immediate) immediate();
-        return;
-    }
-    m_fadeTimer.start();
+    if (!m_playbin || !hasSource()) return;
+    gst_element_set_state(m_playbin,
+                          m_desiredState == State::Playing ? GST_STATE_PLAYING : GST_STATE_PAUSED);
+}
+
+void LinuxPlayback::finishLoading()
+{
+    if (!m_loading) return;
+    m_loading = false;
+    emit loadingChanged(false);
 }
 
 void LinuxPlayback::applyVolume()
 {
-    if (m_playbin) g_object_set(m_playbin, "volume", m_volume * m_transitionGain, nullptr);
+    if (m_playbin) g_object_set(m_playbin, "volume", m_volume, nullptr);
 }
 
 void LinuxPlayback::handleAboutToFinish(GstElement *, gpointer userData)

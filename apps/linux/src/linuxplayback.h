@@ -4,7 +4,6 @@
 #include <QTimer>
 #include <QUrl>
 #include <gst/gst.h>
-#include <functional>
 
 class LinuxPlayback final : public QObject
 {
@@ -46,37 +45,32 @@ signals:
     void aboutToFinish();
 
 private:
+    enum class AsyncOperation { None, SourcePreroll, SourceRestoreSeek, UserSeek, StopSeek };
+
     void drainBus();
     void updateQueries(bool allowWhileLoading = false);
-    void updateState(GstState state);
-    void applyPrerollSeek();
-    bool performSeek(qint64 positionMs, bool resumeAfterConfirmation);
-    void fadeTo(double target, int durationMs, std::function<void()> completion = {});
+    void handleAsyncDone();
+    bool performSeek(qint64 positionMs, AsyncOperation operation);
+    void applyDesiredState();
+    void setLogicalState(State state);
+    void finishLoading();
     void applyVolume();
     static void handleAboutToFinish(GstElement *, gpointer userData);
 
     GstElement *m_playbin = nullptr;
     GstBus *m_bus = nullptr;
     QTimer m_pollTimer;
-    QTimer m_fadeTimer;
     QTimer m_seekTimeout;
     QUrl m_source;
     State m_state = State::Stopped;
+    State m_desiredState = State::Stopped;
+    AsyncOperation m_asyncOperation = AsyncOperation::None;
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
     qint64 m_prerollSeekMs = 0;
     qint64 m_confirmingSeekMs = -1;
+    qint64 m_queuedSeekMs = -1;
     bool m_seekable = false;
     bool m_loading = false;
-    bool m_logicallyStopped = true;
-    bool m_autoplayAfterPreroll = false;
-    bool m_resumeAfterConfirmedSeek = false;
     double m_volume = 0.78;
-    double m_transitionGain = 1.0;
-    double m_fadeStart = 1.0;
-    double m_fadeTarget = 1.0;
-    int m_fadeStep = 0;
-    int m_fadeSteps = 1;
-    quint64 m_sourceGeneration = 0;
-    std::function<void()> m_fadeCompletion;
 };

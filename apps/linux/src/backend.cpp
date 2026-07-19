@@ -134,6 +134,10 @@ Backend::Backend(QObject *parent)
         setBusy(loading);
         setStatus(loading ? QStringLiteral("Opening lossless stream…")
                           : QStringLiteral("Playing from TIDAL"));
+        // A track-to-track URI swap keeps the logical state Playing, so there
+        // is intentionally no stateChanged signal to refresh integrations.
+        // Publish the new timeline once its preroll (and restore seek) ends.
+        if (!loading) updateDiscordPresence();
     });
     connect(&m_playback, &LinuxPlayback::errorOccurred, this, [this](const QString &error) {
         setBusy(false);
