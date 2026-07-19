@@ -9,6 +9,7 @@ Item {
 
     readonly property string kind: page.kind || ""
     readonly property string pageIdentity: kind + ":" + (page.resourceId || "")
+    property string lastScrolledPageIdentity: ""
     readonly property var primary: kind === "track" ? (page.track || {})
                                            : kind === "album" ? (page.album || {})
                                                               : (page.artist || {})
@@ -16,7 +17,11 @@ Item {
                                          : kind === "album" ? (page.tracks || [])
                                                             : (page.topTracks || [])
 
-    onPageIdentityChanged: catalogScroll.contentY = 0
+    onPageIdentityChanged: {
+        if (!page.resourceId || pageIdentity === lastScrolledPageIdentity) return
+        lastScrolledPageIdentity = pageIdentity
+        catalogScroll.contentY = 0
+    }
 
     function formatTime(milliseconds) {
         if (!milliseconds || milliseconds < 0) return ""
