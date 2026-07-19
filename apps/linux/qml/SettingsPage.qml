@@ -136,8 +136,28 @@ Item {
                             }
                         }
                     }
-                    AccountCard { Layout.fillWidth: true; title: "Audio engine"; rows: [["Desktop backend", "libmpv"], ["Stream quality", "Best available"], ["Output", "System default"]] }
-                    Text { text: "Gapless playback, output selection, normalization, and EQ will appear here when their playback contracts are implemented."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "TIDAL stream quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 5 }
+                    Text { text: "The selected format is requested when the next track opens. TIDAL may fall back when a release has no matching format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Row {
+                        Layout.fillWidth: true; spacing: 0
+                        Repeater {
+                            model: [["best", "Best available", "Hi-res → lossless → AAC"], ["lossless", "Lossless", "FLAC → AAC"], ["high", "High", "AAC"]]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: Math.max(150, qualityText.implicitWidth + 30); height: 58
+                                color: colorful.streamQuality === modelData[0] ? Qt.rgba(1, 1, 1, 0.075) : qualityHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                border.width: 1
+                                border.color: colorful.streamQuality === modelData[0] ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                Column { anchors.centerIn: parent; spacing: 2
+                                    Text { id: qualityText; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12 }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData[2]; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: 9 }
+                                }
+                                HoverHandler { id: qualityHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: colorful.streamQuality = modelData[0] }
+                            }
+                        }
+                    }
+                    Text { text: "Output selection, normalization, gapless preparation, and EQ will be added here with their playback implementations."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: 5 }
                 }
             }
 
@@ -219,15 +239,46 @@ Item {
                     id: appearanceBody
                     width: Math.min(parent.width, 820); spacing: 14
                     Text { text: "Appearance"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                    Text { text: "colorful currently derives a contrast-safe accent from the active album artwork."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12 }
+                    Text { text: "Use the active album artwork or keep one accent across the interface."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12 }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 88
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         RowLayout { anchors.fill: parent; anchors.margins: 15; spacing: 14
                             Rectangle { width: 46; height: 46; color: colorful.accent; border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.35) }
                             ColumnLayout { Layout.fillWidth: true; spacing: 3
-                                Text { text: "Album-derived accent"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                Text { text: "The current color is animated between tracks and corrected for dark-background contrast."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                Text { text: colorful.accentMode === "album" ? "Album-derived accent" : "Fixed accent"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                                Text { text: colorful.accentMode === "album" ? "Colors animate between tracks and are corrected for dark-background contrast." : "This color remains active when the track changes."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                            }
+                        }
+                    }
+                    Row {
+                        Layout.fillWidth: true; spacing: 0
+                        Repeater {
+                            model: [["album", "Follow album artwork"], ["fixed", "Use a fixed color"]]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: modeText.implicitWidth + 30; height: 40
+                                color: colorful.accentMode === modelData[0] ? Qt.rgba(1, 1, 1, 0.075) : modeHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                border.width: 1; border.color: colorful.accentMode === modelData[0] ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                Text { id: modeText; anchors.centerIn: parent; text: modelData[1]; color: "#f5f5f5"; font.bold: colorful.accentMode === modelData[0]; font.pixelSize: 11 }
+                                HoverHandler { id: modeHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: colorful.accentMode = modelData[0] }
+                            }
+                        }
+                    }
+                    Text { text: "Fixed color"; visible: colorful.accentMode === "fixed"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 4 }
+                    Row {
+                        visible: colorful.accentMode === "fixed"
+                        Layout.fillWidth: true; spacing: 8
+                        Repeater {
+                            model: ["#a970ff", "#ff4f91", "#f06a3c", "#e8ce42", "#37d6c1", "#4f8cff", "#f5f5f5"]
+                            delegate: Rectangle {
+                                required property string modelData
+                                width: 42; height: 42; color: modelData
+                                border.width: colorful.fixedAccent.toString().toLowerCase() === modelData ? 3 : 1
+                                border.color: colorful.fixedAccent.toString().toLowerCase() === modelData ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.28)
+                                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: colorful.fixedAccent = modelData }
                             }
                         }
                     }
@@ -258,7 +309,38 @@ Item {
                     Image { source: "qrc:/assets/branding/colorful.svg"; Layout.preferredWidth: 70; Layout.preferredHeight: 70; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true }
                     Text { text: "colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 26 }
                     Text { text: "A local-first personal music client."; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: 13 }
-                    AccountCard { Layout.fillWidth: true; title: "Desktop build"; rows: [["Platform", "Linux"], ["Interface", "Qt Quick"], ["Playback", "libmpv"], ["License", "GPL-3.0-or-later"]] }
+                    AccountCard {
+                        Layout.fillWidth: true
+                        title: "Build"
+                        rows: [
+                            ["Version", colorful.buildInfo.version || "unknown"],
+                            ["Commit", colorful.buildInfo.commit || "unknown"],
+                            ["System", colorful.buildInfo.system || "Linux"],
+                            ["Architecture", colorful.buildInfo.architecture || "unknown"],
+                            ["Compiler", colorful.buildInfo.compiler || "unknown"]
+                        ]
+                    }
+                    AccountCard {
+                        Layout.fillWidth: true
+                        title: "Runtime components"
+                        rows: [
+                            ["Interface", "Qt " + (colorful.buildInfo.qt || "unknown") + " / Qt Quick"],
+                            ["Playback", "libmpv " + (colorful.buildInfo.mpv || "unknown")],
+                            ["Core", "Rust / SQLite"],
+                            ["Provider host", "Bun / TypeScript"]
+                        ]
+                    }
+                    AccountCard {
+                        Layout.fillWidth: true
+                        title: "Licenses"
+                        rows: [
+                            ["colorful", colorful.buildInfo.license || "GPL-3.0-or-later"],
+                            ["Qt", "LGPL-3.0 / GPL-3.0"],
+                            ["libmpv", "GPL-compatible build"],
+                            ["Bun", "MIT"],
+                            ["Nunito", "OFL-1.1"]
+                        ]
+                    }
                     Text { Layout.fillWidth: true; text: "This personal project is entirely AI-made. It exists because its owner needed a stable music client that worked for them."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
                 }
             }

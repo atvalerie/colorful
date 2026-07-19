@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPlaybackManifestUrl, requiresEntitlementRefresh } from "../src/manifest";
+import { buildPlaybackManifestUrl, formatsForQuality, requiresEntitlementRefresh } from "../src/manifest";
 
 describe("TIDAL manifest entitlement handling", () => {
   test("refreshes a subscription-gated preview", () => {
@@ -36,5 +36,11 @@ describe("TIDAL playback manifest request", () => {
     const url = buildPlaybackManifestUrl("https://openapi.tidal.com/v2", "123", "MPEG_DASH");
     expect(url.searchParams.get("manifestType")).toBe("MPEG_DASH");
     expect(url.searchParams.get("adaptive")).toBe("false");
+  });
+
+  test("maps quality choices to manifest formats", () => {
+    expect(formatsForQuality("best")).toEqual(["FLAC_HIRES", "FLAC", "AACLC"]);
+    expect(formatsForQuality("lossless")).toEqual(["FLAC", "AACLC"]);
+    expect(formatsForQuality("high")).toEqual(["AACLC"]);
   });
 });

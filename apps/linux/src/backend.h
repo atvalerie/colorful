@@ -48,8 +48,12 @@ class Backend final : public QObject
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(QColor accent READ accent NOTIFY accentChanged)
+    Q_PROPERTY(QString accentMode READ accentMode WRITE setAccentMode NOTIFY appearanceChanged)
+    Q_PROPERTY(QColor fixedAccent READ fixedAccent WRITE setFixedAccent NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
+    Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
+    Q_PROPERTY(QVariantMap buildInfo READ buildInfo CONSTANT)
     Q_PROPERTY(bool discordWidgetEnabled READ discordWidgetEnabled WRITE setDiscordWidgetEnabled NOTIFY discordWidgetChanged)
     Q_PROPERTY(bool discordWidgetConfigured READ discordWidgetConfigured NOTIFY discordWidgetChanged)
     Q_PROPERTY(bool discordWidgetBusy READ discordWidgetBusy NOTIFY discordWidgetChanged)
@@ -91,8 +95,12 @@ public:
     qint64 duration() const;
     double volume() const { return m_playback.volume(); }
     QColor accent() const { return m_accent; }
+    QString accentMode() const { return m_accentMode; }
+    QColor fixedAccent() const { return m_fixedAccent; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
+    QString streamQuality() const { return m_streamQuality; }
     QVariantMap listenStats() const { return m_listenStats; }
+    QVariantMap buildInfo() const;
     bool discordWidgetEnabled() const { return m_discordWidget.enabled(); }
     bool discordWidgetConfigured() const { return m_discordWidget.configured(); }
     bool discordWidgetBusy() const { return m_discordWidget.busy(); }
@@ -144,6 +152,9 @@ public:
     Q_INVOKABLE void seekBy(qint64 offsetMs);
     Q_INVOKABLE void setVolume(double volume);
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
+    Q_INVOKABLE void setStreamQuality(const QString &quality);
+    Q_INVOKABLE void setAccentMode(const QString &mode);
+    Q_INVOKABLE void setFixedAccent(const QColor &color);
     Q_INVOKABLE void setDiscordWidgetEnabled(bool enabled);
     Q_INVOKABLE void setDiscordApplicationId(const QString &applicationId);
     Q_INVOKABLE void setDiscordRedirectUri(const QString &redirectUri);
@@ -173,7 +184,9 @@ signals:
     void durationChanged();
     void volumeChanged();
     void accentChanged();
+    void appearanceChanged();
     void autoplayEnabledChanged();
+    void streamQualityChanged();
     void listenStatsChanged();
     void discordWidgetChanged();
     void seeked(qint64 positionMs);
@@ -205,6 +218,7 @@ private:
     static QJsonObject variantTrackToCore(const QVariantMap &track);
     static QVariantMap coreTrackToVariant(const QJsonObject &track);
     void loadAccent(const QString &artworkUrl);
+    void animateAccent(const QColor &color);
     void updateDiscordPresence();
     void resumeListeningSession();
     void suspendListeningSession();
@@ -259,8 +273,11 @@ private:
     QString m_statusMessage = QStringLiteral("Starting colorful…");
     QString m_entitlementMessage;
     QColor m_accent = QColor(QStringLiteral("#ff4f91"));
+    QString m_accentMode = QStringLiteral("album");
+    QColor m_fixedAccent = QColor(QStringLiteral("#a970ff"));
     QString m_pendingArtworkUrl;
     bool m_autoplayEnabled = true;
+    QString m_streamQuality = QStringLiteral("best");
     bool m_relatedPending = false;
     QElapsedTimer m_listenClock;
     QVariantMap m_listenTrack;

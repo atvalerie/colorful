@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.25)
 
 project(colorfulLinux VERSION 0.1.0 LANGUAGES CXX)
 
+execute_process(
+    COMMAND git rev-parse --short=12 HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    OUTPUT_VARIABLE COLORFUL_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT COLORFUL_GIT_COMMIT)
+    set(COLORFUL_GIT_COMMIT "unknown")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -76,6 +87,7 @@ qt_add_qml_module(colorful-linux
         qml/icons/restore.svg
         qml/icons/search.svg
         qml/icons/settings.svg
+        qml/icons/tidal.svg
         qml/icons/user.svg
         qml/icons/volume.svg
 )
@@ -99,6 +111,9 @@ qt_add_resources(colorful-linux colorful_assets
 
 target_compile_definitions(colorful-linux PRIVATE
     COLORFUL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    COLORFUL_VERSION="${PROJECT_VERSION}"
+    COLORFUL_GIT_COMMIT="${COLORFUL_GIT_COMMIT}"
+    COLORFUL_MPV_VERSION="${MPV_VERSION}"
 )
 
 target_link_libraries(colorful-linux PRIVATE

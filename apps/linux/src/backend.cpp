@@ -14,6 +14,7 @@
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QSysInfo>
 #include <QUrl>
 #include <QUuid>
 #include <algorithm>
@@ -96,7 +97,15 @@ Backend::Backend(QObject *parent)
     }
     const QColor restoredAccent(settings.value(QStringLiteral("appearance/accent")).toString());
     if (restoredAccent.isValid()) m_accent = restoredAccent;
+    m_accentMode = settings.value(QStringLiteral("appearance/accentMode"), QStringLiteral("album")).toString();
+    if (m_accentMode != QStringLiteral("album") && m_accentMode != QStringLiteral("fixed")) m_accentMode = QStringLiteral("album");
+    const QColor restoredFixedAccent(settings.value(QStringLiteral("appearance/fixedAccent"), QStringLiteral("#a970ff")).toString());
+    if (restoredFixedAccent.isValid()) m_fixedAccent = normalizeAlbumAccent(restoredFixedAccent);
+    if (m_accentMode == QStringLiteral("fixed")) m_accent = m_fixedAccent;
     m_autoplayEnabled = settings.value(QStringLiteral("playback/autoplay"), true).toBool();
+    m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
+    if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
+        && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
 
     m_accentAnimation.setDuration(720);
     m_accentAnimation.setEasingCurve(QEasingCurve::OutCubic);
@@ -221,6 +230,20 @@ QVariantMap Backend::currentTrack() const
     return m_currentIndex >= 0 && m_currentIndex < m_queue.size()
         ? m_queue.at(m_currentIndex).toMap()
         : QVariantMap{};
+}
+
+QVariantMap Backend::buildInfo() const
+{
+    return {
+        {QStringLiteral("version"), QString::fromLatin1(COLORFUL_VERSION)},
+        {QStringLiteral("commit"), QString::fromLatin1(COLORFUL_GIT_COMMIT)},
+        {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+        {QStringLiteral("mpv"), QString::fromLatin1(COLORFUL_MPV_VERSION)},
+        {QStringLiteral("compiler"), QString::fromLatin1(__VERSION__)},
+        {QStringLiteral("architecture"), QSysInfo::currentCpuArchitecture()},
+        {QStringLiteral("system"), QSysInfo::prettyProductName()},
+        {QStringLiteral("license"), QStringLiteral("GPL-3.0-or-later")},
+    };
 }
 
 bool Backend::openCore()
@@ -1039,7 +1062,8 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());
     request(QStringLiteral("source"), {{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                         {QStringLiteral("trackId"), requestedTrackId},
-                                        {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")}},
+                                        {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")},
+                                        {QStringLiteral("quality"), m_streamQuality}},
             [this, requestedTrackId, startPositionMs, autoplay, sourceGeneration](const QJsonObject &message) {
         if (sourceGeneration != m_sourceGeneration
             || currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
@@ -1187,6 +1211,39 @@ void Backend::setAutoplayEnabled(bool enabled)
     emit autoplayEnabledChanged();
 }
 
+void Backend::setStreamQuality(const QString &quality)
+{
+    if (quality != QStringLiteral("best") && quality != QStringLiteral("lossless")
+        && quality != QStringLiteral("high")) return;
+    if (m_streamQuality == quality) return;
+    m_streamQuality = quality;
+    QSettings().setValue(QStringLiteral("playback/streamQuality"), quality);
+    emit streamQualityChanged();
+    setStatus(QStringLiteral("Stream quality will apply to the next track"));
+}
+
+void Backend::setAccentMode(const QString &mode)
+{
+    if (mode != QStringLiteral("album") && mode != QStringLiteral("fixed")) return;
+    if (m_accentMode == mode) return;
+    m_accentMode = mode;
+    QSettings().setValue(QStringLiteral("appearance/accentMode"), mode);
+    emit appearanceChanged();
+    if (mode == QStringLiteral("fixed")) animateAccent(m_fixedAccent);
+    else loadAccent(currentTrack().value(QStringLiteral("coverUrl")).toString());
+}
+
+void Backend::setFixedAccent(const QColor &color)
+{
+    if (!color.isValid()) return;
+    const auto normalized = normalizeAlbumAccent(color);
+    if (m_fixedAccent == normalized) return;
+    m_fixedAccent = normalized;
+    QSettings().setValue(QStringLiteral("appearance/fixedAccent"), normalized.name(QColor::HexRgb));
+    emit appearanceChanged();
+    if (m_accentMode == QStringLiteral("fixed")) animateAccent(normalized);
+}
+
 void Backend::setDiscordWidgetEnabled(bool enabled)
 {
     m_discordWidget.setEnabled(enabled);
@@ -1323,6 +1380,10 @@ void Backend::finishListeningSession()
 
 void Backend::loadAccent(const QString &artworkUrl)
 {
+    if (m_accentMode == QStringLiteral("fixed")) {
+        animateAccent(m_fixedAccent);
+        return;
+    }
     if (artworkUrl.isEmpty()) return;
     m_pendingArtworkUrl = artworkUrl;
     auto *reply = m_network.get(QNetworkRequest(QUrl(artworkUrl)));
@@ -1333,13 +1394,18 @@ void Backend::loadAccent(const QString &artworkUrl)
         QImage image;
         if (!image.loadFromData(bytes)) return;
         const auto color = paletteColor(image);
-        const auto target = m_accentAnimation.endValue().value<QColor>();
-        if (color == m_accent || (m_accentAnimation.state() == QAbstractAnimation::Running && color == target)) return;
-        m_accentAnimation.stop();
-        m_accentAnimation.setStartValue(m_accent);
-        m_accentAnimation.setEndValue(color);
-        m_accentAnimation.start();
+        animateAccent(color);
     });
+}
+
+void Backend::animateAccent(const QColor &color)
+{
+    const auto target = m_accentAnimation.endValue().value<QColor>();
+    if (color == m_accent || (m_accentAnimation.state() == QAbstractAnimation::Running && color == target)) return;
+    m_accentAnimation.stop();
+    m_accentAnimation.setStartValue(m_accent);
+    m_accentAnimation.setEndValue(color);
+    m_accentAnimation.start();
 }
 
 QColor Backend::paletteColor(const QImage &source) const

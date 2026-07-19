@@ -1,7 +1,7 @@
 import { normalizeVerificationUrl, pollDeviceAuth, refreshUserToken, startDeviceAuth, type UserToken } from "./auth";
 import { BrowseClient } from "./browse";
 import { readTidalConfig } from "./config";
-import { UserSession, type ManifestType } from "./manifest";
+import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
 
@@ -195,10 +195,14 @@ async function handle(request: RequestMessage): Promise<void> {
       if (requestedManifestType !== "HLS" && requestedManifestType !== "MPEG_DASH") {
         throw new Error(`Unsupported manifest type: ${requestedManifestType}`);
       }
+      const requestedQuality = String(request.payload?.quality ?? "best");
+      if (!["best", "lossless", "high"].includes(requestedQuality)) {
+        throw new Error(`Unsupported playback quality: ${requestedQuality}`);
+      }
       send({
         id: request.id,
         ok: true,
-        data: await session.sourceFor(trackId, requestedManifestType as ManifestType),
+        data: await session.sourceFor(trackId, requestedManifestType as ManifestType, requestedQuality as PlaybackQuality),
       });
       return;
     }

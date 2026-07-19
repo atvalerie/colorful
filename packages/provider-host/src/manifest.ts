@@ -10,6 +10,13 @@ export type PlaybackSource = {
 };
 
 export type ManifestType = PlaybackSource["manifestType"];
+export type PlaybackQuality = "best" | "lossless" | "high";
+
+export function formatsForQuality(quality: PlaybackQuality): string[] {
+  if (quality === "high") return ["AACLC"];
+  if (quality === "lossless") return ["FLAC", "AACLC"];
+  return ["FLAC_HIRES", "FLAC", "AACLC"];
+}
 
 type ManifestAttributes = {
   uri?: unknown;
@@ -24,11 +31,16 @@ export function requiresEntitlementRefresh(attributes: ManifestAttributes): bool
     && attributes.previewReason === "FULL_REQUIRES_SUBSCRIPTION";
 }
 
-export function buildPlaybackManifestUrl(apiBaseUrl: string, trackId: string, manifestType: ManifestType = "HLS"): URL {
+export function buildPlaybackManifestUrl(
+  apiBaseUrl: string,
+  trackId: string,
+  manifestType: ManifestType = "HLS",
+  quality: PlaybackQuality = "best",
+): URL {
   const base = apiBaseUrl.endsWith("/") ? apiBaseUrl : `${apiBaseUrl}/`;
   const url = new URL(`trackManifests/${encodeURIComponent(trackId)}`, base);
   url.searchParams.append("manifestType", manifestType);
-  for (const format of ["FLAC_HIRES", "FLAC", "AACLC"]) url.searchParams.append("formats", format);
+  for (const format of formatsForQuality(quality)) url.searchParams.append("formats", format);
   url.searchParams.set("uriScheme", "HTTPS");
   url.searchParams.set("usage", "PLAYBACK");
   // Native shells ask TIDAL for one entitled representation. This avoids an
@@ -52,8 +64,8 @@ export class UserSession {
     return this.token.accessToken;
   }
 
-  async sourceFor(trackId: string, manifestType: ManifestType = "HLS"): Promise<PlaybackSource> {
-    const url = buildPlaybackManifestUrl(this.config.apiBaseUrl, trackId, manifestType);
+  async sourceFor(trackId: string, manifestType: ManifestType = "HLS", quality: PlaybackQuality = "best"): Promise<PlaybackSource> {
+    const url = buildPlaybackManifestUrl(this.config.apiBaseUrl, trackId, manifestType, quality);
     const request = async (force: boolean) => fetch(url, {
       headers: { Authorization: `Bearer ${await this.accessToken(force)}`, Accept: "application/vnd.api+json" },
     });

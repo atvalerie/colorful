@@ -257,9 +257,9 @@ ApplicationWindow {
 
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
-                        iconSource: "icons/user.svg"
+                        iconSource: "icons/tidal.svg"
                         selected: window.currentSection === "tidal"
-                        tooltipText: "TIDAL account and collection"
+                        tooltipText: "TIDAL library"
                         onClicked: {
                             window.currentSection = "tidal"
                             colorful.closeCatalog()
@@ -369,7 +369,6 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "tidal"
-                            onSettingsRequested: window.openSettings(0)
                         }
 
                         SettingsPage {

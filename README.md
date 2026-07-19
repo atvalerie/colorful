@@ -62,6 +62,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - Linux MPRIS and Discord Rich Presence
 - Android system media session and background playback ownership
 - album-art-derived, contrast-safe accent colors
+- selectable TIDAL stream quality and album-derived or fixed accent modes
 - qualified local listening history and top-track/top-artist/top-album statistics
 - opt-in Discord profile statistics publishing with Secret Service token storage
 - desktop settings for accounts, playback behavior, Discord integrations, and appearance status
