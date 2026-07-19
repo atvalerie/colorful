@@ -193,7 +193,7 @@ class TidalClient {
             .buildUpon()
             .appendQueryParameter("countryCode", normalizedCountry(countryCode))
             .appendQueryParameter("include", "tracks.albums,tracks.artists,tracks.albums.coverArt")
-            .appendQueryParameter("page[limit]", limit.coerceIn(1, 50).toString())
+            .appendQueryParameter("page[limit]", limit.coerceIn(1, 20).toString())
             .build().toString()
         val response = request(
             url,

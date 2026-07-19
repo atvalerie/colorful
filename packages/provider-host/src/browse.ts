@@ -23,6 +23,26 @@ export function formatTrackTitle(title: string, version: string | null | undefin
     : `${cleanTitle} ${suffix}`;
 }
 
+export function mergeRelatedTracks(similar: TrackSummary[], radio: TrackSummary[], limit: number): TrackSummary[] {
+  const interleaved: TrackSummary[] = [];
+  for (let index = 0; index < Math.max(similar.length, radio.length); index += 1) {
+    const similarTrack = similar[index];
+    const radioTrack = radio[index];
+    if (similarTrack) interleaved.push(similarTrack);
+    if (radioTrack) interleaved.push(radioTrack);
+  }
+  return [...new Map(interleaved.map((track) => [track.id, track])).values()].slice(0, limit);
+}
+
+export function cursorFromNextLink(document: { links?: { next?: unknown } }): string | undefined {
+  if (typeof document.links?.next !== "string" || !document.links.next) return undefined;
+  try {
+    return new URL(document.links.next).searchParams.get("page[cursor]") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 type Resource = {
   id: string;
   type: string;
@@ -117,19 +137,60 @@ export class BrowseClient {
     }
   }
 
+  private async relationshipTracks(
+    trackId: string,
+    relationship: "similarTracks" | "radio",
+    limit: number,
+  ): Promise<TrackSummary[]> {
+    const tracks: TrackSummary[] = [];
+    const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    while (tracks.length < limit) {
+      let document: any;
+      try {
+        document = await this.get(`tracks/${encodeURIComponent(trackId)}/relationships/${relationship}`, {
+          include: `${relationship}.albums,${relationship}.artists`,
+          "page[limit]": String(Math.min(20, limit - tracks.length)),
+          ...(cursor ? { "page[cursor]": cursor } : {}),
+        });
+      } catch (error) {
+        if (tracks.length > 0) break;
+        throw error;
+      }
+      for (const track of mapTracks(document)) {
+        if (seenIds.has(track.id)) continue;
+        seenIds.add(track.id);
+        tracks.push(track);
+      }
+      const nextCursor = cursorFromNextLink(document);
+      if (!nextCursor || seenCursors.has(nextCursor)) break;
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+    return tracks;
+  }
+
   async searchTracks(query: string, limit = 30): Promise<TrackSummary[]> {
     const document = await this.get(`searchResults/${encodeURIComponent(query)}/relationships/tracks`, {
       include: "tracks.albums,tracks.artists",
-      "page[limit]": String(Math.max(1, Math.min(limit, 50))),
+      "page[limit]": String(Math.max(1, Math.min(limit, 20))),
     });
     return this.hydrateMissingArtwork(mapTracks(document));
   }
 
   async relatedTracks(trackId: string, limit = 20): Promise<TrackSummary[]> {
-    const document = await this.get(`tracks/${encodeURIComponent(trackId)}/relationships/similarTracks`, {
-      include: "similarTracks.albums,similarTracks.artists",
-      "page[limit]": String(Math.max(1, Math.min(limit, 50))),
-    });
-    return this.hydrateMissingArtwork(mapTracks(document));
+    const normalizedLimit = Math.max(1, Math.min(limit, 100));
+    const relationshipLimit = Math.ceil(normalizedLimit / 2);
+    const [similarResult, radioResult] = await Promise.allSettled([
+      this.relationshipTracks(trackId, "similarTracks", relationshipLimit),
+      this.relationshipTracks(trackId, "radio", relationshipLimit),
+    ]);
+    if (similarResult.status === "rejected" && radioResult.status === "rejected") {
+      throw similarResult.reason;
+    }
+    const similar = similarResult.status === "fulfilled" ? similarResult.value : [];
+    const radio = radioResult.status === "fulfilled" ? radioResult.value : [];
+    return this.hydrateMissingArtwork(mergeRelatedTracks(similar, radio, normalizedLimit));
   }
 }

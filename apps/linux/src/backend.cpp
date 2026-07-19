@@ -126,6 +126,10 @@ Backend::Backend(QObject *parent)
     });
 
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this] {
+        if (m_sourceTransitionPending && m_player.playbackState() == QMediaPlayer::PlayingState) {
+            m_sourceTransitionPending = false;
+            m_sourceLoadingObserved = false;
+        }
         resetPositionClock(position(), m_player.playbackState() == QMediaPlayer::PlayingState);
         emit playbackChanged();
         updateDiscordPresence();
@@ -136,6 +140,13 @@ Backend::Backend(QObject *parent)
     });
     connect(this, &Backend::seeked, this, [this] { updateDiscordPresence(); });
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 value) {
+        // setSource() is asynchronous. The old FFmpeg stream can publish one
+        // last timestamp after the queue has already selected the next entry.
+        // Do not let that stale value overwrite the new track's zeroed clock.
+        if (m_sourceTransitionPending) {
+            emit positionChanged();
+            return;
+        }
         // TIDAL occasionally serves an HLS media playlist whose declared
         // timeline ends early and then wraps. Qt/FFmpeg keeps decoding audio,
         // but its position freezes or jumps backwards. Accept advancing native
@@ -149,11 +160,24 @@ Backend::Backend(QObject *parent)
     connect(&m_audioOutput, &QAudioOutput::volumeChanged, this, &Backend::volumeChanged);
     connect(&m_player, &QMediaPlayer::errorOccurred, this,
             [this](QMediaPlayer::Error, const QString &error) {
+        m_sourceTransitionPending = false;
+        m_sourceLoadingObserved = false;
         if (!error.isEmpty()) setStatus(QStringLiteral("Playback error: %1").arg(error));
     });
     connect(&m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
-        if (status == QMediaPlayer::LoadingMedia) setStatus(QStringLiteral("Opening lossless stream…"));
+        if (status == QMediaPlayer::LoadingMedia) {
+            if (m_sourceTransitionPending) m_sourceLoadingObserved = true;
+            setStatus(QStringLiteral("Opening lossless stream…"));
+        }
         if (status == QMediaPlayer::BufferedMedia || status == QMediaPlayer::LoadedMedia) {
+            if (m_sourceTransitionPending && m_sourceLoadingObserved) {
+                resetPositionClock(
+                    m_pendingSourcePosition,
+                    m_player.playbackState() == QMediaPlayer::PlayingState);
+                m_sourceTransitionPending = false;
+                m_sourceLoadingObserved = false;
+                emit positionChanged();
+            }
             setBusy(false);
             setStatus(QStringLiteral("Playing from TIDAL"));
         }
@@ -222,10 +246,6 @@ void Backend::refreshCoreSnapshot()
     }
     const auto snapshot = response.value(QStringLiteral("value")).toObject();
     const auto playback = snapshot.value(QStringLiteral("playback")).toObject();
-    if (m_player.source().isEmpty() && m_player.playbackState() == QMediaPlayer::StoppedState) {
-        resetPositionClock(playback.value(QStringLiteral("positionMs")).toInteger(), false);
-        emit positionChanged();
-    }
     const auto queue = snapshot.value(QStringLiteral("queue")).toObject();
     const auto entries = queue.value(QStringLiteral("entries")).toArray();
     const auto tracks = snapshot.value(QStringLiteral("queueTracks")).toArray();
@@ -248,12 +268,17 @@ void Backend::refreshCoreSnapshot()
     }
 
     const bool queueWasChanged = nextQueue != m_queue || nextEntryIds != m_queueEntryIds;
-    const bool currentWasChanged = nextCurrentIndex != m_currentIndex;
+    const bool currentWasChanged = currentEntryId != m_currentEntryId;
     const bool libraryWasChanged = nextLibrary != m_library;
     m_queue = std::move(nextQueue);
     m_queueEntryIds = std::move(nextEntryIds);
     m_currentIndex = nextCurrentIndex;
+    m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
+    if (currentWasChanged) {
+        resetPositionClock(playback.value(QStringLiteral("positionMs")).toInteger(), false);
+        emit positionChanged();
+    }
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
@@ -622,14 +647,23 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     const auto track = currentTrack();
     if (track.isEmpty()) return;
     const auto requestedTrackId = track.value(QStringLiteral("id")).toString();
+    const auto sourceGeneration = ++m_sourceGeneration;
+    m_pendingSourcePosition = std::max<qint64>(0, startPositionMs);
+    m_sourceTransitionPending = true;
+    m_sourceLoadingObserved = false;
+    resetPositionClock(m_pendingSourcePosition, false);
+    emit positionChanged();
     setBusy(true);
     setStatus(QStringLiteral("Getting playback source for %1…").arg(track.value(QStringLiteral("title")).toString()));
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());
     request(QStringLiteral("source"), {{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                         {QStringLiteral("trackId"), requestedTrackId}},
-            [this, requestedTrackId, startPositionMs, autoplay](const QJsonObject &message) {
-        if (currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
+            [this, requestedTrackId, startPositionMs, autoplay, sourceGeneration](const QJsonObject &message) {
+        if (sourceGeneration != m_sourceGeneration
+            || currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
         if (!message.value(QStringLiteral("ok")).toBool()) {
+            m_sourceTransitionPending = false;
+            m_sourceLoadingObserved = false;
             setBusy(false);
             const auto error = message.value(QStringLiteral("error")).toString();
             setStatus(error);
@@ -643,6 +677,8 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         const auto source = message.value(QStringLiteral("data")).toObject();
         const auto uri = source.value(QStringLiteral("uri")).toString();
         if (uri.isEmpty()) {
+            m_sourceTransitionPending = false;
+            m_sourceLoadingObserved = false;
             setBusy(false);
             setStatus(QStringLiteral("TIDAL returned an empty playback source"));
             return;
@@ -674,6 +710,9 @@ void Backend::pause()
 }
 void Backend::stop()
 {
+    ++m_sourceGeneration;
+    m_sourceTransitionPending = false;
+    m_sourceLoadingObserved = false;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("stop")}});
     m_player.stop();
     resetPositionClock(0, false);
@@ -689,6 +728,7 @@ void Backend::next()
     }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                   {QStringLiteral("position_ms"), position()}});
+    m_player.stop();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_next")}});
     resolveCurrentSource();
 }
@@ -702,7 +742,7 @@ void Backend::requestRelatedAndContinue()
     setStatus(QStringLiteral("Finding something related…"));
     request(QStringLiteral("related"), {{QStringLiteral("provider"), seed.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                          {QStringLiteral("trackId"), seed.value(QStringLiteral("id")).toString()},
-                                         {QStringLiteral("limit"), 12}}, [this](const QJsonObject &message) {
+                                         {QStringLiteral("limit"), 60}}, [this](const QJsonObject &message) {
         m_relatedPending = false;
         if (!message.value(QStringLiteral("ok")).toBool()) {
             setStatus(message.value(QStringLiteral("error")).toString());
@@ -719,7 +759,7 @@ void Backend::requestRelatedAndContinue()
             dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
                           {QStringLiteral("track"), variantTrackToCore(track)}});
             queuedIds.insert(id);
-            if (++added >= 10) break;
+            if (++added >= 40) break;
         }
         if (canGoNext()) {
             setStatus(QStringLiteral("Autoplay added %1 related tracks").arg(added));
@@ -735,6 +775,9 @@ void Backend::previous()
 {
     if (position() > 3000 || m_currentIndex <= 0) seek(0);
     else {
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
+                      {QStringLiteral("position_ms"), position()}});
+        m_player.stop();
         dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_previous")}});
         resolveCurrentSource();
     }

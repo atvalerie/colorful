@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatTrackTitle, isoDurationToMs, mapTracks } from "../src/browse";
+import { cursorFromNextLink, formatTrackTitle, isoDurationToMs, mapTracks, mergeRelatedTracks, type TrackSummary } from "../src/browse";
 
 describe("TIDAL browse mapping", () => {
   test("parses ISO durations", () => {
@@ -11,6 +11,25 @@ describe("TIDAL browse mapping", () => {
     expect(formatTrackTitle("Brutal", "Instrumental")).toBe("Brutal (Instrumental)");
     expect(formatTrackTitle("Brutal (Instrumental)", "instrumental")).toBe("Brutal (Instrumental)");
     expect(formatTrackTitle("Brutal", null)).toBe("Brutal");
+  });
+
+  test("interleaves similar tracks and radio without duplicates", () => {
+    const track = (id: string): TrackSummary => ({
+      id, title: id, version: null, artists: [], albumId: null,
+      albumTitle: null, durationMs: null, isrc: null, coverUrl: null,
+    });
+    expect(mergeRelatedTracks(
+      [track("similar-1"), track("shared"), track("similar-2")],
+      [track("radio-1"), track("shared"), track("radio-2")],
+      5,
+    ).map(({ id }) => id)).toEqual(["similar-1", "radio-1", "shared", "similar-2", "radio-2"]);
+  });
+
+  test("reads TIDAL's opaque pagination cursor from the next link", () => {
+    expect(cursorFromNextLink({ links: {
+      next: "https://openapi.tidal.com/v2/tracks/123/relationships/radio?page%5Bcursor%5D=next-page",
+    } })).toBe("next-page");
+    expect(cursorFromNextLink({ links: {} })).toBeUndefined();
   });
 
   test("normalizes a track and its relationships", () => {

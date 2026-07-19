@@ -155,6 +155,10 @@ private:
     QTimer m_checkpointTimer;
     qint64 m_positionAnchor = 0;
     bool m_positionClockRunning = false;
+    bool m_sourceTransitionPending = false;
+    bool m_sourceLoadingObserved = false;
+    qint64 m_pendingSourcePosition = 0;
+    quint64 m_sourceGeneration = 0;
     QAudioOutput m_audioOutput;
     DiscordPresence m_discordPresence;
     QNetworkAccessManager m_network;
@@ -164,6 +168,7 @@ private:
     QVariantList m_library;
     QList<qint64> m_queueEntryIds;
     int m_currentIndex = -1;
+    qint64 m_currentEntryId = -1;
     CoreBridge m_core;
     bool m_providerReady = false;
     bool m_linked = false;
