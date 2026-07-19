@@ -27,6 +27,7 @@ Item {
 
     Flickable {
         id: catalogScroll
+        pixelAligned: true
         anchors.fill: parent
         contentWidth: width
         contentHeight: body.implicitHeight + 40
@@ -74,11 +75,10 @@ Item {
                     border.width: 1
                     border.color: Qt.rgba(1, 1, 1, 0.12)
                     clip: true
-                    Image {
+                    ArtworkImage {
                         anchors.fill: parent
                         source: root.kind === "artist" ? (root.primary.pictureUrl || "") : (root.primary.coverUrl || "")
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
+                        decodeSize: 768
                     }
                     AppIcon {
                         anchors.centerIn: parent

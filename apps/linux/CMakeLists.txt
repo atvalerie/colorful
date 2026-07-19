@@ -52,6 +52,7 @@ qt_add_qml_module(colorful-linux
         qml/CatalogCard.qml
         qml/CatalogPage.qml
         qml/MetadataLink.qml
+        qml/ArtworkImage.qml
     RESOURCES
         qml/icons/add.svg
         qml/icons/close.svg

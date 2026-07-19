@@ -27,11 +27,10 @@ ItemDelegate {
             Layout.preferredHeight: width
             color: Qt.rgba(1, 1, 1, 0.06)
             clip: true
-            Image {
+            ArtworkImage {
                 anchors.fill: parent
                 source: root.artistMode ? (root.entry.pictureUrl || "") : (root.entry.coverUrl || "")
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
+                decodeSize: 512
             }
             AppIcon {
                 anchors.centerIn: parent

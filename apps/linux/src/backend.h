@@ -108,6 +108,7 @@ public:
     Q_INVOKABLE void openTrack(const QString &id);
     Q_INVOKABLE void openAlbum(const QString &id);
     Q_INVOKABLE void openArtist(const QString &id);
+    Q_INVOKABLE void openPrimaryArtist(const QVariantMap &track);
     Q_INVOKABLE void navigateCatalogBack();
     Q_INVOKABLE void closeCatalog();
     Q_INVOKABLE void enqueueCatalogTrack(const QVariantMap &track);

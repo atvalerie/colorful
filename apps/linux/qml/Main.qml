@@ -377,6 +377,7 @@ ApplicationWindow {
                             spacing: 0
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
+                            pixelAligned: true
                             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                             delegate: TrackDelegate {
@@ -415,6 +416,7 @@ ApplicationWindow {
                                     orientation: ListView.Horizontal
                                     spacing: 8
                                     clip: true
+                                    pixelAligned: true
                                     model: colorful.searchArtists
                                     delegate: CatalogCard {
                                         required property var modelData
@@ -437,6 +439,7 @@ ApplicationWindow {
                                     orientation: ListView.Horizontal
                                     spacing: 8
                                     clip: true
+                                    pixelAligned: true
                                     model: colorful.searchAlbums
                                     delegate: CatalogCard {
                                         required property var modelData
@@ -543,6 +546,7 @@ ApplicationWindow {
                                 model: colorful.queue
                                 spacing: 0
                                 clip: true
+                                pixelAligned: true
                                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                                 delegate: TrackDelegate {
                                     required property int index
@@ -612,11 +616,10 @@ ApplicationWindow {
                             border.color: Qt.rgba(1, 1, 1, 0.1)
                             clip: true
 
-                            Image {
+                            ArtworkImage {
                                 anchors.fill: parent
                                 source: window.now.coverUrl || ""
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
+                                decodeSize: 200
                             }
                             AppIcon {
                                 anchors.centerIn: parent
@@ -652,12 +655,15 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 5
-                                Text {
+                                MetadataLink {
                                     Layout.maximumWidth: parent.width * 0.48
                                     text: window.now.artistText || "Choose a track"
-                                    color: window.mutedInk
+                                    normalColor: window.mutedInk
                                     elide: Text.ElideRight
                                     font.pixelSize: 11
+                                    font.weight: Font.Normal
+                                    linkEnabled: Boolean(window.now.id) && Boolean(window.now.artistText)
+                                    onActivated: colorful.openPrimaryArtist(window.now)
                                 }
                                 Text {
                                     visible: Boolean(window.now.albumId)

@@ -41,11 +41,10 @@ ItemDelegate {
             border.color: Qt.rgba(1, 1, 1, 0.09)
             clip: true
 
-            Image {
+            ArtworkImage {
                 anchors.fill: parent
                 source: root.track.coverUrl || ""
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
+                decodeSize: 160
             }
             AppIcon {
                 anchors.centerIn: parent

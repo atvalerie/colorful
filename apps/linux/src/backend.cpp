@@ -309,9 +309,23 @@ void Backend::refreshCoreSnapshot()
 QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
 {
     QJsonArray artists;
-    for (const auto &name : track.value(QStringLiteral("artists")).toStringList()) {
-        artists.append(QJsonObject{{QStringLiteral("id"), QJsonValue::Null},
-                                   {QStringLiteral("name"), name}});
+    const auto artistCredits = track.value(QStringLiteral("artistCredits")).toList();
+    if (!artistCredits.isEmpty()) {
+        for (const auto &value : artistCredits) {
+            const auto credit = value.toMap();
+            const auto artistId = credit.value(QStringLiteral("id")).toString();
+            artists.append(QJsonObject{
+                {QStringLiteral("id"), artistId.isEmpty() ? QJsonValue(QJsonValue::Null)
+                    : QJsonValue(QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                             {QStringLiteral("providerId"), artistId}})},
+                {QStringLiteral("name"), credit.value(QStringLiteral("name")).toString()},
+            });
+        }
+    } else {
+        for (const auto &name : track.value(QStringLiteral("artists")).toStringList()) {
+            artists.append(QJsonObject{{QStringLiteral("id"), QJsonValue::Null},
+                                       {QStringLiteral("name"), name}});
+        }
     }
     const auto albumId = track.value(QStringLiteral("albumId")).toString();
     const auto coverUrl = track.value(QStringLiteral("coverUrl")).toString();
@@ -343,8 +357,15 @@ QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
 QVariantMap Backend::coreTrackToVariant(const QJsonObject &track)
 {
     QStringList artists;
+    QVariantList artistCredits;
     for (const auto &artist : track.value(QStringLiteral("artists")).toArray()) {
-        artists.append(artist.toObject().value(QStringLiteral("name")).toString());
+        const auto object = artist.toObject();
+        const auto name = object.value(QStringLiteral("name")).toString();
+        artists.append(name);
+        artistCredits.append(QVariantMap{
+            {QStringLiteral("id"), object.value(QStringLiteral("id")).toObject().value(QStringLiteral("providerId")).toString()},
+            {QStringLiteral("name"), name},
+        });
     }
     const auto artwork = track.value(QStringLiteral("artwork")).toObject();
     const auto id = track.value(QStringLiteral("id")).toObject();
@@ -354,6 +375,7 @@ QVariantMap Backend::coreTrackToVariant(const QJsonObject &track)
         {QStringLiteral("title"), track.value(QStringLiteral("title")).toString()},
         {QStringLiteral("version"), track.value(QStringLiteral("version")).toString()},
         {QStringLiteral("artists"), artists},
+        {QStringLiteral("artistCredits"), artistCredits},
         {QStringLiteral("artistText"), artists.join(QStringLiteral(", "))},
         {QStringLiteral("albumId"), track.value(QStringLiteral("albumId")).toObject().value(QStringLiteral("providerId")).toString()},
         {QStringLiteral("albumTitle"), track.value(QStringLiteral("albumTitle")).toString()},
@@ -606,6 +628,41 @@ void Backend::search(const QString &query)
 void Backend::openTrack(const QString &id) { openCatalog(QStringLiteral("track"), id); }
 void Backend::openAlbum(const QString &id) { openCatalog(QStringLiteral("album"), id); }
 void Backend::openArtist(const QString &id) { openCatalog(QStringLiteral("artist"), id); }
+
+void Backend::openPrimaryArtist(const QVariantMap &track)
+{
+    const auto credits = track.value(QStringLiteral("artistCredits")).toList();
+    if (!credits.isEmpty()) {
+        const auto artistId = credits.first().toMap().value(QStringLiteral("id")).toString();
+        if (!artistId.isEmpty()) {
+            openArtist(artistId);
+            return;
+        }
+    }
+    const auto names = track.value(QStringLiteral("artists")).toStringList();
+    if (names.isEmpty() || names.first().trimmed().isEmpty()) return;
+    const auto wantedName = names.first().trimmed();
+    setStatus(QStringLiteral("Finding %1 on TIDAL…").arg(wantedName));
+    request(QStringLiteral("search"), {{QStringLiteral("query"), wantedName}}, [this, wantedName](const QJsonObject &message) {
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            setStatus(message.value(QStringLiteral("error")).toString());
+            return;
+        }
+        const auto artists = message.value(QStringLiteral("data")).toObject().value(QStringLiteral("artists")).toArray();
+        QJsonObject selected;
+        for (const auto &value : artists) {
+            const auto candidate = value.toObject();
+            if (candidate.value(QStringLiteral("name")).toString().compare(wantedName, Qt::CaseInsensitive) == 0) {
+                selected = candidate;
+                break;
+            }
+        }
+        if (selected.isEmpty() && !artists.isEmpty()) selected = artists.first().toObject();
+        const auto artistId = selected.value(QStringLiteral("id")).toString();
+        if (artistId.isEmpty()) setStatus(QStringLiteral("Could not find that artist on TIDAL"));
+        else openArtist(artistId);
+    });
+}
 
 void Backend::openCatalog(const QString &kind, const QString &id, bool preserveCurrent)
 {
