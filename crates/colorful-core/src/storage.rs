@@ -1,5 +1,5 @@
 use crate::download::{DownloadJob, DownloadState};
-use crate::history::{ListenEvent, ListenStats, TopArtist, TopTrack};
+use crate::history::{ListenEvent, ListenStats, TopAlbum, TopArtist, TopTrack};
 use crate::media::{ArtistCredit, Artwork, MediaId, Provider, Track};
 use crate::playback::RepeatMode;
 use crate::queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
@@ -310,6 +310,71 @@ impl Storage {
             })
             .collect::<StorageResult<Vec<_>>>()?;
 
+        let album_rows = {
+            let mut statement = self.connection.prepare(
+                "SELECT t.album_provider, t.album_provider_id, t.album_title,
+                        SUM(e.listened_ms), COUNT(*)
+                 FROM listen_events e
+                 JOIN tracks t
+                   ON t.provider = e.provider AND t.provider_id = e.provider_id
+                 WHERE e.ended_at_ms >= ?1
+                   AND t.album_provider IS NOT NULL
+                   AND t.album_provider_id IS NOT NULL
+                   AND t.album_title IS NOT NULL
+                 GROUP BY t.album_provider, t.album_provider_id, t.album_title
+                 ORDER BY SUM(e.listened_ms) DESC, COUNT(*) DESC,
+                          t.album_provider, t.album_provider_id
+                 LIMIT ?2",
+            )?;
+            statement
+                .query_map(
+                    params![since, sqlite_usize(limit, "statistics limit")?],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                        ))
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut top_albums = Vec::with_capacity(album_rows.len());
+        for (provider, provider_id, title, listened_ms, plays) in album_rows {
+            let id = media_id(&provider, provider_id)?;
+            let (track_provider, track_provider_id) = self.connection.query_row(
+                "SELECT e.provider, e.provider_id
+                 FROM listen_events e
+                 JOIN tracks t
+                   ON t.provider = e.provider AND t.provider_id = e.provider_id
+                 WHERE e.ended_at_ms >= ?1
+                   AND t.album_provider = ?2 AND t.album_provider_id = ?3
+                 GROUP BY e.provider, e.provider_id
+                 ORDER BY SUM(e.listened_ms) DESC, COUNT(*) DESC,
+                          e.provider, e.provider_id
+                 LIMIT 1",
+                params![since, id.provider.to_string(), id.provider_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?;
+            let representative = load_track(
+                &self.connection,
+                &media_id(&track_provider, track_provider_id)?,
+            )?
+            .ok_or(StorageError::InvalidMediaId)?;
+            top_albums.push(TopAlbum {
+                id,
+                title,
+                artists: representative.artists,
+                artwork: representative.artwork,
+                listened_ms: listened_ms
+                    .try_into()
+                    .map_err(|_| StorageError::InvalidMediaId)?,
+                play_count: plays.try_into().map_err(|_| StorageError::InvalidMediaId)?,
+            });
+        }
+
         Ok(ListenStats {
             total_listened_ms: total_listened_ms
                 .try_into()
@@ -319,6 +384,7 @@ impl Storage {
                 .map_err(|_| StorageError::InvalidMediaId)?,
             top_tracks,
             top_artists,
+            top_albums,
         })
     }
 
@@ -878,7 +944,7 @@ mod tests {
     }
 
     #[test]
-    fn listening_history_is_idempotent_and_aggregates_tracks_and_artists() {
+    fn listening_history_is_idempotent_and_aggregates_tracks_artists_and_albums() {
         let mut storage = Storage::open_in_memory().unwrap();
         let first = track("first");
         let second = track("second");
@@ -897,6 +963,10 @@ mod tests {
         assert_eq!(stats.top_artists[0].name, "Someone");
         assert_eq!(stats.top_artists[0].listened_ms, 140_000);
         assert_eq!(stats.top_artists[0].play_count, 2);
+        assert_eq!(stats.top_albums[0].title, "Bright");
+        assert_eq!(stats.top_albums[0].listened_ms, 140_000);
+        assert_eq!(stats.top_albums[0].play_count, 2);
+        assert_eq!(stats.top_albums[0].artists[0].name, "Someone");
     }
 
     #[test]

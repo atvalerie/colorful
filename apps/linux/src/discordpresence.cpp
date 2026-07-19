@@ -6,11 +6,12 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QProcessEnvironment>
+#include <QSettings>
 #include <QtEndian>
 #include <algorithm>
 
 namespace {
-constexpr auto applicationId = "1528095256820842606";
+constexpr auto defaultApplicationId = "1528095256820842606";
 constexpr quint32 maximumFrameSize = 1024 * 1024;
 
 QString discordRuntimeDirectory()
@@ -28,6 +29,8 @@ QString discordRuntimeDirectory()
 DiscordPresence::DiscordPresence(QObject *parent)
     : QObject(parent)
 {
+    m_applicationId = QSettings().value(QStringLiteral("discord/applicationId"),
+                                        QString::fromLatin1(defaultApplicationId)).toString();
     m_enabled = !qEnvironmentVariableIsSet("COLORFUL_DISABLE_DISCORD_RPC");
     if (!m_enabled) return;
     m_reconnectTimer.setSingleShot(true);
@@ -54,6 +57,20 @@ DiscordPresence::~DiscordPresence()
         m_socket.waitForBytesWritten(100);
     }
     m_socket.abort();
+}
+
+void DiscordPresence::setApplicationId(const QString &applicationId)
+{
+    const auto trimmed = applicationId.trimmed();
+    if (trimmed == m_applicationId) return;
+    m_applicationId = trimmed;
+    m_ready = false;
+    m_readBuffer.clear();
+    m_candidates.clear();
+    m_candidateIndex = 0;
+    m_reconnectTimer.stop();
+    m_socket.abort();
+    QTimer::singleShot(0, this, &DiscordPresence::connectToDiscord);
 }
 
 void DiscordPresence::update(const QString &title,
@@ -138,7 +155,7 @@ void DiscordPresence::handleConnected()
     m_readBuffer.clear();
     writeFrame(Opcode::Handshake, {
         {QStringLiteral("v"), 1},
-        {QStringLiteral("client_id"), QString::fromLatin1(applicationId)},
+        {QStringLiteral("client_id"), m_applicationId},
     });
 }
 
@@ -189,6 +206,10 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
     const auto message = document.object();
     if (message.value(QStringLiteral("cmd")).toString() == QStringLiteral("DISPATCH")
         && message.value(QStringLiteral("evt")).toString() == QStringLiteral("READY")) {
+        const auto userId = message.value(QStringLiteral("data")).toObject()
+                                .value(QStringLiteral("user")).toObject()
+                                .value(QStringLiteral("id")).toString();
+        if (!userId.isEmpty()) emit userIdResolved(userId);
         m_ready = true;
         publishDesiredActivity();
     }

@@ -42,7 +42,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 | Target | Status | Current implementation |
 | --- | --- | --- |
-| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence, Secret Service, TIDAL search/streaming, persistent queue/library, listening statistics |
+| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL search/streaming, persistent queue/library |
 | Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking and playback, Rust/SQLite persistence |
 | Windows | Planned | WinUI, Media Foundation/WASAPI, System Media Transport Controls |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
@@ -57,7 +57,8 @@ colorful is an early personal alpha, not a packaged consumer release.
 - Linux MPRIS and Discord Rich Presence
 - Android system media session and background playback ownership
 - album-art-derived, contrast-safe accent colors
-- qualified local listening history and top-track/top-artist statistics
+- qualified local listening history and top-track/top-artist/top-album statistics
+- opt-in Discord profile statistics publishing with Secret Service token storage
 - sync-ready, idempotent history event identities
 
 ### On the roadmap
@@ -68,7 +69,6 @@ colorful is an early personal alpha, not a packaged consumer release.
 - SoundCloud public accounts, catalog, and playback
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback
-- optional Discord profile statistics widgets
 - Windows and iOS native shells
 
 ## Architecture
@@ -186,22 +186,14 @@ and [local storage contract](docs/storage.md) for the longer version.
 
 ## Discord integrations
 
-Linux Rich Presence currently publishes the active local track through Discord's
-local IPC connection. A separate owner-only statistics widget is designed to
-show aggregate listening data, including future mobile listens received through
-encrypted sync.
+Linux Rich Presence publishes the active local track through Discord's local
+IPC connection. The separate owner-only profile widget publishes aggregate
+all-time listening statistics and can eventually include mobile listens
+received through encrypted sync. Its Application ID is editable so each user
+can connect an application and widget configuration they own. Bot tokens stay
+in Secret Service and are kept separate per application.
 
-The local listening statistics exist, but the Discord exporter and its settings
-screen do not. To prepare a widget now:
-
-1. create a Discord application that you own and complete its Social SDK setup;
-2. create and publish the widget using the experimental editor;
-3. record the Application ID, your Discord User ID, and the published dynamic
-   field names; and
-4. keep the bot token private—colorful will eventually accept it directly into
-   the operating system credential store.
-
-Do not send or commit the bot token. The complete experimental setup is in the
+Setup and the published field contract are documented in the
 [Discord statistics widget guide](docs/discord-widget.md).
 
 ## Contributing and AI-generated code

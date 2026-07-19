@@ -82,7 +82,7 @@ graph. Gapless is not implemented as a crossfade and must work with EQ off.
 | Target | UI | Playback integration |
 | --- | --- | --- |
 | Android | Kotlin + Jetpack Compose | Media3 session with a custom audio/DSP boundary |
-| Linux | C++ + Qt Quick/QML | GStreamer playbin3/adaptivedemux2 with MPRIS over QtDBus |
+| Linux | C++ + Qt Quick/QML | embedded libmpv with MPRIS over QtDBus |
 | Windows | C# + WinUI | Media Foundation/WASAPI adapter |
 | iOS | Swift + SwiftUI | AVAudioEngine/AVFoundation + MPNowPlayingInfoCenter |
 

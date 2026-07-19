@@ -22,6 +22,8 @@ qt_add_executable(colorful-linux
     src/linuxplayback.h
     src/discordpresence.cpp
     src/discordpresence.h
+    src/discordwidget.cpp
+    src/discordwidget.h
     src/mpris.cpp
     src/mpris.h
 )

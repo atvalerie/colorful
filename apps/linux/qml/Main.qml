@@ -215,7 +215,7 @@ ApplicationWindow {
                         Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/user.svg"
                         selected: accountPopup.opened
-                        tooltipText: colorful.linked ? "TIDAL account" : "Connect TIDAL"
+                        tooltipText: "Accounts and integrations"
                         onClicked: accountPopup.opened ? accountPopup.close() : accountPopup.open()
                     }
                 }
@@ -816,7 +816,7 @@ ApplicationWindow {
         id: accountPopup
         x: 74
         y: Math.max(12, window.height - height - 104)
-        width: 290
+        width: 330
         height: accountContent.implicitHeight + 32
         padding: 0
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -856,6 +856,184 @@ ApplicationWindow {
                 onClicked: {
                     colorful.linked ? colorful.unlink() : colorful.startLogin()
                     accountPopup.close()
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                Layout.topMargin: 5
+                Layout.bottomMargin: 5
+                color: Qt.rgba(1, 1, 1, 0.1)
+            }
+
+            Text {
+                text: "Discord playback statistics"
+                color: window.ink
+                font.weight: Font.Bold
+                font.pixelSize: 15
+            }
+            Text {
+                Layout.fillWidth: true
+                text: colorful.discordWidgetStatus
+                color: window.mutedInk
+                wrapMode: Text.WordWrap
+                font.pixelSize: 11
+            }
+            TextField {
+                id: discordApplicationId
+                Layout.fillWidth: true
+                implicitHeight: 38
+                enabled: !colorful.discordWidgetBusy
+                text: colorful.discordApplicationId
+                inputMethodHints: Qt.ImhDigitsOnly
+                validator: RegularExpressionValidator { regularExpression: /^[0-9]{15,22}$/ }
+                placeholderText: "Discord Application ID"
+                placeholderTextColor: Qt.rgba(1, 1, 1, 0.34)
+                color: window.ink
+                selectByMouse: true
+                background: Rectangle {
+                    color: Qt.rgba(0.025, 0.025, 0.03, 0.86)
+                    border.width: 1
+                    border.color: discordApplicationId.activeFocus
+                                  ? colorful.accent : Qt.rgba(1, 1, 1, 0.13)
+                }
+            }
+            ColorButton {
+                Layout.fillWidth: true
+                text: "Save application ID"
+                enabled: discordApplicationId.acceptableInput
+                         && discordApplicationId.text !== colorful.discordApplicationId
+                         && !colorful.discordWidgetBusy
+                onClicked: colorful.discordApplicationId = discordApplicationId.text
+            }
+            TextField {
+                id: discordRedirectUri
+                Layout.fillWidth: true
+                implicitHeight: 38
+                enabled: !colorful.discordWidgetBusy
+                text: colorful.discordRedirectUri
+                placeholderText: "OAuth2 redirect URI"
+                placeholderTextColor: Qt.rgba(1, 1, 1, 0.34)
+                color: window.ink
+                selectByMouse: true
+                background: Rectangle {
+                    color: Qt.rgba(0.025, 0.025, 0.03, 0.86)
+                    border.width: 1
+                    border.color: discordRedirectUri.activeFocus
+                                  ? colorful.accent : Qt.rgba(1, 1, 1, 0.13)
+                }
+            }
+            ColorButton {
+                Layout.fillWidth: true
+                text: "Save redirect URI"
+                enabled: discordRedirectUri.text.trim().length > 0
+                         && discordRedirectUri.text !== colorful.discordRedirectUri
+                         && !colorful.discordWidgetBusy
+                onClicked: colorful.discordRedirectUri = discordRedirectUri.text.trim()
+            }
+            TextField {
+                id: discordWidgetUserId
+                Layout.fillWidth: true
+                implicitHeight: 38
+                enabled: !colorful.discordWidgetBusy
+                text: colorful.discordWidgetUserId
+                inputMethodHints: Qt.ImhDigitsOnly
+                validator: RegularExpressionValidator { regularExpression: /^[0-9]{15,22}$/ }
+                placeholderText: "Discord owner user ID"
+                placeholderTextColor: Qt.rgba(1, 1, 1, 0.34)
+                color: window.ink
+                selectByMouse: true
+                background: Rectangle {
+                    color: Qt.rgba(0.025, 0.025, 0.03, 0.86)
+                    border.width: 1
+                    border.color: discordWidgetUserId.activeFocus
+                                  ? colorful.accent : Qt.rgba(1, 1, 1, 0.13)
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 7
+                ColorButton {
+                    Layout.fillWidth: true
+                    text: "Save owner ID"
+                    enabled: discordWidgetUserId.acceptableInput
+                             && discordWidgetUserId.text !== colorful.discordWidgetUserId
+                             && !colorful.discordWidgetBusy
+                    onClicked: colorful.discordWidgetUserId = discordWidgetUserId.text
+                }
+                ColorButton {
+                    Layout.fillWidth: true
+                    quiet: true
+                    text: colorful.discordWidgetUserIdAutomatic ? "Using IPC" : "Use IPC"
+                    enabled: !colorful.discordWidgetUserIdAutomatic && !colorful.discordWidgetBusy
+                    onClicked: colorful.useDetectedDiscordWidgetUserId()
+                }
+            }
+            ColorButton {
+                Layout.fillWidth: true
+                text: "Authorize widget"
+                quiet: true
+                enabled: !colorful.discordWidgetBusy
+                onClicked: colorful.authorizeDiscordWidget()
+            }
+            TextField {
+                id: discordWidgetToken
+                Layout.fillWidth: true
+                implicitHeight: 38
+                enabled: !colorful.discordWidgetBusy
+                echoMode: TextInput.Password
+                placeholderText: colorful.discordWidgetConfigured
+                                 ? "Replace stored bot token" : "Bot token"
+                placeholderTextColor: Qt.rgba(1, 1, 1, 0.34)
+                color: window.ink
+                selectByMouse: true
+                background: Rectangle {
+                    color: Qt.rgba(0.025, 0.025, 0.03, 0.86)
+                    border.width: 1
+                    border.color: discordWidgetToken.activeFocus
+                                  ? colorful.accent : Qt.rgba(1, 1, 1, 0.13)
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 7
+                ColorButton {
+                    Layout.fillWidth: true
+                    text: colorful.discordWidgetConfigured ? "Replace token" : "Store token"
+                    enabled: discordWidgetToken.text.trim().length > 0 && !colorful.discordWidgetBusy
+                    onClicked: {
+                        colorful.storeDiscordWidgetToken(discordWidgetToken.text)
+                        discordWidgetToken.clear()
+                    }
+                }
+                ColorButton {
+                    Layout.fillWidth: true
+                    quiet: true
+                    text: colorful.discordWidgetEnabled ? "Disable" : "Enable"
+                    enabled: colorful.discordWidgetConfigured && !colorful.discordWidgetBusy
+                    onClicked: colorful.discordWidgetEnabled = !colorful.discordWidgetEnabled
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 7
+                ColorButton {
+                    Layout.fillWidth: true
+                    quiet: true
+                    text: "Publish now"
+                    enabled: colorful.discordWidgetEnabled
+                             && colorful.discordWidgetConfigured
+                             && !colorful.discordWidgetBusy
+                             && colorful.listenStats.playCount > 0
+                    onClicked: colorful.publishDiscordWidgetNow()
+                }
+                ColorButton {
+                    Layout.fillWidth: true
+                    quiet: true
+                    text: "Forget token"
+                    enabled: colorful.discordWidgetConfigured && !colorful.discordWidgetBusy
+                    onClicked: colorful.forgetDiscordWidgetToken()
                 }
             }
         }

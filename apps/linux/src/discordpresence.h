@@ -14,6 +14,7 @@ public:
     explicit DiscordPresence(QObject *parent = nullptr);
     ~DiscordPresence() override;
 
+    void setApplicationId(const QString &applicationId);
     void update(const QString &title,
                 const QString &artist,
                 const QString &album,
@@ -22,6 +23,9 @@ public:
                 qint64 durationMs,
                 bool playing);
     void clear();
+
+signals:
+    void userIdResolved(const QString &userId);
 
 private:
     enum class Opcode : quint32 { Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4 };
@@ -39,6 +43,7 @@ private:
     QTimer m_reconnectTimer;
     QByteArray m_readBuffer;
     QJsonObject m_desiredActivity;
+    QString m_applicationId;
     QStringList m_candidates;
     qsizetype m_candidateIndex = 0;
     quint64 m_nonce = 0;

@@ -1,4 +1,4 @@
-use crate::media::{MediaId, Track};
+use crate::media::{ArtistCredit, Artwork, MediaId, Track};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -41,6 +41,17 @@ pub struct TopArtist {
     pub play_count: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopAlbum {
+    pub id: MediaId,
+    pub title: String,
+    pub artists: Vec<ArtistCredit>,
+    pub artwork: Option<Artwork>,
+    pub listened_ms: u64,
+    pub play_count: u64,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListenStats {
@@ -48,4 +59,5 @@ pub struct ListenStats {
     pub play_count: u64,
     pub top_tracks: Vec<TopTrack>,
     pub top_artists: Vec<TopArtist>,
+    pub top_albums: Vec<TopAlbum>,
 }

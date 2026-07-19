@@ -1,0 +1,80 @@
+{
+  "data": {
+    "dynamic": [
+      {
+        "type": 3,
+        "name": "top_artwork",
+        "value": {
+          "url": "<URL to top_artwork.png>"
+        }
+      },
+      {
+        "type": 1,
+        "name": "top_title",
+        "value": "Most Played Album"
+      },
+      {
+        "type": 1,
+        "name": "top_subtitle_1",
+        "value": "Example Album - Example Artist"
+      },
+      {
+        "type": 1,
+        "name": "top_subtitle_2",
+        "value": "2858"
+      },
+      {
+        "type": 2,
+        "name": "total_listened",
+        "value": 200000000
+      },
+      {
+        "type": 2,
+        "name": "play_count",
+        "value": 29884
+      },
+      {
+        "type": 1,
+        "name": "top_artist_name",
+        "value": "Example Artist"
+      },
+      {
+        "type": 2,
+        "name": "top_artist_plays",
+        "value": 12000
+      },
+      {
+        "type": 1,
+        "name": "top_track_name",
+        "value": "Example Track"
+      },
+      {
+        "type": 2,
+        "name": "top_track_plays",
+        "value": 2858
+      },
+      {
+        "type": 1,
+        "name": "mini_label",
+        "value": "Most Played Track"
+      },
+      {
+        "type": 1,
+        "name": "mini_text",
+        "value": "Example Track - Example Artist"
+      },
+      {
+        "type": 3,
+        "name": "mini_artwork",
+        "value": {
+          "url": "<URL to mini_artwork.png>"
+        }
+      },
+      {
+        "type": 1,
+        "name": "activity_summary",
+        "value": "29884 qualified plays · 55h 33m listened"
+      }
+    ]
+  }
+}
