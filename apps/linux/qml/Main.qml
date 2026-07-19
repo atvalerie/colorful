@@ -725,14 +725,14 @@ ApplicationWindow {
                                     Layout.preferredWidth: Math.min(implicitWidth,
                                         playerMetadataLine.width * (window.now.albumId ? 0.52 : 1))
                                     Layout.maximumWidth: playerMetadataLine.width * (window.now.albumId ? 0.52 : 1)
-                                    spacing: 3
+                                    spacing: 4
                                     clip: true
                                     Repeater {
                                         model: window.now.artistCredits || []
                                         delegate: Row {
                                             required property var modelData
                                             required property int index
-                                            spacing: 3
+                                            spacing: 0
                                             MetadataLink {
                                                 text: modelData.name
                                                 normalColor: window.mutedInk
