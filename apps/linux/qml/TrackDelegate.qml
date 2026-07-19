@@ -4,6 +4,39 @@ import QtQuick.Layouts
 
 ItemDelegate {
     id: root
+
+    component CompactMenuItem: MenuItem {
+        implicitWidth: 168
+        implicitHeight: visible ? 28 : 0
+        height: visible ? 28 : 0
+        padding: 0
+        leftPadding: 9
+        rightPadding: 9
+
+        contentItem: Text {
+            text: parent.text
+            color: parent.enabled ? "#eeeeef" : Qt.rgba(1, 1, 1, 0.32)
+            font.pixelSize: 12
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            color: parent.highlighted
+                   ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.22)
+                   : "transparent"
+        }
+    }
+
+    component CompactSeparator: MenuSeparator {
+        implicitWidth: 168
+        implicitHeight: 7
+        padding: 3
+        contentItem: Rectangle {
+            implicitHeight: 1
+            color: Qt.rgba(1, 1, 1, 0.12)
+        }
+    }
+
     required property var track
     property bool active: false
     property bool queueMode: false
@@ -32,31 +65,40 @@ ItemDelegate {
 
     Menu {
         id: contextMenu
+        implicitWidth: 176
+        padding: 4
+        margins: 0
 
-        MenuItem { text: "Play"; onTriggered: root.playRequested() }
-        MenuItem { text: "Start radio"; onTriggered: root.startRadioRequested() }
-        MenuSeparator {}
-        MenuItem {
+        background: Rectangle {
+            color: "#0d0d0f"
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.2)
+        }
+
+        CompactMenuItem { text: "Play"; onTriggered: root.playRequested() }
+        CompactMenuItem { text: "Start radio"; onTriggered: root.startRadioRequested() }
+        CompactSeparator {}
+        CompactMenuItem {
             text: root.queueMode ? "Remove from queue" : "Add to queue"
             onTriggered: root.queueMode ? root.removeRequested() : root.addRequested()
         }
-        MenuItem {
+        CompactMenuItem {
             visible: root.libraryMode
             text: "Remove from library"
             onTriggered: root.removeRequested()
         }
-        MenuItem {
+        CompactMenuItem {
             visible: root.showSaveAction
             text: "Save to library"
             onTriggered: root.saveRequested()
         }
-        MenuItem {
+        CompactMenuItem {
             visible: root.showDownloadAction
             text: "Download"
             onTriggered: root.downloadRequested()
         }
-        MenuSeparator {}
-        MenuItem { text: "Open details"; onTriggered: root.detailsRequested() }
+        CompactSeparator {}
+        CompactMenuItem { text: "Open details"; onTriggered: root.detailsRequested() }
     }
 
     background: Rectangle {
