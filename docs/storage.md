@@ -38,6 +38,13 @@ local path. Source URLs are deliberately absent from durable storage; only their
 expiry is recorded, so a resumed job re-resolves short-lived provider manifests
 instead of replaying stale credentials.
 
+The Linux client currently remuxes each resolved DASH source into a standalone
+Matroska audio file without re-encoding. It atomically promotes a temporary
+file only after ffmpeg succeeds, stores the cover alongside it, and always
+prefers that completed local path during playback. Paused or interrupted Linux
+transfers are safely retryable but currently restart the media transfer; true
+segment-level continuation remains planned.
+
 Schema migrations are append-only. A released migration is never edited; a new
 numbered migration advances both `schema_migrations` and `PRAGMA user_version`.
 The app must enable SQLite foreign keys on every connection.

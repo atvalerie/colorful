@@ -224,6 +224,7 @@ struct Snapshot<'a> {
     playback: &'a crate::playback::PlaybackState,
     library: Vec<Track>,
     downloads: Vec<DownloadJob>,
+    download_tracks: Vec<Track>,
     listen_stats: ListenStats,
 }
 
@@ -354,13 +355,18 @@ pub extern "C" fn colorful_engine_snapshot(handle: u64) -> *mut c_char {
             .engines
             .get(&handle)
             .ok_or_else(|| format!("unknown engine handle {handle}"))?;
+        let downloads = engine.downloads().map_err(|error| error.to_string())?;
+        let download_tracks = engine
+            .download_tracks(&downloads)
+            .map_err(|error| error.to_string())?;
         let snapshot = Snapshot {
             abi_version: ABI_VERSION,
             queue: engine.queue().snapshot(),
             queue_tracks: engine.queue_tracks().map_err(|error| error.to_string())?,
             playback: engine.playback(),
             library: engine.library().map_err(|error| error.to_string())?,
-            downloads: engine.downloads().map_err(|error| error.to_string())?,
+            downloads,
+            download_tracks,
             listen_stats: engine.listen_stats().map_err(|error| error.to_string())?,
         };
         Ok(success(snapshot))

@@ -192,6 +192,16 @@ Item {
                             quiet: true
                             onClicked: colorful.saveCatalogTrack(root.primary)
                         }
+                        ColorButton {
+                            visible: root.kind === "track" || root.tracks.length > 0
+                            text: root.kind === "track" ? "Download" : "Download tracks"
+                            quiet: true
+                            onClicked: {
+                                if (root.kind === "track") colorful.downloadTrack(root.primary)
+                                else for (let index = 0; index < root.tracks.length; ++index)
+                                    colorful.downloadTrack(root.tracks[index])
+                            }
+                        }
                     }
                 }
             }
@@ -213,9 +223,11 @@ Item {
                         Layout.fillWidth: true
                         track: modelData
                         showSaveAction: true
+                        showDownloadAction: true
                         onPlayRequested: colorful.playCatalogTrack(modelData)
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
                         onSaveRequested: colorful.saveCatalogTrack(modelData)
+                        onDownloadRequested: colorful.downloadTrack(modelData)
                         onDetailsRequested: colorful.openTrack(modelData.id)
                     }
                 }

@@ -6,6 +6,8 @@
 #include <QDateTime>
 #include <QDBusObjectPath>
 #include <QDir>
+#include <QCryptographicHash>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QJsonArray>
@@ -14,6 +16,7 @@
 #include <QProcessEnvironment>
 #include <QSet>
 #include <QSettings>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QUrl>
 #include <QUuid>
@@ -154,6 +157,25 @@ Backend::Backend(QObject *parent)
         setStatus(QStringLiteral("TIDAL provider stopped (exit %1)").arg(exitCode));
     });
 
+    m_downloadProgressTimer.setInterval(1000);
+    connect(&m_downloadProgressTimer, &QTimer::timeout, this, [this] {
+        if (m_activeDownloadTrack.isEmpty() || m_downloadProcess.state() == QProcess::NotRunning) return;
+        const auto size = QFileInfo(downloadPath(m_activeDownloadTrack, true)).size();
+        saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {}, std::max<qint64>(0, size));
+    });
+    connect(&m_downloadProcess, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this](int exitCode, QProcess::ExitStatus status) {
+        const auto detail = QString::fromUtf8(m_downloadProcess.readAllStandardError()).trimmed();
+        finishDownloadTransfer(status == QProcess::NormalExit && exitCode == 0,
+                               detail.isEmpty() ? QString{} : QStringLiteral("ffmpeg could not assemble the source"));
+    });
+    connect(&m_downloadProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;
+        QTimer::singleShot(0, this, [this] {
+            if (!m_activeDownloadTrack.isEmpty()) finishDownloadTransfer(false, m_downloadProcess.errorString());
+        });
+    });
+
     connect(&m_playback, &LinuxPlayback::stateChanged, this, [this] {
         if (playing()) resumeListeningSession();
         else suspendListeningSession();
@@ -177,8 +199,10 @@ Backend::Backend(QObject *parent)
             resumeListeningSession();
         }
         setBusy(loading);
-        setStatus(loading ? QStringLiteral("Opening lossless stream…")
-                          : QStringLiteral("Playing from TIDAL"));
+        setStatus(loading ? (m_playingLocalSource ? QStringLiteral("Opening offline file…")
+                                                  : QStringLiteral("Opening lossless stream…"))
+                          : (m_playingLocalSource ? QStringLiteral("Playing offline")
+                                                  : QStringLiteral("Playing from TIDAL")));
         // A track-to-track URI swap keeps the logical state Playing, so there
         // is intentionally no stateChanged signal to refresh integrations.
         // Publish the new timeline once its preroll (and restore seek) ends.
@@ -208,6 +232,16 @@ Backend::Backend(QObject *parent)
     connect(&m_playback, &LinuxPlayback::endOfMedia, this, &Backend::next);
 
     openCore();
+    const auto restoredDownloads = m_downloads;
+    for (const auto &value : restoredDownloads) {
+        const auto entry = value.toMap();
+        const auto state = entry.value(QStringLiteral("downloadState")).toString();
+        if (state == QStringLiteral("queued") || state == QStringLiteral("resolving")
+            || state == QStringLiteral("downloading")) {
+            saveDownloadState(entry, QStringLiteral("paused"), {},
+                              entry.value(QStringLiteral("bytesDownloaded")).toLongLong());
+        }
+    }
     startProviderHost();
 }
 
@@ -222,6 +256,11 @@ Backend::~Backend()
         m_provider.closeWriteChannel();
         m_provider.terminate();
         if (!m_provider.waitForFinished(1200)) m_provider.kill();
+    }
+    if (m_downloadProcess.state() != QProcess::NotRunning) {
+        m_cancelActiveDownload = true;
+        m_downloadProcess.kill();
+        m_downloadProcess.waitForFinished(1200);
     }
 }
 
@@ -296,10 +335,26 @@ void Backend::refreshCoreSnapshot()
         nextLibrary.append(coreTrackToVariant(track.toObject()));
     }
 
+    QVariantList nextDownloads;
+    const auto downloadJobs = snapshot.value(QStringLiteral("downloads")).toArray();
+    const auto downloadTracks = snapshot.value(QStringLiteral("downloadTracks")).toArray();
+    const auto downloadCount = std::min(downloadJobs.size(), downloadTracks.size());
+    for (qsizetype index = 0; index < downloadCount; ++index) {
+        auto entry = coreTrackToVariant(downloadTracks.at(index).toObject());
+        const auto job = downloadJobs.at(index).toObject();
+        entry.insert(QStringLiteral("downloadState"), job.value(QStringLiteral("state")).toString());
+        entry.insert(QStringLiteral("localPath"), job.value(QStringLiteral("localPath")).toString());
+        entry.insert(QStringLiteral("bytesDownloaded"), job.value(QStringLiteral("bytesDownloaded")).toInteger());
+        entry.insert(QStringLiteral("bytesTotal"), job.value(QStringLiteral("bytesTotal")).toInteger());
+        entry.insert(QStringLiteral("downloadError"), job.value(QStringLiteral("errorCode")).toString());
+        nextDownloads.append(entry);
+    }
+
     const auto previousArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
     const bool queueWasChanged = nextQueue != m_queue || nextEntryIds != m_queueEntryIds;
     const bool currentWasChanged = currentEntryId != m_currentEntryId;
     const bool libraryWasChanged = nextLibrary != m_library;
+    const bool downloadsWereChanged = nextDownloads != m_downloads;
     const auto nextListenStats = snapshot.value(QStringLiteral("listenStats")).toObject().toVariantMap();
     const bool listenStatsWereChanged = nextListenStats != m_listenStats;
     m_queue = std::move(nextQueue);
@@ -307,6 +362,7 @@ void Backend::refreshCoreSnapshot()
     m_currentIndex = nextCurrentIndex;
     m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
+    m_downloads = std::move(nextDownloads);
     m_listenStats = nextListenStats;
     const auto currentArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
     if (!currentArtworkUrl.isEmpty() && currentArtworkUrl != previousArtworkUrl) loadAccent(currentArtworkUrl);
@@ -318,6 +374,7 @@ void Backend::refreshCoreSnapshot()
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
+    if (downloadsWereChanged) emit downloadsChanged();
     if (listenStatsWereChanged) emit listenStatsChanged();
 }
 
@@ -343,7 +400,9 @@ QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
         }
     }
     const auto albumId = track.value(QStringLiteral("albumId")).toString();
-    const auto coverUrl = track.value(QStringLiteral("coverUrl")).toString();
+    const auto coverUrl = track.value(QStringLiteral("coverRemoteUrl"),
+                                      track.value(QStringLiteral("coverUrl"))).toString();
+    const auto coverLocalPath = track.value(QStringLiteral("coverLocalPath")).toString();
     const auto durationMs = track.value(QStringLiteral("durationMs")).toLongLong();
     return {
         {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
@@ -357,9 +416,10 @@ QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
                                      {QStringLiteral("providerId"), albumId}})},
         {QStringLiteral("albumTitle"), track.value(QStringLiteral("albumTitle")).toString().isEmpty()
                                                 ? QJsonValue(QJsonValue::Null) : QJsonValue(track.value(QStringLiteral("albumTitle")).toString())},
-        {QStringLiteral("artwork"), coverUrl.isEmpty() ? QJsonValue(QJsonValue::Null)
+        {QStringLiteral("artwork"), coverUrl.isEmpty() && coverLocalPath.isEmpty() ? QJsonValue(QJsonValue::Null)
             : QJsonValue(QJsonObject{{QStringLiteral("url"), coverUrl},
-                                     {QStringLiteral("localKey"), QJsonValue::Null},
+                                     {QStringLiteral("localKey"), coverLocalPath.isEmpty()
+                                          ? QJsonValue(QJsonValue::Null) : QJsonValue(coverLocalPath)},
                                      {QStringLiteral("width"), QJsonValue::Null},
                                      {QStringLiteral("height"), QJsonValue::Null}})},
         {QStringLiteral("durationMs"), durationMs > 0 ? QJsonValue(durationMs) : QJsonValue(QJsonValue::Null)},
@@ -383,6 +443,10 @@ QVariantMap Backend::coreTrackToVariant(const QJsonObject &track)
         });
     }
     const auto artwork = track.value(QStringLiteral("artwork")).toObject();
+    const auto coverRemoteUrl = artwork.value(QStringLiteral("url")).toString();
+    const auto coverLocalPath = artwork.value(QStringLiteral("localKey")).toString();
+    const auto coverUrl = !coverLocalPath.isEmpty() && QFileInfo::exists(coverLocalPath)
+        ? QUrl::fromLocalFile(coverLocalPath).toString() : coverRemoteUrl;
     const auto id = track.value(QStringLiteral("id")).toObject();
     return {
         {QStringLiteral("provider"), id.value(QStringLiteral("provider")).toString()},
@@ -396,7 +460,9 @@ QVariantMap Backend::coreTrackToVariant(const QJsonObject &track)
         {QStringLiteral("albumTitle"), track.value(QStringLiteral("albumTitle")).toString()},
         {QStringLiteral("durationMs"), track.value(QStringLiteral("durationMs")).toInteger()},
         {QStringLiteral("isrc"), track.value(QStringLiteral("isrc")).toString()},
-        {QStringLiteral("coverUrl"), artwork.value(QStringLiteral("url")).toString()},
+        {QStringLiteral("coverUrl"), coverUrl},
+        {QStringLiteral("coverRemoteUrl"), coverRemoteUrl},
+        {QStringLiteral("coverLocalPath"), coverLocalPath},
     };
 }
 
@@ -1031,6 +1097,289 @@ void Backend::removeLibraryIndex(int index)
     setStatus(QStringLiteral("Removed %1 from your library").arg(track.value(QStringLiteral("title")).toString()));
 }
 
+QString Backend::downloadsDirectory() const
+{
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+        .filePath(QStringLiteral("offline"));
+}
+
+QString Backend::downloadPath(const QVariantMap &track, bool partial) const
+{
+    const auto identity = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+        + QLatin1Char(':') + track.value(QStringLiteral("id")).toString();
+    const auto digest = QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex();
+    return QDir(downloadsDirectory()).filePath(QString::fromLatin1(digest)
+        + (partial ? QStringLiteral(".part.mka") : QStringLiteral(".mka")));
+}
+
+QString Backend::downloadArtworkPath(const QVariantMap &track) const
+{
+    const auto identity = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+        + QLatin1Char(':') + track.value(QStringLiteral("id")).toString();
+    const auto digest = QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex();
+    return QDir(downloadsDirectory()).filePath(QString::fromLatin1(digest) + QStringLiteral(".cover"));
+}
+
+void Backend::downloadArtwork(const QVariantMap &track)
+{
+    const auto remoteUrl = track.value(QStringLiteral("coverRemoteUrl"),
+                                       track.value(QStringLiteral("coverUrl"))).toString();
+    if (remoteUrl.isEmpty() || !QUrl(remoteUrl).isValid()) return;
+    auto *reply = m_network.get(QNetworkRequest(QUrl(remoteUrl)));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, track] {
+        const auto data = reply->readAll();
+        const bool succeeded = reply->error() == QNetworkReply::NoError && !data.isEmpty();
+        reply->deleteLater();
+        const auto existing = downloadForTrack(
+            track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString(),
+            track.value(QStringLiteral("id")).toString());
+        if (!succeeded || existing.value(QStringLiteral("downloadState")).toString() != QStringLiteral("complete")) return;
+        const auto artworkPath = downloadArtworkPath(track);
+        QSaveFile file(artworkPath);
+        if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) {
+            return;
+        }
+        auto persistedTrack = track;
+        persistedTrack.insert(QStringLiteral("coverLocalPath"), artworkPath);
+        saveDownloadState(persistedTrack, QStringLiteral("complete"),
+                          existing.value(QStringLiteral("localPath")).toString(),
+                          existing.value(QStringLiteral("bytesDownloaded")).toLongLong(),
+                          existing.value(QStringLiteral("bytesDownloaded")).toLongLong());
+    });
+}
+
+QVariantMap Backend::downloadForTrack(const QString &provider, const QString &trackId) const
+{
+    for (const auto &value : m_downloads) {
+        const auto entry = value.toMap();
+        if (entry.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString() == provider
+            && entry.value(QStringLiteral("id")).toString() == trackId) return entry;
+    }
+    return {};
+}
+
+void Backend::saveDownloadState(const QVariantMap &track, const QString &state,
+                                const QString &localPath, qint64 bytesDownloaded,
+                                std::optional<qint64> bytesTotal, const QString &errorCode)
+{
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto trackId = track.value(QStringLiteral("id")).toString();
+    if (trackId.isEmpty()) return;
+    const auto previous = downloadForTrack(provider, trackId);
+    if (state == QStringLiteral("downloading")) {
+        bytesDownloaded = std::max(bytesDownloaded, previous.value(QStringLiteral("bytesDownloaded")).toLongLong());
+    }
+    QJsonObject job{
+        {QStringLiteral("mediaId"), QJsonObject{{QStringLiteral("provider"), provider},
+                                                 {QStringLiteral("providerId"), trackId}}},
+        {QStringLiteral("state"), state},
+        {QStringLiteral("localPath"), localPath.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(localPath)},
+        {QStringLiteral("bytesDownloaded"), bytesDownloaded},
+        {QStringLiteral("bytesTotal"), bytesTotal ? QJsonValue(*bytesTotal) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("sourceExpiresAtMs"), QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("errorCode"), errorCode.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(errorCode)},
+        {QStringLiteral("updatedAtMs"), QDateTime::currentMSecsSinceEpoch()},
+    };
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("save_download")},
+                  {QStringLiteral("track"), variantTrackToCore(track)},
+                  {QStringLiteral("job"), job}});
+}
+
+void Backend::downloadTrack(const QVariantMap &track)
+{
+    const auto trackId = track.value(QStringLiteral("id")).toString();
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    if (trackId.isEmpty()) return;
+    if (provider != QStringLiteral("tidal")) {
+        setStatus(QStringLiteral("Offline downloads are not implemented for %1 yet").arg(provider));
+        return;
+    }
+    const auto existing = downloadForTrack(provider, trackId);
+    if (existing.value(QStringLiteral("downloadState")).toString() == QStringLiteral("complete")
+        && QFileInfo::exists(existing.value(QStringLiteral("localPath")).toString())) {
+        setStatus(QStringLiteral("%1 is already available offline").arg(track.value(QStringLiteral("title")).toString()));
+        return;
+    }
+    if (!m_activeDownloadTrack.isEmpty()
+        && m_activeDownloadTrack.value(QStringLiteral("id")).toString() == trackId) return;
+    for (const auto &queued : m_downloadQueue) {
+        if (queued.value(QStringLiteral("id")).toString() == trackId) return;
+    }
+    QFile::remove(downloadPath(track, true));
+    saveDownloadState(track, QStringLiteral("queued"));
+    m_downloadQueue.append(track);
+    setStatus(QStringLiteral("Queued %1 for offline download").arg(track.value(QStringLiteral("title")).toString()));
+    beginNextDownload();
+}
+
+void Backend::beginNextDownload()
+{
+    if (!m_activeDownloadTrack.isEmpty() || m_downloadProcess.state() != QProcess::NotRunning
+        || m_downloadQueue.isEmpty()) return;
+    m_activeDownloadTrack = m_downloadQueue.takeFirst();
+    m_cancelActiveDownload = false;
+    m_removeActiveDownload = false;
+    const auto generation = ++m_downloadGeneration;
+    const auto trackId = m_activeDownloadTrack.value(QStringLiteral("id")).toString();
+    saveDownloadState(m_activeDownloadTrack, QStringLiteral("resolving"));
+    if (!m_providerReady || !m_linked) {
+        finishDownloadTransfer(false, QStringLiteral("Connect TIDAL before starting a new download"));
+        return;
+    }
+    setStatus(QStringLiteral("Preparing offline download for %1…")
+                  .arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
+    const auto requestId = request(QStringLiteral("source"), {
+        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("trackId"), trackId},
+        {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")},
+        {QStringLiteral("quality"), m_streamQuality},
+    }, [this, generation, trackId](const QJsonObject &message) {
+        if (generation != m_downloadGeneration || m_activeDownloadTrack.isEmpty()
+            || m_activeDownloadTrack.value(QStringLiteral("id")).toString() != trackId) return;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            finishDownloadTransfer(false, message.value(QStringLiteral("error")).toString());
+            return;
+        }
+        const auto uri = message.value(QStringLiteral("data")).toObject().value(QStringLiteral("uri")).toString();
+        if (uri.isEmpty()) {
+            finishDownloadTransfer(false, QStringLiteral("TIDAL returned an empty download source"));
+            return;
+        }
+        startDownloadTransfer(QUrl(uri));
+    });
+    if (requestId < 0) finishDownloadTransfer(false, QStringLiteral("Provider host is not running"));
+}
+
+void Backend::startDownloadTransfer(const QUrl &source)
+{
+    if (m_activeDownloadTrack.isEmpty()) return;
+    if (!QDir().mkpath(downloadsDirectory())) {
+        finishDownloadTransfer(false, QStringLiteral("Could not create the offline music directory"));
+        return;
+    }
+    const auto ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    if (ffmpeg.isEmpty()) {
+        finishDownloadTransfer(false, QStringLiteral("ffmpeg is required to assemble offline audio"));
+        return;
+    }
+    const auto partialPath = downloadPath(m_activeDownloadTrack, true);
+    QFile::remove(partialPath);
+    saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"));
+    m_downloadProcess.setProgram(ffmpeg);
+    m_downloadProcess.setArguments({
+        QStringLiteral("-nostdin"), QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
+        QStringLiteral("-y"), QStringLiteral("-i"), source.toString(),
+        QStringLiteral("-map"), QStringLiteral("0:a:0"), QStringLiteral("-vn"),
+        QStringLiteral("-c:a"), QStringLiteral("copy"), QStringLiteral("-f"), QStringLiteral("matroska"), partialPath,
+    });
+    m_downloadProcess.setProcessChannelMode(QProcess::SeparateChannels);
+    m_downloadProcess.start();
+    m_downloadProgressTimer.start();
+    setStatus(QStringLiteral("Downloading %1…")
+                  .arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
+}
+
+void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
+{
+    if (m_activeDownloadTrack.isEmpty()) return;
+    m_downloadProgressTimer.stop();
+    const auto track = m_activeDownloadTrack;
+    const auto partialPath = downloadPath(track, true);
+    const auto finalPath = downloadPath(track, false);
+    const auto partialSize = std::max<qint64>(0, QFileInfo(partialPath).size());
+    const bool remove = m_removeActiveDownload;
+    const bool cancel = m_cancelActiveDownload;
+    m_activeDownloadTrack.clear();
+    m_cancelActiveDownload = false;
+    m_removeActiveDownload = false;
+
+    if (remove) {
+        QFile::remove(partialPath);
+        QFile::remove(finalPath);
+        QFile::remove(downloadArtworkPath(track));
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
+                      {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                                         {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
+    } else if (cancel) {
+        saveDownloadState(track, QStringLiteral("paused"), {}, partialSize);
+        setStatus(QStringLiteral("Paused offline download for %1").arg(track.value(QStringLiteral("title")).toString()));
+    } else if (!succeeded || partialSize <= 0) {
+        saveDownloadState(track, QStringLiteral("failed"), {}, partialSize, std::nullopt,
+                          QStringLiteral("transfer_failed"));
+        setStatus(QStringLiteral("Download failed: %1").arg(error.isEmpty() ? QStringLiteral("empty output") : error));
+    } else {
+        QFile::remove(finalPath);
+        if (!QFile::rename(partialPath, finalPath)) {
+            saveDownloadState(track, QStringLiteral("failed"), {}, partialSize, std::nullopt,
+                              QStringLiteral("finalize_failed"));
+            setStatus(QStringLiteral("Could not finalize the offline file"));
+        } else {
+            saveDownloadState(track, QStringLiteral("complete"), finalPath, partialSize, partialSize);
+            downloadArtwork(track);
+            setStatus(QStringLiteral("%1 is ready offline").arg(track.value(QStringLiteral("title")).toString()));
+        }
+    }
+    QTimer::singleShot(0, this, &Backend::beginNextDownload);
+}
+
+void Backend::pauseDownload(const QString &trackId)
+{
+    for (qsizetype index = 0; index < m_downloadQueue.size(); ++index) {
+        if (m_downloadQueue.at(index).value(QStringLiteral("id")).toString() != trackId) continue;
+        const auto track = m_downloadQueue.takeAt(index);
+        saveDownloadState(track, QStringLiteral("paused"));
+        return;
+    }
+    if (m_activeDownloadTrack.value(QStringLiteral("id")).toString() != trackId) return;
+    ++m_downloadGeneration;
+    m_cancelActiveDownload = true;
+    if (m_downloadProcess.state() == QProcess::NotRunning) finishDownloadTransfer(false);
+    else {
+        m_downloadProcess.terminate();
+        const auto generation = m_downloadGeneration;
+        QTimer::singleShot(2000, this, [this, generation] {
+            if (generation == m_downloadGeneration && m_cancelActiveDownload
+                && m_downloadProcess.state() != QProcess::NotRunning) m_downloadProcess.kill();
+        });
+    }
+}
+
+void Backend::removeDownload(const QString &trackId)
+{
+    for (qsizetype index = 0; index < m_downloadQueue.size(); ++index) {
+        if (m_downloadQueue.at(index).value(QStringLiteral("id")).toString() != trackId) continue;
+        const auto track = m_downloadQueue.takeAt(index);
+        QFile::remove(downloadPath(track, true));
+        QFile::remove(downloadPath(track, false));
+        QFile::remove(downloadArtworkPath(track));
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
+                      {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                                         {QStringLiteral("providerId"), trackId}}}});
+        return;
+    }
+    if (m_activeDownloadTrack.value(QStringLiteral("id")).toString() == trackId) {
+        ++m_downloadGeneration;
+        m_removeActiveDownload = true;
+        if (m_downloadProcess.state() == QProcess::NotRunning) finishDownloadTransfer(false);
+        else m_downloadProcess.kill();
+        return;
+    }
+    const auto existing = downloadForTrack(QStringLiteral("tidal"), trackId);
+    if (existing.isEmpty()) return;
+    QFile::remove(existing.value(QStringLiteral("localPath")).toString());
+    QFile::remove(downloadPath(existing, true));
+    QFile::remove(downloadArtworkPath(existing));
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
+                  {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), existing.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                                                     {QStringLiteral("providerId"), trackId}}}});
+}
+
+void Backend::openDownloadsFolder()
+{
+    QDir().mkpath(downloadsDirectory());
+    QDesktopServices::openUrl(QUrl::fromLocalFile(downloadsDirectory()));
+}
+
 void Backend::playTrackAt(int index)
 {
     if (index < 0 || index >= m_queueEntryIds.size()) return;
@@ -1048,6 +1397,18 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     const auto sourceGeneration = ++m_sourceGeneration;
     suspendListeningSession();
     m_playbackReady = false;
+    const auto offline = downloadForTrack(
+        track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString(), requestedTrackId);
+    const auto localPath = offline.value(QStringLiteral("localPath")).toString();
+    if (offline.value(QStringLiteral("downloadState")).toString() == QStringLiteral("complete")
+        && !localPath.isEmpty() && QFileInfo::exists(localPath)) {
+        m_playingLocalSource = true;
+        m_displayPositionOverride = startPositionMs > 0 ? startPositionMs : -1;
+        loadAccent(track.value(QStringLiteral("coverUrl")).toString());
+        m_playback.setSource(QUrl::fromLocalFile(localPath), startPositionMs, autoplay);
+        return;
+    }
+    m_playingLocalSource = false;
     setBusy(true);
     setStatus(QStringLiteral("Getting playback source for %1…").arg(track.value(QStringLiteral("title")).toString()));
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());

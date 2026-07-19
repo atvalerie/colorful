@@ -170,6 +170,20 @@ impl Engine {
         Ok(self.storage.downloads()?)
     }
 
+    /// Hydrates download jobs in the same order returned by [`Self::downloads`].
+    /// Native shells need this metadata to render and resume offline jobs after
+    /// a restart without querying the provider.
+    pub fn download_tracks(&self, downloads: &[DownloadJob]) -> EngineResult<Vec<Track>> {
+        downloads
+            .iter()
+            .map(|job| {
+                self.storage
+                    .track(&job.media_id)?
+                    .ok_or_else(|| EngineError::MissingTrack(job.media_id.clone()))
+            })
+            .collect()
+    }
+
     pub fn listen_stats(&self) -> EngineResult<ListenStats> {
         Ok(self.storage.listen_stats(None, 5)?)
     }
@@ -525,6 +539,7 @@ mod tests {
             .unwrap();
         assert_eq!(events, vec![EngineEvent::DownloadChanged(job.clone())]);
         assert_eq!(engine.downloads().unwrap(), vec![job.clone()]);
+        assert_eq!(engine.download_tracks(&[job.clone()]).unwrap()[0].id, job.media_id.clone());
         assert_eq!(
             engine
                 .dispatch(EngineCommand::RemoveDownload(job.media_id.clone()))

@@ -16,6 +16,7 @@
 #include <QVariantList>
 #include <QVariantAnimation>
 #include <functional>
+#include <optional>
 
 class Backend final : public QObject
 {
@@ -38,6 +39,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool canNavigateCatalogBack READ canNavigateCatalogBack NOTIFY catalogPageChanged)
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
     Q_PROPERTY(QVariantList library READ library NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList downloads READ downloads NOTIFY downloadsChanged)
     Q_PROPERTY(QVariantMap tidalHub READ tidalHub NOTIFY tidalHubChanged)
     Q_PROPERTY(bool tidalHubLoading READ tidalHubLoading NOTIFY tidalHubChanged)
     Q_PROPERTY(bool tidalMoreLoading READ tidalMoreLoading NOTIFY tidalHubChanged)
@@ -85,6 +87,7 @@ public:
     bool canNavigateCatalogBack() const { return !m_catalogHistory.isEmpty(); }
     QVariantList queue() const { return m_queue; }
     QVariantList library() const { return m_library; }
+    QVariantList downloads() const { return m_downloads; }
     QVariantMap tidalHub() const { return m_tidalHub; }
     bool tidalHubLoading() const { return m_tidalHubLoading; }
     bool tidalMoreLoading() const { return m_tidalMoreLoading; }
@@ -140,6 +143,10 @@ public:
     Q_INVOKABLE void addSearchResultToLibrary(int index);
     Q_INVOKABLE void playLibraryIndex(int index);
     Q_INVOKABLE void removeLibraryIndex(int index);
+    Q_INVOKABLE void downloadTrack(const QVariantMap &track);
+    Q_INVOKABLE void pauseDownload(const QString &trackId);
+    Q_INVOKABLE void removeDownload(const QString &trackId);
+    Q_INVOKABLE void openDownloadsFolder();
     Q_INVOKABLE void loadTidalHub(bool refresh = false);
     Q_INVOKABLE void loadMoreTidal(const QString &section);
     Q_INVOKABLE void togglePlay();
@@ -177,6 +184,7 @@ signals:
     void catalogPageChanged();
     void queueChanged();
     void libraryChanged();
+    void downloadsChanged();
     void tidalHubChanged();
     void currentTrackChanged();
     void playbackChanged();
@@ -211,6 +219,18 @@ private:
     void enqueueTrack(const QVariantMap &track);
     void saveTrack(const QVariantMap &track);
     void resolveCurrentSource(qint64 startPositionMs = 0, bool autoplay = true);
+    void beginNextDownload();
+    void startDownloadTransfer(const QUrl &source);
+    void finishDownloadTransfer(bool succeeded, const QString &error = {});
+    void saveDownloadState(const QVariantMap &track, const QString &state,
+                           const QString &localPath = {}, qint64 bytesDownloaded = 0,
+                           std::optional<qint64> bytesTotal = std::nullopt,
+                           const QString &errorCode = {});
+    QVariantMap downloadForTrack(const QString &provider, const QString &trackId) const;
+    QString downloadPath(const QVariantMap &track, bool partial) const;
+    QString downloadArtworkPath(const QVariantMap &track) const;
+    void downloadArtwork(const QVariantMap &track);
+    QString downloadsDirectory() const;
     void requestRelatedAndContinue();
     bool openCore();
     QJsonObject dispatchCore(const QJsonObject &command);
@@ -255,6 +275,15 @@ private:
     quint64 m_catalogGeneration = 0;
     QVariantList m_queue;
     QVariantList m_library;
+    QVariantList m_downloads;
+    QList<QVariantMap> m_downloadQueue;
+    QVariantMap m_activeDownloadTrack;
+    QProcess m_downloadProcess;
+    QTimer m_downloadProgressTimer;
+    quint64 m_downloadGeneration = 0;
+    bool m_cancelActiveDownload = false;
+    bool m_removeActiveDownload = false;
+    bool m_playingLocalSource = false;
     QVariantMap m_tidalHub;
     bool m_tidalHubLoading = false;
     bool m_tidalMoreLoading = false;

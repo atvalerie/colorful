@@ -677,7 +677,7 @@ fn upsert_track(transaction: &Transaction<'_>, track: &Track) -> StorageResult<(
             album_provider_id = excluded.album_provider_id,
             album_title = excluded.album_title,
             artwork_url = excluded.artwork_url,
-            artwork_local_key = excluded.artwork_local_key,
+            artwork_local_key = COALESCE(excluded.artwork_local_key, tracks.artwork_local_key),
             artwork_width = excluded.artwork_width,
             artwork_height = excluded.artwork_height,
             duration_ms = excluded.duration_ms,
@@ -1024,7 +1024,7 @@ mod tests {
     #[test]
     fn round_trips_resumable_and_complete_downloads() {
         let mut storage = Storage::open_in_memory().unwrap();
-        let track = track("offline");
+        let mut track = track("offline");
         let mut job = DownloadJob::queued(track.id.clone(), 1);
         job.begin_transfer(Some(200), Some(5000), 2).unwrap();
         job.report_progress(80, 3).unwrap();
@@ -1033,8 +1033,17 @@ mod tests {
 
         job.begin_transfer(Some(200), Some(6000), 4).unwrap();
         job.complete("music/offline.flac", 200, 5).unwrap();
+        track.artwork.as_mut().unwrap().local_key = Some("music/offline.cover".into());
         storage.save_download(&track, &job).unwrap();
         assert_eq!(storage.download(&track.id).unwrap(), Some(job));
+
+        let mut refreshed_metadata = track.clone();
+        refreshed_metadata.artwork.as_mut().unwrap().local_key = None;
+        storage.upsert_track(&refreshed_metadata).unwrap();
+        assert_eq!(
+            storage.track(&track.id).unwrap().unwrap().artwork.unwrap().local_key.as_deref(),
+            Some("music/offline.cover")
+        );
         assert!(storage.remove_download(&track.id).unwrap());
     }
 }

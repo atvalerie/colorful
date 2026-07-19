@@ -20,6 +20,20 @@ Item {
         return field.activeFocus ? colorful.accent : Qt.rgba(1, 1, 1, 0.13)
     }
 
+    function downloadedBytes() {
+        let total = 0
+        for (let index = 0; index < colorful.downloads.length; ++index)
+            if (colorful.downloads[index].downloadState === "complete")
+                total += colorful.downloads[index].bytesDownloaded || 0
+        return total
+    }
+
+    function formatStorage(bytes) {
+        if (!bytes) return "0 MB"
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB"
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 20
@@ -320,11 +334,29 @@ Item {
                 }
             }
 
-            Item {
-                Column { anchors.centerIn: parent; width: Math.min(430, parent.width - 40); spacing: 9
-                    AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/download.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "Storage controls are coming with offline downloads"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
-                    Text { width: parent.width; text: "Download quality, cache limits, locations, and cleanup will live here."; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 12; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
+            Flickable {
+                clip: true; contentWidth: width; contentHeight: storageBody.implicitHeight + 30
+                boundsBehavior: Flickable.StopAtBounds
+                ColumnLayout {
+                    id: storageBody
+                    width: Math.min(parent.width, 820); spacing: 14
+                    Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
+                    Text { Layout.fillWidth: true; text: "Offline files are private application data. They contain playable audio and do not depend on an expiring manifest after completion."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 105
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        RowLayout {
+                            anchors.fill: parent; anchors.margins: 16; spacing: 18
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 3
+                                Text { text: root.formatStorage(root.downloadedBytes()); color: "#f5f5f5"; font.bold: true; font.pixelSize: 22 }
+                                Text { text: colorful.downloads.length + " offline " + (colorful.downloads.length === 1 ? "entry" : "entries"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
+                            }
+                            ColorButton { text: "Open folder"; quiet: true; onClicked: colorful.openDownloadsFolder() }
+                        }
+                    }
+                    Text { text: "Download quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
+                    Text { Layout.fillWidth: true; text: "New downloads currently follow the TIDAL stream-quality choice in Playback settings. Per-download quality and automatic cache limits can be added without changing the stored-file format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
                 }
             }
 

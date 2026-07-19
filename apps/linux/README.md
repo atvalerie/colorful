@@ -14,6 +14,12 @@ The launcher builds the app when necessary and loads the existing TIDAL client
 configuration from `../mocha/.env`. It does not copy or print those credentials.
 You can instead provide the same `TIDAL_*` variables in your environment.
 
+Offline downloads require the `ffmpeg` executable. colorful resolves a fresh
+TIDAL DASH source for the transfer, remuxes the selected audio without
+re-encoding, and stores the standalone `.mka` file plus artwork under its
+private application-data directory. Completed playback does not use a manifest
+or require the provider host to be online.
+
 When a Discord-compatible desktop client is running, colorful publishes the
 current track through local Rich Presence IPC. Set
 `COLORFUL_DISABLE_DISCORD_RPC=1` before launching to disable it.

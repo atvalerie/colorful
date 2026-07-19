@@ -9,10 +9,12 @@ ItemDelegate {
     property bool queueMode: false
     property bool libraryMode: false
     property bool showSaveAction: false
+    property bool showDownloadAction: false
     signal playRequested()
     signal addRequested()
     signal removeRequested()
     signal saveRequested()
+    signal downloadRequested()
     signal detailsRequested()
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 500)
@@ -98,6 +100,15 @@ ItemDelegate {
             iconSource: "icons/library.svg"
             tooltipText: "Save to library"
             onClicked: root.saveRequested()
+        }
+
+        IconButton {
+            visible: root.showDownloadAction
+            implicitWidth: visible ? 36 : 0
+            implicitHeight: 36
+            iconSource: "icons/download.svg"
+            tooltipText: "Download for offline playback"
+            onClicked: root.downloadRequested()
         }
     }
 

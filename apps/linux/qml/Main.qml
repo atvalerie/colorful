@@ -249,8 +249,12 @@ ApplicationWindow {
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/download.svg"
-                        enabled: false
-                        tooltipText: "Offline music is coming next"
+                        selected: window.currentSection === "downloads"
+                        tooltipText: "Offline music"
+                        onClicked: {
+                            window.currentSection = "downloads"
+                            colorful.closeCatalog()
+                        }
                     }
 
                     Item { Layout.fillHeight: true }
@@ -378,6 +382,12 @@ ApplicationWindow {
                             visible: window.currentSection === "settings"
                         }
 
+                        DownloadsPage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: window.currentSection === "downloads"
+                        }
+
                         RowLayout {
                             visible: (window.currentSection === "search" || window.currentSection === "library")
                                      && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
@@ -422,12 +432,14 @@ ApplicationWindow {
                                 track: modelData
                                 libraryMode: window.currentSection === "library"
                                 showSaveAction: window.currentSection === "search"
+                                showDownloadAction: true
                                 onPlayRequested: window.currentSection === "library"
                                                  ? colorful.playLibraryIndex(index)
                                                  : colorful.playSearchResult(index)
                                 onAddRequested: colorful.enqueueSearchResult(index)
                                 onRemoveRequested: colorful.removeLibraryIndex(index)
                                 onSaveRequested: colorful.addSearchResultToLibrary(index)
+                                onDownloadRequested: colorful.downloadTrack(modelData)
                                 onDetailsRequested: colorful.openTrack(modelData.id)
                             }
 
@@ -589,9 +601,11 @@ ApplicationWindow {
                                     required property var modelData
                                     track: modelData
                                     queueMode: true
+                                    showDownloadAction: true
                                     active: index === colorful.currentQueueIndex
                                     onPlayRequested: colorful.playQueueIndex(index)
                                     onRemoveRequested: colorful.removeQueueIndex(index)
+                                    onDownloadRequested: colorful.downloadTrack(modelData)
                                     onDetailsRequested: colorful.openTrack(modelData.id)
                                 }
 
