@@ -15,7 +15,10 @@ Text {
 
     MouseArea {
         id: pointer
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.top: parent.top
+        width: Math.min(root.width, root.paintedWidth)
+        height: root.height
         enabled: root.linkEnabled
         hoverEnabled: true
         cursorShape: root.linkEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
