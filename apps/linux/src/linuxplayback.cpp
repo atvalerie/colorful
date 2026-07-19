@@ -383,10 +383,6 @@ bool LinuxPlayback::createPersistentOutput()
     g_object_set(bridgeSink,
                  "channel", "colorful-output",
                  "sync", TRUE,
-                 // interaudiosink has no device to preroll. Waiting for its
-                 // default async preroll can leave network playbin sources in
-                 // PAUSED forever, so let decoder preroll drive ASYNC_DONE.
-                 "async", FALSE,
                  nullptr);
     g_object_set(m_playbin, "audio-sink", bridgeSink, nullptr);
     gst_object_unref(bridgeSink);
