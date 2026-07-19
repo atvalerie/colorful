@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPlaybackManifestUrl, formatsForQuality, requiresEntitlementRefresh } from "../src/manifest";
+import { buildPlaybackManifestUrl, formatsForQuality, parseAudioNormalization, requiresEntitlementRefresh } from "../src/manifest";
 
 describe("TIDAL manifest entitlement handling", () => {
   test("refreshes a subscription-gated preview", () => {
@@ -22,6 +22,19 @@ describe("TIDAL manifest entitlement handling", () => {
 });
 
 describe("TIDAL playback manifest request", () => {
+  test("keeps finite ReplayGain and peak values from the manifest", () => {
+    expect(parseAudioNormalization({ replayGain: -10.1, peakAmplitude: 0.901468 })).toEqual({
+      replayGain: -10.1,
+      peakAmplitude: 0.901468,
+    });
+    expect(parseAudioNormalization({ replayGain: "nope", peakAmplitude: 1 })).toBeNull();
+    expect(parseAudioNormalization({ replayGain: null, peakAmplitude: 1 })).toBeNull();
+    expect(parseAudioNormalization({ replayGain: -8, peakAmplitude: 0 })).toEqual({
+      replayGain: -8,
+      peakAmplitude: null,
+    });
+  });
+
   test("requests one seekable representation instead of an adaptive audio master", () => {
     const url = buildPlaybackManifestUrl("https://openapi.tidal.com/v2", "track/id");
 

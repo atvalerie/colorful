@@ -7,6 +7,13 @@ export type PlaybackSource = {
   formats: string[];
   presentation: string | null;
   previewReason: string | null;
+  trackAudioNormalizationData: AudioNormalizationData | null;
+  albumAudioNormalizationData: AudioNormalizationData | null;
+};
+
+export type AudioNormalizationData = {
+  replayGain: number;
+  peakAmplitude: number | null;
 };
 
 export type ManifestType = PlaybackSource["manifestType"];
@@ -24,7 +31,21 @@ type ManifestAttributes = {
   formats?: unknown;
   trackPresentation?: unknown;
   previewReason?: unknown;
+  trackAudioNormalizationData?: unknown;
+  albumAudioNormalizationData?: unknown;
 };
+
+export function parseAudioNormalization(value: unknown): AudioNormalizationData | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const replayGain = typeof record.replayGain === "number" ? record.replayGain : Number.NaN;
+  const peakAmplitude = typeof record.peakAmplitude === "number" ? record.peakAmplitude : Number.NaN;
+  if (!Number.isFinite(replayGain)) return null;
+  return {
+    replayGain,
+    peakAmplitude: Number.isFinite(peakAmplitude) && peakAmplitude > 0 ? peakAmplitude : null,
+  };
+}
 
 export function requiresEntitlementRefresh(attributes: ManifestAttributes): boolean {
   return attributes.trackPresentation === "PREVIEW"
@@ -92,6 +113,8 @@ export class UserSession {
       formats: Array.isArray(attributes.formats) ? attributes.formats.map(String) : [],
       presentation: typeof attributes.trackPresentation === "string" ? attributes.trackPresentation : null,
       previewReason: typeof attributes.previewReason === "string" ? attributes.previewReason : null,
+      trackAudioNormalizationData: parseAudioNormalization(attributes.trackAudioNormalizationData),
+      albumAudioNormalizationData: parseAudioNormalization(attributes.albumAudioNormalizationData),
     };
   }
 }

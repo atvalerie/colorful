@@ -80,8 +80,10 @@ graph. Gapless is not implemented as a crossfade and must work with EQ off.
 The portable contract fixes ten bands at 31 Hz through 16 kHz, bounds each to
 ±12 dB, and carries the normalization preference. Linux implements the bands
 with libmpv's FFmpeg audio-filter graph, adds a limiter only while EQ is active,
-and uses track ReplayGain metadata for normalization. Other native adapters map
-the same contract onto their platform audio graphs.
+and uses TIDAL's per-track manifest ReplayGain and peak values for streamed
+normalization. Those values are written as standard ReplayGain tags in offline
+Matroska files; other local files use their existing embedded tags. Other native
+adapters map the same contract onto their platform audio graphs.
 
 ## Native targets
 

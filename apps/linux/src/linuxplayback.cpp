@@ -63,12 +63,18 @@ LinuxPlayback::~LinuxPlayback()
     mpv_terminate_destroy(m_mpv);
 }
 
-void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay)
+void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
+                              std::optional<double> replayGainDb,
+                              std::optional<double> peakAmplitude)
 {
     if (!m_mpv || !source.isValid() || source.isEmpty()) return;
     setSeekSilence(false);
     m_source = source;
     m_preparedSource = QUrl();
+    m_replayGainDb = replayGainDb;
+    m_peakAmplitude = peakAmplitude;
+    m_preparedReplayGainDb.reset();
+    m_preparedPeakAmplitude.reset();
     m_prepareRequestId = 0;
     m_currentWasPrepared = false;
     m_positionMs = std::max<qint64>(0, startPositionMs);
@@ -86,22 +92,27 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     emit durationChanged();
 
     const auto uri = source.toEncoded();
-    const auto options = QStringLiteral("pause=yes,start=%1")
-        .arg(m_positionMs / 1000.0, 0, 'f', 3).toUtf8();
+    const auto options = QStringLiteral("pause=yes,start=%1,%2")
+        .arg(m_positionMs / 1000.0, 0, 'f', 3)
+        .arg(playbackOptions(replayGainDb, peakAmplitude)).toUtf8();
     const char *arguments[] = {"loadfile", uri.constData(), "replace", "-1", options.constData(), nullptr};
     m_loadRequestId = m_nextRequestId++;
     command(arguments, m_loadRequestId);
 }
 
-void LinuxPlayback::prepareNextSource(const QUrl &source)
+void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> replayGainDb,
+                                      std::optional<double> peakAmplitude)
 {
     if (!m_mpv || !hasSource() || !source.isValid() || source.isEmpty()) return;
     if (m_preparedSource == source) return;
 
     clearPreparedNext();
     m_preparedSource = source;
+    m_preparedReplayGainDb = replayGainDb;
+    m_preparedPeakAmplitude = peakAmplitude;
     const auto uri = source.toEncoded();
-    const char *arguments[] = {"loadfile", uri.constData(), "append", nullptr};
+    const auto options = playbackOptions(replayGainDb, peakAmplitude).toUtf8();
+    const char *arguments[] = {"loadfile", uri.constData(), "append", "-1", options.constData(), nullptr};
     m_prepareRequestId = m_nextRequestId++;
     command(arguments, m_prepareRequestId);
 }
@@ -110,6 +121,8 @@ void LinuxPlayback::clearPreparedNext()
 {
     if (!m_mpv || m_preparedSource.isEmpty()) return;
     m_preparedSource = QUrl();
+    m_preparedReplayGainDb.reset();
+    m_preparedPeakAmplitude.reset();
     m_prepareRequestId = 0;
     const char *arguments[] = {"playlist-clear", nullptr};
     command(arguments);
@@ -134,6 +147,10 @@ void LinuxPlayback::clearSource()
     command(arguments);
     m_source = QUrl();
     m_preparedSource = QUrl();
+    m_replayGainDb.reset();
+    m_peakAmplitude.reset();
+    m_preparedReplayGainDb.reset();
+    m_preparedPeakAmplitude.reset();
     m_prepareRequestId = 0;
     m_currentWasPrepared = false;
     m_positionMs = 0;
@@ -230,8 +247,40 @@ void LinuxPlayback::setReplayGain(bool enabled)
     if (m_replayGainEnabled == enabled) return;
     m_replayGainEnabled = enabled;
     if (!m_mpv) return;
-    const auto value = enabled ? QByteArrayLiteral("track") : QByteArrayLiteral("no");
-    mpv_set_property_string(m_mpv, "replaygain", value.constData());
+    applyCurrentNormalization();
+}
+
+QString LinuxPlayback::playbackOptions(std::optional<double> replayGainDb,
+                                       std::optional<double> peakAmplitude) const
+{
+    if (!m_replayGainEnabled)
+        return QStringLiteral("replaygain=no,volume-gain=0");
+    if (!replayGainDb.has_value())
+        return QStringLiteral("replaygain=track,replaygain-clip=yes,volume-gain=0");
+
+    auto gain = std::clamp(*replayGainDb, -150.0, 12.0);
+    if (peakAmplitude.has_value() && std::isfinite(*peakAmplitude) && *peakAmplitude > 0.0) {
+        const auto clippingCeiling = -20.0 * std::log10(*peakAmplitude);
+        gain = std::min(gain, clippingCeiling);
+    }
+    return QStringLiteral("replaygain=no,volume-gain=%1").arg(gain, 0, 'f', 3);
+}
+
+void LinuxPlayback::applyCurrentNormalization()
+{
+    if (!m_mpv) return;
+    const auto options = playbackOptions(m_replayGainDb, m_peakAmplitude);
+    const auto embedded = options.contains(QStringLiteral("replaygain=track"));
+    const auto replayGain = embedded ? QByteArrayLiteral("track") : QByteArrayLiteral("no");
+    mpv_set_property_string(m_mpv, "replaygain", replayGain.constData());
+
+    double gain = 0.0;
+    if (m_replayGainEnabled && m_replayGainDb.has_value()) {
+        gain = std::clamp(*m_replayGainDb, -150.0, 12.0);
+        if (m_peakAmplitude.has_value() && std::isfinite(*m_peakAmplitude) && *m_peakAmplitude > 0.0)
+            gain = std::min(gain, -20.0 * std::log10(*m_peakAmplitude));
+    }
+    mpv_set_property_async(m_mpv, 0, "volume-gain", MPV_FORMAT_DOUBLE, &gain);
 }
 
 void LinuxPlayback::setEqualizer(const QList<double> &gainsDb)
@@ -313,6 +362,8 @@ void LinuxPlayback::drainEvents()
                 emit errorOccurred(QStringLiteral("libmpv could not load the stream: %1").arg(mpvError(event->error)));
             } else if (event->reply_userdata == m_prepareRequestId) {
                 m_preparedSource = QUrl();
+                m_preparedReplayGainDb.reset();
+                m_preparedPeakAmplitude.reset();
                 m_prepareRequestId = 0;
                 emit preparedNextFailed(mpvError(event->error));
             }
@@ -389,6 +440,10 @@ void LinuxPlayback::promotePreparedSource(bool notifyOwner)
     if (m_preparedSource.isEmpty()) return;
     m_source = m_preparedSource;
     m_preparedSource = QUrl();
+    m_replayGainDb = m_preparedReplayGainDb;
+    m_peakAmplitude = m_preparedPeakAmplitude;
+    m_preparedReplayGainDb.reset();
+    m_preparedPeakAmplitude.reset();
     m_prepareRequestId = 0;
     m_currentWasPrepared = true;
     m_positionMs = 0;

@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QUrl>
 #include <QList>
+#include <optional>
 #include <mpv/client.h>
 
 class LinuxPlayback final : public QObject
@@ -24,8 +25,12 @@ public:
     double volume() const { return m_volume; }
     bool seekable() const { return m_seekable; }
 
-    void setSource(const QUrl &source, qint64 startPositionMs, bool autoplay);
-    void prepareNextSource(const QUrl &source);
+    void setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
+                   std::optional<double> replayGainDb = std::nullopt,
+                   std::optional<double> peakAmplitude = std::nullopt);
+    void prepareNextSource(const QUrl &source,
+                           std::optional<double> replayGainDb = std::nullopt,
+                           std::optional<double> peakAmplitude = std::nullopt);
     void clearPreparedNext();
     bool playPreparedNext(bool autoplay);
     bool hasPreparedNext() const { return !m_preparedSource.isEmpty(); }
@@ -63,6 +68,9 @@ private:
     void finishLoading();
     void command(const char *arguments[], quint64 requestId = 0);
     void applyAudioProcessing();
+    QString playbackOptions(std::optional<double> replayGainDb,
+                            std::optional<double> peakAmplitude) const;
+    void applyCurrentNormalization();
     static void handleWakeup(void *userData);
 
     mpv_handle *m_mpv = nullptr;
@@ -84,5 +92,9 @@ private:
     quint64 m_prepareRequestId = 0;
     double m_volume = 0.78;
     bool m_replayGainEnabled = false;
+    std::optional<double> m_replayGainDb;
+    std::optional<double> m_peakAmplitude;
+    std::optional<double> m_preparedReplayGainDb;
+    std::optional<double> m_preparedPeakAmplitude;
     QList<double> m_equalizerGains = QList<double>(10, 0.0);
 };

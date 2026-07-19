@@ -190,7 +190,7 @@ Item {
                             anchors.right: normalizationSwitch.left; anchors.rightMargin: 18
                             anchors.verticalCenter: parent.verticalCenter; spacing: 3
                             Text { text: "ReplayGain"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                            Text { width: parent.width; text: "Match track loudness when ReplayGain metadata is available. Audio without tags remains unchanged."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                            Text { width: parent.width; text: "Use TIDAL manifest loudness data or embedded ReplayGain tags, with peak-based clipping protection."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
                         }
                         Rectangle {
                             id: normalizationSwitch

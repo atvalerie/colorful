@@ -87,6 +87,14 @@ QColor normalizeAlbumAccent(const QColor &sampled)
     }
     return Qt::white;
 }
+
+std::optional<double> normalizationNumber(const QJsonObject &source, const QString &group,
+                                          const QString &field)
+{
+    const auto value = source.value(group).toObject().value(field);
+    if (!value.isDouble() || !std::isfinite(value.toDouble())) return std::nullopt;
+    return value.toDouble();
+}
 }
 
 Backend::Backend(QObject *parent)
@@ -1368,11 +1376,20 @@ void Backend::beginNextDownload()
             finishDownloadTransfer(false, message.value(QStringLiteral("error")).toString());
             return;
         }
-        const auto uri = message.value(QStringLiteral("data")).toObject().value(QStringLiteral("uri")).toString();
+        const auto source = message.value(QStringLiteral("data")).toObject();
+        const auto uri = source.value(QStringLiteral("uri")).toString();
         if (uri.isEmpty()) {
             finishDownloadTransfer(false, QStringLiteral("TIDAL returned an empty download source"));
             return;
         }
+        const auto copyNormalization = [&source, this](const QString &group, const QString &prefix) {
+            const auto replayGain = normalizationNumber(source, group, QStringLiteral("replayGain"));
+            const auto peak = normalizationNumber(source, group, QStringLiteral("peakAmplitude"));
+            if (replayGain) m_activeDownloadTrack.insert(prefix + QStringLiteral("ReplayGain"), *replayGain);
+            if (peak && *peak > 0) m_activeDownloadTrack.insert(prefix + QStringLiteral("PeakAmplitude"), *peak);
+        };
+        copyNormalization(QStringLiteral("trackAudioNormalizationData"), QStringLiteral("track"));
+        copyNormalization(QStringLiteral("albumAudioNormalizationData"), QStringLiteral("album"));
         startDownloadTransfer(QUrl(uri));
     });
     if (requestId < 0) finishDownloadTransfer(false, QStringLiteral("Provider host is not running"));
@@ -1505,12 +1522,25 @@ void Backend::startDownloadFinalization()
     const auto assemblyPath = downloadAssemblyPath(m_activeDownloadTrack);
     QFile::remove(assemblyPath);
     m_downloadProcess.setProgram(ffmpeg);
-    m_downloadProcess.setArguments({
+    QStringList arguments{
         QStringLiteral("-nostdin"), QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
         QStringLiteral("-y"), QStringLiteral("-f"), QStringLiteral("concat"), QStringLiteral("-safe"), QStringLiteral("0"),
         QStringLiteral("-i"), listPath, QStringLiteral("-map"), QStringLiteral("0:a:0"), QStringLiteral("-vn"),
-        QStringLiteral("-c:a"), QStringLiteral("copy"), QStringLiteral("-f"), QStringLiteral("matroska"), assemblyPath,
-    });
+        QStringLiteral("-c:a"), QStringLiteral("copy"),
+    };
+    const auto addReplayGainTag = [&arguments, this](const QString &key, const QString &tag, bool gain) {
+        if (!m_activeDownloadTrack.contains(key)) return;
+        const auto value = m_activeDownloadTrack.value(key).toDouble();
+        arguments.append({QStringLiteral("-metadata"),
+                          tag + QLatin1Char('=') + QString::number(value, 'f', gain ? 2 : 6)
+                              + (gain ? QStringLiteral(" dB") : QString{})});
+    };
+    addReplayGainTag(QStringLiteral("trackReplayGain"), QStringLiteral("REPLAYGAIN_TRACK_GAIN"), true);
+    addReplayGainTag(QStringLiteral("trackPeakAmplitude"), QStringLiteral("REPLAYGAIN_TRACK_PEAK"), false);
+    addReplayGainTag(QStringLiteral("albumReplayGain"), QStringLiteral("REPLAYGAIN_ALBUM_GAIN"), true);
+    addReplayGainTag(QStringLiteral("albumPeakAmplitude"), QStringLiteral("REPLAYGAIN_ALBUM_PEAK"), false);
+    arguments.append({QStringLiteral("-f"), QStringLiteral("matroska"), assemblyPath});
+    m_downloadProcess.setArguments(arguments);
     m_downloadProcess.setProcessChannelMode(QProcess::SeparateChannels);
     m_downloadProcessStage = DownloadProcessStage::Finalize;
     m_downloadProcess.start();
@@ -1714,7 +1744,10 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
             return;
         }
         m_displayPositionOverride = startPositionMs > 0 ? startPositionMs : -1;
-        m_playback.setSource(QUrl(uri), startPositionMs, autoplay);
+        m_playback.setSource(
+            QUrl(uri), startPositionMs, autoplay,
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")));
     });
 }
 
@@ -1771,11 +1804,15 @@ void Backend::prepareNextSource()
             || m_queue.value(nextIndex).toMap().value(QStringLiteral("id")).toString() != trackId)
             return;
         if (!message.value(QStringLiteral("ok")).toBool()) return;
-        const auto uri = message.value(QStringLiteral("data")).toObject().value(QStringLiteral("uri")).toString();
+        const auto source = message.value(QStringLiteral("data")).toObject();
+        const auto uri = source.value(QStringLiteral("uri")).toString();
         if (uri.isEmpty()) return;
         m_preparedEntryId = entryId;
         m_preparedLocalSource = false;
-        m_playback.prepareNextSource(QUrl(uri));
+        m_playback.prepareNextSource(
+            QUrl(uri),
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")));
     });
 }
 
@@ -1982,6 +2019,8 @@ void Backend::setNormalizationEnabled(bool enabled)
     m_normalizationEnabled = enabled;
     QSettings().setValue(QStringLiteral("playback/normalization"), enabled);
     m_playback.setReplayGain(enabled);
+    invalidatePreparedNext();
+    prepareNextSource();
     emit audioProcessingChanged();
     notify(enabled ? QStringLiteral("Track normalization enabled")
                    : QStringLiteral("Track normalization disabled"));
