@@ -9,11 +9,9 @@
 </p>
 
 > [!IMPORTANT]
-> **This project is entirely AI-made.** OpenAI Codex generates the code,
-> documentation, and current design implementation; the human owner supplies
-> direction, integration knowledge, and hands-on testing, and does not claim
-> authorship of the generated work. Treat it as experimental software and
-> review it accordingly.
+> **This project is entirely AI-made.** It is a personal project built to meet
+> my own music playback needs, and an exception to my usual stance on
+> AI-generated code.
 
 > [!CAUTION]
 > **colorful is not a piracy project.** It does not provide accounts, shared
