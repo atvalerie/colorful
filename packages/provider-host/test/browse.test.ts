@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cursorFromNextLink, deduplicateAlbums, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapPlaylists, mapTracks, mergeRelatedTracks, type AlbumSummary, type TrackSummary } from "../src/browse";
+import { cursorFromNextLink, deduplicateAlbums, deduplicateTracks, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapPlaylists, mapTracks, mergeRelatedTracks, type AlbumSummary, type TrackSummary } from "../src/browse";
 
 describe("TIDAL browse mapping", () => {
   test("parses ISO durations", () => {
@@ -111,6 +111,23 @@ describe("TIDAL browse mapping", () => {
       album("explicit-lossless", true, ["LOSSLESS"]),
       album("clean-hires", false, ["HIRES_LOSSLESS"]),
     ])).toEqual([expect.objectContaining({ id: "explicit-lossless" })]);
+  });
+
+  test("collapses track delivery variants by ISRC and preserves real versions", () => {
+    const track = (id: string, title: string, isrc: string, explicit: boolean, mediaTags: string[]): TrackSummary => ({
+      id, title, version: null, artists: ["Someone"], artistCredits: [{ id: "artist-1", name: "Someone" }],
+      albumId: "album-1", albumTitle: "One release", durationMs: 180_000, isrc,
+      coverUrl: null, explicit, mediaTags,
+    });
+    expect(deduplicateTracks([
+      track("clean-atmos", "One song", "US-CLEAN-01", false, ["DOLBY_ATMOS"]),
+      track("explicit-lossless", "One song", "US-ONE-01", true, ["LOSSLESS"]),
+      track("explicit-hires", "One song", "US-ONE-01", true, ["HIRES_LOSSLESS"]),
+      track("live", "One song (Live)", "US-ONE-02", true, ["LOSSLESS"]),
+    ])).toEqual([
+      expect.objectContaining({ id: "explicit-hires" }),
+      expect.objectContaining({ id: "live" }),
+    ]);
   });
 
   test("maps the same sanitized fixture as the portable Rust adapter", async () => {

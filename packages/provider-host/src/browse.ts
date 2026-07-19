@@ -12,6 +12,8 @@ export type TrackSummary = {
   durationMs: number | null;
   isrc: string | null;
   coverUrl: string | null;
+  explicit?: boolean;
+  mediaTags?: string[];
 };
 
 export type ArtistCredit = { id: string; name: string };
@@ -130,6 +132,39 @@ export function deduplicateAlbums(albums: AlbumSummary[]): AlbumSummary[] {
   return result;
 }
 
+function trackPreference(track: TrackSummary): number {
+  const tags = new Set((track.mediaTags ?? []).map((tag) => tag.toUpperCase()));
+  return (track.explicit ? 1_000 : 0)
+    + (tags.has("HIRES_LOSSLESS") ? 300 : 0)
+    + (tags.has("LOSSLESS") ? 200 : 0)
+    + (tags.has("DOLBY_ATMOS") ? 50 : 0)
+    + (track.coverUrl ? 10 : 0);
+}
+
+export function deduplicateTracks(tracks: TrackSummary[]): TrackSummary[] {
+  const result: TrackSummary[] = [];
+  const positions = new Map<string, number>();
+  for (const track of tracks) {
+    const isrc = track.isrc?.trim().toUpperCase();
+    const fallbackKey = track.durationMs === null || !track.albumTitle ? `id:${track.id}` : [
+      track.title.trim().toLocaleLowerCase(),
+      track.artists.map((artist) => artist.trim().toLocaleLowerCase()).join("\u0001"),
+      track.albumTitle.trim().toLocaleLowerCase(),
+    ].join("\u0000");
+    const keys = [...(isrc ? [`isrc:${isrc}`] : []), `metadata:${fallbackKey}`];
+    const existingIndex = keys.map((key) => positions.get(key)).find((position) => position !== undefined);
+    if (existingIndex === undefined) {
+      for (const key of keys) positions.set(key, result.length);
+      result.push(track);
+    } else {
+      for (const key of keys) positions.set(key, existingIndex);
+      const existing = result[existingIndex];
+      if (existing && trackPreference(track) > trackPreference(existing)) result[existingIndex] = track;
+    }
+  }
+  return result;
+}
+
 export function cursorFromNextLink(document: { links?: { next?: unknown; meta?: { nextCursor?: unknown } } }): string | undefined {
   const metadataCursor = document.links?.meta?.nextCursor;
   if (typeof metadataCursor === "string" && metadataCursor) return metadataCursor;
@@ -190,6 +225,10 @@ export function mapTracks(document: { data?: Resource | Resource[]; included?: R
         : typeof album?.attributes?.imageLinks?.[0]?.href === "string"
           ? album.attributes.imageLinks[0].href
           : null,
+      explicit: track.attributes?.explicit === true,
+      mediaTags: Array.isArray(track.attributes?.mediaTags)
+        ? track.attributes.mediaTags.filter((tag: unknown): tag is string => typeof tag === "string")
+        : [],
     };
   });
 }
@@ -479,9 +518,10 @@ export class BrowseClient {
   async searchTracks(query: string, limit = 30): Promise<TrackSummary[]> {
     const document = await this.get(`searchResults/${encodeURIComponent(query)}/relationships/tracks`, {
       include: "tracks.albums,tracks.artists",
+      collapseBy: "FINGERPRINT",
       "page[limit]": String(Math.max(1, Math.min(limit, 20))),
     });
-    return this.hydrateMissingArtwork(mapTracks(document));
+    return deduplicateTracks(await this.hydrateMissingArtwork(mapTracks(document)));
   }
 
   async searchCatalog(query: string, limit = 20): Promise<CatalogSearch> {
