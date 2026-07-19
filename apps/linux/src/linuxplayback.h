@@ -46,11 +46,15 @@ signals:
 
 private:
     enum class AsyncOperation { None, SourcePreroll, SourceRestoreSeek, UserSeek, StopSeek };
+    enum class DeferredAction { None, Pause, Seek };
 
     void drainBus();
     void updateQueries(bool allowWhileLoading = false);
     void handleAsyncDone();
     bool performSeek(qint64 positionMs, AsyncOperation operation);
+    void deferAfterRamp(DeferredAction action, qint64 seekPositionMs = -1);
+    void scheduleTransition(double target, int durationMs);
+    void resetTransition(double gain);
     void applyDesiredState();
     void setLogicalState(State state);
     void finishLoading();
@@ -58,9 +62,12 @@ private:
     static void handleAboutToFinish(GstElement *, gpointer userData);
 
     GstElement *m_playbin = nullptr;
+    GstElement *m_transitionVolume = nullptr;
+    GstControlSource *m_transitionControl = nullptr;
     GstBus *m_bus = nullptr;
     QTimer m_pollTimer;
     QTimer m_seekTimeout;
+    QTimer m_transitionTimer;
     QUrl m_source;
     State m_state = State::Stopped;
     State m_desiredState = State::Stopped;
@@ -70,6 +77,8 @@ private:
     qint64 m_prerollSeekMs = 0;
     qint64 m_confirmingSeekMs = -1;
     qint64 m_queuedSeekMs = -1;
+    qint64 m_deferredSeekMs = -1;
+    DeferredAction m_deferredAction = DeferredAction::None;
     bool m_seekable = false;
     bool m_loading = false;
     double m_volume = 0.78;
