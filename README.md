@@ -146,6 +146,9 @@ With the provider environment exported:
 ./scripts/run-linux.sh
 ```
 
+For an instant relaunch of the existing binary without checking for source
+changes, use `./scripts/run-linux.sh --no-build`.
+
 See [the Linux client guide](apps/linux/README.md) for the manual test flow,
 MPRIS checks, and troubleshooting.
 

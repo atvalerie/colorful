@@ -12,7 +12,16 @@ if [[ -f "$mocha_env" ]]; then
   set +a
 fi
 
-"$script_dir/build-linux.sh"
+if [[ "${1:-}" == "--no-build" ]]; then
+  shift
+else
+  "$script_dir/build-linux.sh"
+fi
+
+if [[ ! -x "$repo_dir/build/linux/colorful-linux" ]]; then
+  echo "colorful has not been built yet; run ./scripts/run-linux.sh once first" >&2
+  exit 1
+fi
 
 export XDG_DATA_DIRS="$repo_dir/apps/linux:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 exec "$repo_dir/build/linux/colorful-linux" "$@"

@@ -13,6 +13,13 @@ if(NOT COLORFUL_GIT_COMMIT)
     set(COLORFUL_GIT_COMMIT "unknown")
 endif()
 
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    src/buildinfo_generated.h.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/buildinfo_generated.h"
+    @ONLY
+)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -27,6 +34,8 @@ qt_add_executable(colorful-linux
     src/main.cpp
     src/backend.cpp
     src/backend.h
+    src/buildinfo.cpp
+    src/buildinfo.h
     src/corebridge.cpp
     src/corebridge.h
     src/linuxplayback.cpp
@@ -46,7 +55,10 @@ set_target_properties(colorful-core PROPERTIES
     IMPORTED_LOCATION "${COLORFUL_CORE_LIBRARY}"
     IMPORTED_NO_SONAME TRUE
 )
-target_include_directories(colorful-linux PRIVATE ../../crates/colorful-core/include)
+target_include_directories(colorful-linux PRIVATE
+    ../../crates/colorful-core/include
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
 set_target_properties(colorful-linux PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
 
 qt_add_qml_module(colorful-linux
@@ -111,9 +123,6 @@ qt_add_resources(colorful-linux colorful_assets
 
 target_compile_definitions(colorful-linux PRIVATE
     COLORFUL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../.."
-    COLORFUL_VERSION="${PROJECT_VERSION}"
-    COLORFUL_GIT_COMMIT="${COLORFUL_GIT_COMMIT}"
-    COLORFUL_MPV_VERSION="${MPV_VERSION}"
 )
 
 target_link_libraries(colorful-linux PRIVATE

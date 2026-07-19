@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "buildinfo.h"
 
 #include <QCoreApplication>
 #include <QDesktopServices>
@@ -14,7 +15,6 @@
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
-#include <QSysInfo>
 #include <QUrl>
 #include <QUuid>
 #include <algorithm>
@@ -234,16 +234,7 @@ QVariantMap Backend::currentTrack() const
 
 QVariantMap Backend::buildInfo() const
 {
-    return {
-        {QStringLiteral("version"), QString::fromLatin1(COLORFUL_VERSION)},
-        {QStringLiteral("commit"), QString::fromLatin1(COLORFUL_GIT_COMMIT)},
-        {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
-        {QStringLiteral("mpv"), QString::fromLatin1(COLORFUL_MPV_VERSION)},
-        {QStringLiteral("compiler"), QString::fromLatin1(__VERSION__)},
-        {QStringLiteral("architecture"), QSysInfo::currentCpuArchitecture()},
-        {QStringLiteral("system"), QSysInfo::prettyProductName()},
-        {QStringLiteral("license"), QStringLiteral("GPL-3.0-or-later")},
-    };
+    return colorfulBuildInfo();
 }
 
 bool Backend::openCore()
