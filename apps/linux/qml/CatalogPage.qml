@@ -15,6 +15,8 @@ Item {
                                          : kind === "album" ? (page.tracks || [])
                                                             : (page.topTracks || [])
 
+    onPageChanged: catalogScroll.contentY = 0
+
     function formatTime(milliseconds) {
         if (!milliseconds || milliseconds < 0) return ""
         const seconds = Math.floor(milliseconds / 1000)
@@ -24,6 +26,7 @@ Item {
     }
 
     Flickable {
+        id: catalogScroll
         anchors.fill: parent
         contentWidth: width
         contentHeight: body.implicitHeight + 40
@@ -130,7 +133,7 @@ Item {
                         font.pixelSize: 11
                     }
                     MetadataLink {
-                        visible: root.kind === "track" && root.primary.albumId
+                        visible: root.kind === "track" && Boolean(root.primary.albumId)
                         text: root.primary.albumTitle || "Open album"
                         normalColor: Qt.rgba(1, 1, 1, 0.5)
                         font.pixelSize: 12

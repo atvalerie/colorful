@@ -19,6 +19,12 @@ ApplicationWindow {
     property bool queueOpen: false
     property string submittedQuery: ""
     property string currentSection: "search"
+    onCurrentSectionChanged: resultsList.positionViewAtBeginning()
+
+    Connections {
+        target: colorful
+        function onSearchResultsChanged() { resultsList.positionViewAtBeginning() }
+    }
 
     function formatTime(milliseconds) {
         if (!milliseconds || milliseconds < 0) return "0:00"
@@ -620,25 +626,55 @@ ApplicationWindow {
                                 opacity: 0.34
                                 visible: !window.now.coverUrl
                             }
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: Boolean(window.now.id)
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: colorful.openTrack(window.now.id)
+                            }
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
-                            Text {
+                            MetadataLink {
                                 Layout.fillWidth: true
                                 text: window.now.title || "Nothing playing"
-                                color: window.ink
+                                normalColor: window.ink
                                 elide: Text.ElideRight
                                 font.weight: Font.DemiBold
                                 font.pixelSize: 13
+                                linkEnabled: Boolean(window.now.id)
+                                onActivated: {
+                                    if (window.now.id) colorful.openTrack(window.now.id)
+                                }
                             }
-                            Text {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: window.now.artistText || "Choose a track"
-                                color: window.mutedInk
-                                elide: Text.ElideRight
-                                font.pixelSize: 11
+                                spacing: 5
+                                Text {
+                                    Layout.maximumWidth: parent.width * 0.48
+                                    text: window.now.artistText || "Choose a track"
+                                    color: window.mutedInk
+                                    elide: Text.ElideRight
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    visible: Boolean(window.now.albumId)
+                                    text: "·"
+                                    color: Qt.rgba(1, 1, 1, 0.3)
+                                    font.pixelSize: 11
+                                }
+                                MetadataLink {
+                                    Layout.fillWidth: true
+                                    visible: Boolean(window.now.albumId)
+                                    text: window.now.albumTitle || "Open album"
+                                    normalColor: window.mutedInk
+                                    elide: Text.ElideRight
+                                    font.pixelSize: 11
+                                    font.weight: Font.Normal
+                                    onActivated: colorful.openAlbum(window.now.albumId)
+                                }
                             }
                         }
                     }

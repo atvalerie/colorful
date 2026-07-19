@@ -94,6 +94,8 @@ Backend::Backend(QObject *parent)
         m_deviceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         settings.setValue(QStringLiteral("identity/deviceId"), m_deviceId);
     }
+    const QColor restoredAccent(settings.value(QStringLiteral("appearance/accent")).toString());
+    if (restoredAccent.isValid()) m_accent = restoredAccent;
 
     m_accentAnimation.setDuration(720);
     m_accentAnimation.setEasingCurve(QEasingCurve::OutCubic);
@@ -102,6 +104,9 @@ Backend::Backend(QObject *parent)
         if (!color.isValid() || color == m_accent) return;
         m_accent = color;
         emit accentChanged();
+    });
+    connect(&m_accentAnimation, &QVariantAnimation::finished, this, [this] {
+        QSettings().setValue(QStringLiteral("appearance/accent"), m_accent.name(QColor::HexRgb));
     });
 
     m_checkpointTimer.setInterval(10'000);
@@ -276,6 +281,7 @@ void Backend::refreshCoreSnapshot()
         nextLibrary.append(coreTrackToVariant(track.toObject()));
     }
 
+    const auto previousArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
     const bool queueWasChanged = nextQueue != m_queue || nextEntryIds != m_queueEntryIds;
     const bool currentWasChanged = currentEntryId != m_currentEntryId;
     const bool libraryWasChanged = nextLibrary != m_library;
@@ -287,6 +293,8 @@ void Backend::refreshCoreSnapshot()
     m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
     m_listenStats = nextListenStats;
+    const auto currentArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
+    if (!currentArtworkUrl.isEmpty() && currentArtworkUrl != previousArtworkUrl) loadAccent(currentArtworkUrl);
     if (currentWasChanged) {
         m_resumePositionMs = playback.value(QStringLiteral("positionMs")).toInteger();
         m_displayPositionOverride = m_resumePositionMs;
