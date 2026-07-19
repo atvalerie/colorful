@@ -65,7 +65,8 @@ LinuxPlayback::~LinuxPlayback()
 
 void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
                               std::optional<double> replayGainDb,
-                              std::optional<double> peakAmplitude)
+                              std::optional<double> peakAmplitude,
+                              const QString &userAgent, const QString &referrer)
 {
     if (!m_mpv || !source.isValid() || source.isEmpty()) return;
     setSeekSilence(false);
@@ -94,14 +95,15 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     const auto uri = source.toEncoded();
     const auto options = QStringLiteral("pause=yes,start=%1,%2")
         .arg(m_positionMs / 1000.0, 0, 'f', 3)
-        .arg(playbackOptions(replayGainDb, peakAmplitude)).toUtf8();
+        .arg(playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer)).toUtf8();
     const char *arguments[] = {"loadfile", uri.constData(), "replace", "-1", options.constData(), nullptr};
     m_loadRequestId = m_nextRequestId++;
     command(arguments, m_loadRequestId);
 }
 
 void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> replayGainDb,
-                                      std::optional<double> peakAmplitude)
+                                      std::optional<double> peakAmplitude,
+                                      const QString &userAgent, const QString &referrer)
 {
     if (!m_mpv || !hasSource() || !source.isValid() || source.isEmpty()) return;
     if (m_preparedSource == source) return;
@@ -111,7 +113,7 @@ void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> 
     m_preparedReplayGainDb = replayGainDb;
     m_preparedPeakAmplitude = peakAmplitude;
     const auto uri = source.toEncoded();
-    const auto options = playbackOptions(replayGainDb, peakAmplitude).toUtf8();
+    const auto options = playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer).toUtf8();
     const char *arguments[] = {"loadfile", uri.constData(), "append", "-1", options.constData(), nullptr};
     m_prepareRequestId = m_nextRequestId++;
     command(arguments, m_prepareRequestId);
@@ -251,19 +253,30 @@ void LinuxPlayback::setReplayGain(bool enabled)
 }
 
 QString LinuxPlayback::playbackOptions(std::optional<double> replayGainDb,
-                                       std::optional<double> peakAmplitude) const
+                                       std::optional<double> peakAmplitude,
+                                       const QString &userAgent, const QString &referrer) const
 {
-    if (!m_replayGainEnabled)
-        return QStringLiteral("replaygain=no,volume-gain=0");
-    if (!replayGainDb.has_value())
-        return QStringLiteral("replaygain=track,replaygain-clip=yes,volume-gain=0");
-
-    auto gain = std::clamp(*replayGainDb, -150.0, 12.0);
-    if (peakAmplitude.has_value() && std::isfinite(*peakAmplitude) && *peakAmplitude > 0.0) {
-        const auto clippingCeiling = -20.0 * std::log10(*peakAmplitude);
-        gain = std::min(gain, clippingCeiling);
+    QStringList options;
+    if (!m_replayGainEnabled) {
+        options << QStringLiteral("replaygain=no") << QStringLiteral("volume-gain=0");
+    } else if (!replayGainDb.has_value()) {
+        options << QStringLiteral("replaygain=track") << QStringLiteral("replaygain-clip=yes")
+                << QStringLiteral("volume-gain=0");
+    } else {
+        auto gain = std::clamp(*replayGainDb, -150.0, 12.0);
+        if (peakAmplitude.has_value() && std::isfinite(*peakAmplitude) && *peakAmplitude > 0.0) {
+            const auto clippingCeiling = -20.0 * std::log10(*peakAmplitude);
+            gain = std::min(gain, clippingCeiling);
+        }
+        options << QStringLiteral("replaygain=no")
+                << QStringLiteral("volume-gain=%1").arg(gain, 0, 'f', 3);
     }
-    return QStringLiteral("replaygain=no,volume-gain=%1").arg(gain, 0, 'f', 3);
+    // yt-dlp's selected Google media URL is tied to the extractor's client
+    // identity. Keep these as per-file options so mixed-provider queues do not
+    // mutate headers on an already playing stream.
+    if (!userAgent.isEmpty()) options << QStringLiteral("user-agent=%1").arg(userAgent);
+    if (!referrer.isEmpty()) options << QStringLiteral("referrer=%1").arg(referrer);
+    return options.join(QLatin1Char(','));
 }
 
 void LinuxPlayback::applyCurrentNormalization()

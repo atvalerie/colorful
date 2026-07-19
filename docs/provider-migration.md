@@ -61,8 +61,8 @@ The visual layer derives contrast-safe accents and gradients from the result.
 
 1. TIDAL account link, browse, stream, then offline download
 2. SoundCloud public OAuth/catalog and stream selection
-3. YouTube only after its product boundary is explicit; `yt-dlp` is suitable
-   for a personal desktop helper but is a poor mobile runtime dependency
+3. Public YouTube search/playback and real YouTube Music automix on Linux via
+   the system `yt-dlp`; authenticated Music home/library remain future work
 
 ## Current boundary
 
@@ -86,3 +86,9 @@ engine used by Android instead of transient Qt models. TIDAL similar-track and
 track-radio relationships are interleaved behind the provider-neutral related-
 tracks contract and feed the desktop autoplay tail without displacing manually
 queued tracks.
+
+The Linux provider host also maps public YouTube results into that same track
+contract. It asks the system `yt-dlp` for ephemeral media URLs and the genuine
+`RDAMVM<videoId>` YouTube Music radio queue. This intentionally avoids permanent
+Python or third-party Rust client dependencies. Android and iOS will use native
+resolvers rather than shipping `yt-dlp`.

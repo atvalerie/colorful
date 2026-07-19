@@ -4,6 +4,7 @@ import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
+import { searchYouTubeMusic, youtubeAutomix, youtubeAvailable, youtubeSource, youtubeTrack } from "./youtube";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -79,6 +80,7 @@ async function handle(request: RequestMessage): Promise<void> {
         linked: session !== null,
         browseConfigured: Boolean(config.browseClientId && config.browseClientSecret),
         deviceConfigured: Boolean(config.deviceClientId && config.deviceClientSecret),
+        youtubeAvailable: youtubeAvailable(),
       } });
       return;
     case "auth.start": {
@@ -132,15 +134,39 @@ async function handle(request: RequestMessage): Promise<void> {
     case "search": {
       const query = String(request.payload?.query ?? "").trim();
       if (!query) throw new Error("Search query is empty");
-      send({ id: request.id, ok: true, data: await browse.searchCatalog(query) });
+      const [tidalResult, youtubeResult] = await Promise.allSettled([
+        browse.searchCatalog(query),
+        searchYouTubeMusic(query),
+      ]);
+      if (tidalResult.status === "rejected" && youtubeResult.status === "rejected") {
+        throw new Error(`Search failed: ${publicError(tidalResult.reason)}; YouTube: ${publicError(youtubeResult.reason)}`);
+      }
+      const tidal = tidalResult.status === "fulfilled"
+        ? tidalResult.value : { tracks: [], albums: [], artists: [] };
+      const youtubeTracks = youtubeResult.status === "fulfilled" ? youtubeResult.value : [];
+      send({ id: request.id, ok: true, data: {
+        ...tidal,
+        tracks: [...tidal.tracks, ...youtubeTracks],
+        warnings: [
+          ...(tidalResult.status === "rejected" ? [`TIDAL: ${publicError(tidalResult.reason)}`] : []),
+          ...(youtubeResult.status === "rejected" ? [`YouTube: ${publicError(youtubeResult.reason)}`] : []),
+        ],
+      } });
       return;
     }
     case "detail": {
       const provider = String(request.payload?.provider ?? "tidal");
-      if (provider !== "tidal") throw new Error(`Catalog pages are not implemented for ${provider}`);
       const kind = String(request.payload?.kind ?? "");
       const resourceId = String(request.payload?.id ?? "").trim();
       if (!resourceId) throw new Error("Catalog resource ID is empty");
+      if (provider === "youtube" && kind === "track") {
+        const [trackDocument, relatedTracks] = await Promise.all([
+          youtubeTrack(resourceId), youtubeAutomix(resourceId, 20),
+        ]);
+        send({ id: request.id, ok: true, data: { kind: "track", provider, track: trackDocument, relatedTracks } });
+        return;
+      }
+      if (provider !== "tidal") throw new Error(`Catalog pages are not implemented for ${provider}`);
       if (kind === "track") send({ id: request.id, ok: true, data: await browse.trackPage(resourceId) });
       else if (kind === "album") send({ id: request.id, ok: true, data: await browse.albumPage(resourceId) });
       else if (kind === "artist") send({ id: request.id, ok: true, data: await browse.artistPage(resourceId) });
@@ -177,20 +203,27 @@ async function handle(request: RequestMessage): Promise<void> {
     }
     case "related": {
       const provider = String(request.payload?.provider ?? "tidal");
-      if (provider !== "tidal") throw new Error(`Related tracks are not implemented for ${provider}`);
       const trackId = String(request.payload?.trackId ?? "").trim();
       if (!trackId) throw new Error("Track ID is empty");
       const requestedLimit = Number(request.payload?.limit ?? 20);
       const limit = Number.isFinite(requestedLimit) ? requestedLimit : 20;
-      send({ id: request.id, ok: true, data: { tracks: await browse.relatedTracks(trackId, limit) } });
+      if (provider === "youtube")
+        send({ id: request.id, ok: true, data: { tracks: await youtubeAutomix(trackId, limit) } });
+      else if (provider === "tidal")
+        send({ id: request.id, ok: true, data: { tracks: await browse.relatedTracks(trackId, limit) } });
+      else throw new Error(`Related tracks are not implemented for ${provider}`);
       return;
     }
     case "source": {
-      if (!session) throw new Error("Connect your TIDAL account before playing music");
       const provider = String(request.payload?.provider ?? "tidal");
-      if (provider !== "tidal") throw new Error(`Playback is not implemented for ${provider}`);
       const trackId = String(request.payload?.trackId ?? "").trim();
       if (!trackId) throw new Error("Track ID is empty");
+      if (provider === "youtube") {
+        send({ id: request.id, ok: true, data: await youtubeSource(trackId) });
+        return;
+      }
+      if (provider !== "tidal") throw new Error(`Playback is not implemented for ${provider}`);
+      if (!session) throw new Error("Connect your TIDAL account before playing music");
       const requestedManifestType = String(request.payload?.manifestType ?? "HLS");
       if (requestedManifestType !== "HLS" && requestedManifestType !== "MPEG_DASH") {
         throw new Error(`Unsupported manifest type: ${requestedManifestType}`);

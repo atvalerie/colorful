@@ -31,7 +31,7 @@
 ## About
 
 colorful is a local-first personal streaming and music-library client. TIDAL is
-the first working provider; SoundCloud and local media are planned.
+the primary provider; an early public YouTube Music desktop path is also working.
 
 - Platform-native playback, media sessions, credentials, and interfaces
 - A shared Rust core for queues, storage, downloads, history, and sync
@@ -46,7 +46,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 | Target | Status | Current implementation |
 | --- | --- | --- |
-| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL search/streaming/collection, persistent queue/library |
+| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL and public YouTube playback, persistent queue/library |
 | Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking and playback, Rust/SQLite persistence |
 | Windows | Planned | WinUI, Media Foundation/WASAPI, System Media Transport Controls |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
@@ -57,6 +57,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - TIDAL device linking and subscription-aware full-track playback
 - account-country discovery with a cached fallback
 - TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
+- public YouTube search, playback, and genuine YouTube Music radio/automix on Linux
 - lossless/adaptive playback with accurate duration and seeking
 - prepared-next, gapless Linux playback with prefetched autoplay
 - persistent queue, library, playback position, autoplay, and related tracks
@@ -107,7 +108,7 @@ audio or attempt to replace Media3, libmpv, AVFoundation, or Windows media APIs.
 | --- | --- |
 | `crates/colorful-core` | Portable Rust domain engine, SQLite repositories, migrations, and stable native ABI |
 | `packages/provider-kit` | Typed provider contracts and shared migration fixtures |
-| `packages/provider-host` | Transitional Bun-based Linux TIDAL adapter |
+| `packages/provider-host` | Transitional Bun-based Linux provider adapter |
 | `apps/linux` | Native Qt Quick/QML desktop client with libmpv and MPRIS |
 | `apps/android` | Native Kotlin/Compose client with Media3 and JNI bindings |
 | `apps/design-lab` | Disposable React UI prototype; not a production client |
@@ -140,8 +141,9 @@ owners.
 
 Required development tools currently include Rust, Bun, CMake 3.25+, Ninja,
 Qt 6.8+ (`Core`, `Gui`, `Quick`, `QuickControls2`, `Network`, and `DBus`),
-`pkg-config`, libmpv development files, SQLite's CLI for schema tests, and
-`secret-tool` for secure login persistence.
+`pkg-config`, libmpv development files, SQLite's CLI for schema tests,
+`secret-tool` for secure login persistence, and `yt-dlp` for optional YouTube
+search/playback.
 
 With the provider environment exported:
 

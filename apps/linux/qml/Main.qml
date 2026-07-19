@@ -438,7 +438,7 @@ ApplicationWindow {
                                 track: modelData
                                 libraryMode: window.currentSection === "library"
                                 showSaveAction: window.currentSection === "search"
-                                showDownloadAction: true
+                                showDownloadAction: (modelData.provider || "tidal") === "tidal"
                                 onPlayRequested: window.currentSection === "library"
                                                  ? colorful.playLibraryIndex(index)
                                                  : colorful.playSearchResult(index)
@@ -446,7 +446,7 @@ ApplicationWindow {
                                 onRemoveRequested: colorful.removeLibraryIndex(index)
                                 onSaveRequested: colorful.addSearchResultToLibrary(index)
                                 onDownloadRequested: colorful.downloadTrack(modelData)
-                                onDetailsRequested: colorful.openTrack(modelData.id)
+                                onDetailsRequested: colorful.openTrackItem(modelData)
                             }
 
                             header: Column {
@@ -616,12 +616,12 @@ ApplicationWindow {
                                     required property var modelData
                                     track: modelData
                                     queueMode: true
-                                    showDownloadAction: true
+                                    showDownloadAction: (modelData.provider || "tidal") === "tidal"
                                     active: index === colorful.currentQueueIndex
                                     onPlayRequested: colorful.playQueueIndex(index)
                                     onRemoveRequested: colorful.removeQueueIndex(index)
                                     onDownloadRequested: colorful.downloadTrack(modelData)
-                                    onDetailsRequested: colorful.openTrack(modelData.id)
+                                    onDetailsRequested: colorful.openTrackItem(modelData)
                                 }
 
                                 Column {
@@ -698,7 +698,7 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 enabled: Boolean(window.now.id)
                                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: colorful.openTrack(window.now.id)
+                                onClicked: colorful.openTrackItem(window.now)
                             }
                         }
 
@@ -714,7 +714,7 @@ ApplicationWindow {
                                 font.pixelSize: 13
                                 linkEnabled: Boolean(window.now.id)
                                 onActivated: {
-                                    if (window.now.id) colorful.openTrack(window.now.id)
+                                    if (window.now.id) colorful.openTrackItem(window.now)
                                 }
                             }
                             RowLayout {

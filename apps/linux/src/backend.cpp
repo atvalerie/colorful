@@ -828,7 +828,7 @@ void Backend::search(const QString &query)
 {
     if (query.trimmed().isEmpty()) return;
     setBusy(true);
-    setStatus(QStringLiteral("Searching TIDAL…"));
+    setStatus(QStringLiteral("Searching…"));
     request(QStringLiteral("search"), {{QStringLiteral("query"), query.trimmed()}}, [this](const QJsonObject &message) {
         setBusy(false);
         if (!message.value(QStringLiteral("ok")).toBool()) {
@@ -859,6 +859,11 @@ void Backend::search(const QString &query)
 }
 
 void Backend::openTrack(const QString &id) { openCatalog(QStringLiteral("track"), id); }
+void Backend::openTrackItem(const QVariantMap &track)
+{
+    openCatalog(QStringLiteral("track"), track.value(QStringLiteral("id")).toString(), true,
+                track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString());
+}
 void Backend::openAlbum(const QString &id) { openCatalog(QStringLiteral("album"), id); }
 void Backend::openArtist(const QString &id) { openCatalog(QStringLiteral("artist"), id); }
 void Backend::openPlaylist(const QString &id) { openCatalog(QStringLiteral("playlist"), id); }
@@ -898,7 +903,8 @@ void Backend::openTrackArtist(const QVariantMap &track, int artistIndex)
     });
 }
 
-void Backend::openCatalog(const QString &kind, const QString &id, bool preserveCurrent)
+void Backend::openCatalog(const QString &kind, const QString &id, bool preserveCurrent,
+                          const QString &provider)
 {
     if (id.trimmed().isEmpty()) return;
     const auto generation = ++m_catalogGeneration;
@@ -906,7 +912,7 @@ void Backend::openCatalog(const QString &kind, const QString &id, bool preserveC
     m_catalogMoreLoading = false;
     emit catalogPageChanged();
     request(QStringLiteral("detail"), {
-        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("provider"), provider},
         {QStringLiteral("kind"), kind},
         {QStringLiteral("id"), id.trimmed()},
     }, [this, generation, preserveCurrent](const QJsonObject &message) {
@@ -963,7 +969,7 @@ void Backend::loadMoreCatalog(const QString &section)
     m_catalogMoreLoading = true;
     emit catalogPageChanged();
     request(QStringLiteral("detail.more"), {
-        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("provider"), m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
         {QStringLiteral("kind"), kind},
         {QStringLiteral("id"), resourceId},
         {QStringLiteral("section"), section},
@@ -1743,14 +1749,16 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         const auto uri = source.value(QStringLiteral("uri")).toString();
         if (uri.isEmpty()) {
             setBusy(false);
-            setStatus(QStringLiteral("TIDAL returned an empty playback source"));
+            setStatus(QStringLiteral("The provider returned an empty playback source"));
             return;
         }
         m_displayPositionOverride = startPositionMs > 0 ? startPositionMs : -1;
         m_playback.setSource(
             QUrl(uri), startPositionMs, autoplay,
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
-            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")));
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")),
+            source.value(QStringLiteral("userAgent")).toString(),
+            source.value(QStringLiteral("referrer")).toString());
     });
 }
 
@@ -1815,7 +1823,9 @@ void Backend::prepareNextSource()
         m_playback.prepareNextSource(
             QUrl(uri),
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
-            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")));
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")),
+            source.value(QStringLiteral("userAgent")).toString(),
+            source.value(QStringLiteral("referrer")).toString());
     });
 }
 
@@ -1940,16 +1950,21 @@ void Backend::requestRelated(bool continueWhenReady)
             }
             return;
         }
+        const auto identity = [](const QVariantMap &track) {
+            return track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+                + QLatin1Char(':') + track.value(QStringLiteral("id")).toString();
+        };
         QSet<QString> queuedIds;
-        for (const auto &value : m_queue) queuedIds.insert(value.toMap().value(QStringLiteral("id")).toString());
+        for (const auto &value : m_queue) queuedIds.insert(identity(value.toMap()));
         int added = 0;
         for (const auto &value : message.value(QStringLiteral("data")).toObject().value(QStringLiteral("tracks")).toArray()) {
             const auto track = jsonTrackToVariant(value.toObject());
             const auto id = track.value(QStringLiteral("id")).toString();
-            if (id.isEmpty() || queuedIds.contains(id)) continue;
+            const auto key = identity(track);
+            if (id.isEmpty() || queuedIds.contains(key)) continue;
             dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
                           {QStringLiteral("track"), variantTrackToCore(track)}});
-            queuedIds.insert(id);
+            queuedIds.insert(key);
             if (++added >= 20) break;
         }
         if (canGoNext()) {
@@ -2345,7 +2360,7 @@ QVariantMap Backend::jsonTrackToVariant(const QJsonObject &track)
         artistCredits.append(credit.toObject().toVariantMap());
     }
     return {
-        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("provider"), track.value(QStringLiteral("provider")).toString(QStringLiteral("tidal"))},
         {QStringLiteral("id"), track.value(QStringLiteral("id")).toString()},
         {QStringLiteral("title"), track.value(QStringLiteral("title")).toString()},
         {QStringLiteral("version"), track.value(QStringLiteral("version")).toString()},
@@ -2371,7 +2386,7 @@ QVariantMap Backend::jsonAlbumToVariant(const QJsonObject &album)
     QStringList mediaTags;
     for (const auto &tag : album.value(QStringLiteral("mediaTags")).toArray()) mediaTags.append(tag.toString());
     return {
-        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("provider"), album.value(QStringLiteral("provider")).toString(QStringLiteral("tidal"))},
         {QStringLiteral("id"), album.value(QStringLiteral("id")).toString()},
         {QStringLiteral("title"), album.value(QStringLiteral("title")).toString()},
         {QStringLiteral("version"), album.value(QStringLiteral("version")).toString()},
@@ -2391,7 +2406,7 @@ QVariantMap Backend::jsonAlbumToVariant(const QJsonObject &album)
 QVariantMap Backend::jsonArtistToVariant(const QJsonObject &artist)
 {
     return {
-        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("provider"), artist.value(QStringLiteral("provider")).toString(QStringLiteral("tidal"))},
         {QStringLiteral("id"), artist.value(QStringLiteral("id")).toString()},
         {QStringLiteral("name"), artist.value(QStringLiteral("name")).toString()},
         {QStringLiteral("pictureUrl"), artist.value(QStringLiteral("pictureUrl")).toString()},
@@ -2401,7 +2416,7 @@ QVariantMap Backend::jsonArtistToVariant(const QJsonObject &artist)
 QVariantMap Backend::jsonPlaylistToVariant(const QJsonObject &playlist)
 {
     return {
-        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("provider"), playlist.value(QStringLiteral("provider")).toString(QStringLiteral("tidal"))},
         {QStringLiteral("id"), playlist.value(QStringLiteral("id")).toString()},
         {QStringLiteral("name"), playlist.value(QStringLiteral("name")).toString()},
         {QStringLiteral("description"), playlist.value(QStringLiteral("description")).toString()},
@@ -2416,7 +2431,8 @@ QVariantMap Backend::jsonPlaylistToVariant(const QJsonObject &playlist)
 
 QVariantMap Backend::jsonCatalogPageToVariant(const QJsonObject &page)
 {
-    QVariantMap result{{QStringLiteral("kind"), page.value(QStringLiteral("kind")).toString()}};
+    QVariantMap result{{QStringLiteral("kind"), page.value(QStringLiteral("kind")).toString()},
+                       {QStringLiteral("provider"), page.value(QStringLiteral("provider")).toString(QStringLiteral("tidal"))}};
     const auto mapTracks = [&page](const QString &key) {
         QVariantList tracks;
         for (const auto &value : page.value(key).toArray()) tracks.append(jsonTrackToVariant(value.toObject()));

@@ -131,6 +131,7 @@ public:
     Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void openTrack(const QString &id);
+    Q_INVOKABLE void openTrackItem(const QVariantMap &track);
     Q_INVOKABLE void openAlbum(const QString &id);
     Q_INVOKABLE void openArtist(const QString &id);
     Q_INVOKABLE void openPlaylist(const QString &id);
@@ -230,7 +231,8 @@ private:
     void playTrackAt(int index);
     void playSingleTrack(const QVariantMap &track);
     void playTracks(const QVariantList &tracks);
-    void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true);
+    void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true,
+                     const QString &provider = QStringLiteral("tidal"));
     void enqueueTrack(const QVariantMap &track);
     void saveTrack(const QVariantMap &track);
     void resolveCurrentSource(qint64 startPositionMs = 0, bool autoplay = true);

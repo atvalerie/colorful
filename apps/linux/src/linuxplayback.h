@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QUrl>
 #include <QList>
+#include <QStringList>
 #include <optional>
 #include <mpv/client.h>
 
@@ -27,10 +28,12 @@ public:
 
     void setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
                    std::optional<double> replayGainDb = std::nullopt,
-                   std::optional<double> peakAmplitude = std::nullopt);
+                   std::optional<double> peakAmplitude = std::nullopt,
+                   const QString &userAgent = {}, const QString &referrer = {});
     void prepareNextSource(const QUrl &source,
                            std::optional<double> replayGainDb = std::nullopt,
-                           std::optional<double> peakAmplitude = std::nullopt);
+                           std::optional<double> peakAmplitude = std::nullopt,
+                           const QString &userAgent = {}, const QString &referrer = {});
     void clearPreparedNext();
     bool playPreparedNext(bool autoplay);
     bool hasPreparedNext() const { return !m_preparedSource.isEmpty(); }
@@ -69,7 +72,8 @@ private:
     void command(const char *arguments[], quint64 requestId = 0);
     void applyAudioProcessing();
     QString playbackOptions(std::optional<double> replayGainDb,
-                            std::optional<double> peakAmplitude) const;
+                            std::optional<double> peakAmplitude,
+                            const QString &userAgent = {}, const QString &referrer = {}) const;
     void applyCurrentNormalization();
     static void handleWakeup(void *userData);
 

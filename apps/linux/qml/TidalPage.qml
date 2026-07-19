@@ -140,7 +140,7 @@ Item {
                     showSaveAction: false
                     onPlayRequested: colorful.playCatalogTrack(modelData)
                     onAddRequested: colorful.enqueueCatalogTrack(modelData)
-                    onDetailsRequested: colorful.openTrack(modelData.id)
+                    onDetailsRequested: colorful.openTrackItem(modelData)
                 }
                 footer: ColorButton {
                     anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined

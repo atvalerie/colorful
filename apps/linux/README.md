@@ -14,6 +14,10 @@ The launcher builds the app when necessary and loads the existing TIDAL client
 configuration from `../mocha/.env`. It does not copy or print those credentials.
 You can instead provide the same `TIDAL_*` variables in your environment.
 
+Public YouTube search, playback, and YouTube Music automix require `yt-dlp` on
+`PATH`. Set `COLORFUL_YT_DLP` to use a different executable. No Python
+`ytmusicapi` package or extra Rust YouTube client is required.
+
 Offline downloads require the `ffmpeg` executable. colorful resolves a fresh
 TIDAL DASH source for the transfer, remuxes the selected audio without
 re-encoding, and stores the standalone `.mka` file plus artwork under its

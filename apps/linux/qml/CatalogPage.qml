@@ -223,12 +223,12 @@ Item {
                         Layout.fillWidth: true
                         track: modelData
                         showSaveAction: true
-                        showDownloadAction: true
+                        showDownloadAction: (modelData.provider || "tidal") === "tidal"
                         onPlayRequested: colorful.playCatalogTrack(modelData)
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
                         onSaveRequested: colorful.saveCatalogTrack(modelData)
                         onDownloadRequested: colorful.downloadTrack(modelData)
-                        onDetailsRequested: colorful.openTrack(modelData.id)
+                        onDetailsRequested: colorful.openTrackItem(modelData)
                     }
                 }
             }
