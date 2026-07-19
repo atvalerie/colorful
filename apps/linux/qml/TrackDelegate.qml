@@ -61,24 +61,13 @@ ItemDelegate {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 1
-            RowLayout {
+            Text {
                 Layout.fillWidth: true
-                spacing: 6
-                Text {
-                    Layout.fillWidth: true
-                    text: root.track.title || "Unknown title"
-                    color: "#f5f5f5"
-                    elide: Text.ElideRight
-                    font.weight: Font.DemiBold
-                    font.pixelSize: 13
-                }
-                AppIcon {
-                    Layout.preferredWidth: 12
-                    Layout.preferredHeight: 12
-                    iconSource: (root.track.provider || "tidal") === "youtube"
-                                ? "icons/youtube.svg" : "icons/tidal.svg"
-                    opacity: 0.48
-                }
+                text: root.track.title || "Unknown title"
+                color: "#f5f5f5"
+                elide: Text.ElideRight
+                font.weight: Font.DemiBold
+                font.pixelSize: 13
             }
             Text {
                 Layout.fillWidth: true
@@ -87,6 +76,15 @@ ItemDelegate {
                 elide: Text.ElideRight
                 font.pixelSize: 11
             }
+        }
+
+        AppIcon {
+            Layout.preferredWidth: 14
+            Layout.preferredHeight: 14
+            Layout.alignment: Qt.AlignVCenter
+            iconSource: (root.track.provider || "tidal") === "youtube"
+                        ? "icons/youtube.svg" : "icons/tidal.svg"
+            opacity: 0.48
         }
 
         Text {
