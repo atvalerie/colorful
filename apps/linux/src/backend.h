@@ -217,6 +217,7 @@ private:
     void notify(const QString &message, const QString &kind = QStringLiteral("info"));
     void setEntitlementWarning(bool visible, const QString &message = {});
     void playTrackAt(int index);
+    void playSingleTrack(const QVariantMap &track);
     void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true);
     void enqueueTrack(const QVariantMap &track);
     void saveTrack(const QVariantMap &track);

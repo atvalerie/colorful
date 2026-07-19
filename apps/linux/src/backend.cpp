@@ -996,8 +996,7 @@ void Backend::enqueueCatalogTrack(const QVariantMap &track)
 
 void Backend::playCatalogTrack(const QVariantMap &track)
 {
-    enqueueTrack(track);
-    playTrackAt(m_queue.size() - 1);
+    playSingleTrack(track);
 }
 
 void Backend::saveCatalogTrack(const QVariantMap &track) { saveTrack(track); }
@@ -1055,9 +1054,7 @@ void Backend::enqueueSearchResult(int index)
 void Backend::playSearchResult(int index)
 {
     if (index < 0 || index >= m_searchResults.size()) return;
-    dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
-                  {QStringLiteral("track"), variantTrackToCore(m_searchResults.at(index).toMap())}});
-    playTrackAt(m_queue.size() - 1);
+    playSingleTrack(m_searchResults.at(index).toMap());
 }
 
 void Backend::playQueueIndex(int index) { playTrackAt(index); }
@@ -1088,9 +1085,7 @@ void Backend::addSearchResultToLibrary(int index)
 void Backend::playLibraryIndex(int index)
 {
     if (index < 0 || index >= m_library.size()) return;
-    dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
-                  {QStringLiteral("track"), variantTrackToCore(m_library.at(index).toMap())}});
-    playTrackAt(m_queue.size() - 1);
+    playSingleTrack(m_library.at(index).toMap());
 }
 
 void Backend::removeLibraryIndex(int index)
@@ -1401,6 +1396,15 @@ void Backend::playTrackAt(int index)
     finishListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("select")},
                   {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
+    resolveCurrentSource();
+}
+
+void Backend::playSingleTrack(const QVariantMap &track)
+{
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    finishListeningSession();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("play_tracks")},
+                  {QStringLiteral("tracks"), QJsonArray{variantTrackToCore(track)}}});
     resolveCurrentSource();
 }
 
