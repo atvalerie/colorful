@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/colorful.svg" alt="colorful prism logo" width="128" height="128">
+</p>
+
 <h1 align="center">colorful</h1>
 
 <p align="center">

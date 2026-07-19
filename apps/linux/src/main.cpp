@@ -2,6 +2,7 @@
 #include "mpris.h"
 
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -14,6 +15,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationName(QStringLiteral("colorful"));
     QGuiApplication::setDesktopFileName(QStringLiteral("colorful"));
     QGuiApplication::setOrganizationName(QStringLiteral("colorful"));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/branding/colorful.svg")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     // Qt adopts the user's locale during application construction. libmpv's
     // client API requires the process-wide numeric locale to remain C so

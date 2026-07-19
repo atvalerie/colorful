@@ -77,11 +77,15 @@ set_source_files_properties(
 set_source_files_properties(
     ../../assets/fonts/OFL.txt PROPERTIES QT_RESOURCE_ALIAS fonts/OFL.txt
 )
+set_source_files_properties(
+    ../../assets/branding/colorful.svg PROPERTIES QT_RESOURCE_ALIAS branding/colorful.svg
+)
 qt_add_resources(colorful-linux colorful_assets
     PREFIX "/assets"
     FILES
         ../../assets/fonts/Nunito.ttf
         ../../assets/fonts/OFL.txt
+        ../../assets/branding/colorful.svg
 )
 
 target_compile_definitions(colorful-linux PRIVATE
@@ -103,3 +107,7 @@ target_link_libraries(colorful-linux PRIVATE
 install(TARGETS colorful-linux RUNTIME DESTINATION bin)
 install(FILES "${COLORFUL_CORE_LIBRARY}" DESTINATION lib)
 install(FILES applications/colorful.desktop DESTINATION share/applications)
+install(FILES ../../assets/branding/colorful.svg
+    DESTINATION share/icons/hicolor/scalable/apps
+    RENAME colorful.svg
+)

@@ -101,14 +101,29 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
-                    Text {
+                    Row {
                         anchors.left: parent.left
-                        anchors.leftMargin: 14
+                        anchors.leftMargin: 9
                         anchors.verticalCenter: parent.verticalCenter
-                        text: window.title
-                        color: Qt.rgba(1, 1, 1, window.active ? 0.68 : 0.38)
-                        font.weight: Font.DemiBold
-                        font.pixelSize: 10
+                        spacing: 6
+
+                        Image {
+                            width: 15
+                            height: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: "qrc:/assets/branding/colorful.svg"
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true
+                            mipmap: true
+                        }
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: window.title
+                            color: Qt.rgba(1, 1, 1, window.active ? 0.68 : 0.38)
+                            font.weight: Font.DemiBold
+                            font.pixelSize: 10
+                        }
                     }
 
                     DragHandler {

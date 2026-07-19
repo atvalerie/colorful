@@ -3,9 +3,8 @@ Type=Application
 Name=colorful
 Comment=Your local-first, album-colored music player
 Exec=colorful-linux
-Icon=audio-x-generic
+Icon=colorful
 Terminal=false
 Categories=Audio;Music;Player;
 StartupWMClass=colorful
 DBusActivatable=false
-
