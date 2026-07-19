@@ -53,9 +53,11 @@ private:
     bool performSeek(qint64 positionMs, bool resumeAfterConfirmation);
     void fadeTo(double target, int durationMs, std::function<void()> completion = {});
     void applyVolume();
+    bool createPersistentOutput();
     static void handleAboutToFinish(GstElement *, gpointer userData);
 
     GstElement *m_playbin = nullptr;
+    GstElement *m_outputPipeline = nullptr;
     GstBus *m_bus = nullptr;
     QTimer m_pollTimer;
     QTimer m_fadeTimer;
