@@ -913,7 +913,10 @@ void Backend::openCatalog(const QString &kind, const QString &id, bool preserveC
         if (generation != m_catalogGeneration) return;
         m_catalogLoading = false;
         if (!message.value(QStringLiteral("ok")).toBool()) {
-            setStatus(message.value(QStringLiteral("error")).toString());
+            const auto error = message.value(QStringLiteral("error")).toString();
+            setStatus(error);
+            notify(error.isEmpty() ? QStringLiteral("Could not open that TIDAL page") : error,
+                   QStringLiteral("error"));
             emit catalogPageChanged();
             return;
         }

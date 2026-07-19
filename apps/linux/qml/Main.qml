@@ -375,7 +375,8 @@ ApplicationWindow {
                         CatalogPage {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            visible: (window.currentSection === "search" || window.currentSection === "library")
+                            visible: (window.currentSection === "search" || window.currentSection === "library"
+                                      || window.currentSection === "tidal")
                                      && (colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0)
                             page: colorful.catalogPage
                             loading: colorful.catalogLoading
@@ -385,6 +386,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "tidal"
+                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                         }
 
                         SettingsPage {
