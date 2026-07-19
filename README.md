@@ -68,6 +68,8 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 ### On the roadmap
 
+- a proper settings hub for provider accounts, playback, appearance, storage,
+  Discord integrations, and future sync controls
 - broader TIDAL home/recommendation surfaces and offline downloads
 - gapless/prepared-next playback and a shared DSP contract for EQ
 - SoundCloud public accounts, catalog, and playback
