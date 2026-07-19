@@ -2,11 +2,15 @@
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "usage: $0 TIDAL_TRACK_ID [VOLUME_0_TO_0.25]" >&2
+  echo "usage: $0 TIDAL_TRACK_ID [VOLUME_0_TO_0.25|inspect|mpv]" >&2
   exit 2
 fi
 
 test_volume="${2:-0.02}"
+inspect_only=false
+if [[ "$test_volume" == inspect ]]; then inspect_only=true; fi
+use_mpv=false
+if [[ "$test_volume" == mpv ]]; then use_mpv=true; test_volume=0.02; fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
@@ -19,14 +23,17 @@ if [[ -f "$mocha_env" ]]; then
   set +a
 fi
 
-for command in bun jq gst-play-1.0; do
+required_commands=(bun jq)
+if [[ "$inspect_only" == true ]]; then required_commands+=(curl xmllint); fi
+if [[ "$use_mpv" == true ]]; then required_commands+=(mpv); else required_commands+=(gst-play-1.0); fi
+for command in "${required_commands[@]}"; do
   if ! command -v "$command" >/dev/null; then
     echo "$command is required" >&2
     exit 1
   fi
 done
 
-if ! jq -en --arg value "$test_volume" \
+if [[ "$inspect_only" != true ]] && ! jq -en --arg value "$test_volume" \
     '($value | tonumber? // -1) as $volume | $volume >= 0 and $volume <= 0.25' >/dev/null; then
   echo "Diagnostic volume must be between 0 and 0.25" >&2
   exit 2
@@ -77,6 +84,37 @@ fi
 
 cleanup
 trap - EXIT
+
+if [[ "$inspect_only" == true ]]; then
+  manifest="$(curl --fail --silent --show-error --location "$manifest_uri")"
+  echo "body bytes: ${#manifest}"
+  printf 'first bytes: '
+  printf '%s' "$manifest" | od -An -tx1 -N16 | tr -d '\n'
+  echo
+  if [[ "$manifest" == '<?xml'* ]]; then
+    echo "--- DASH timeline (all resource URIs redacted) ---"
+    xmllint --format - <<<"$manifest" \
+      | sed -E 's#<BaseURL>.*</BaseURL>#<BaseURL>REDACTED</BaseURL>#; s/(media|initialization|sourceURL|href|url)="[^"]+"/\1="REDACTED"/g' \
+      | grep -E '<(MPD|Period|AdaptationSet|Representation|SegmentTemplate|SegmentTimeline|S)([ >]|$)'
+    exit 0
+  fi
+  echo "--- manifest tags (all resource URIs redacted) ---"
+  sed -E 's/URI="[^"]+"/URI="<redacted>"/g; /^[^#]/d' <<<"$manifest"
+  while IFS= read -r child_uri; do
+    [[ -z "$child_uri" ]] && continue
+    child_uri="$(bun -e 'console.log(new URL(process.argv[1], process.argv[2]).href)' "$child_uri" "$manifest_uri")"
+    echo "--- child manifest tags (all resource URIs redacted) ---"
+    curl --fail --silent --show-error --location "$child_uri" \
+      | sed -E 's/URI="[^"]+"/URI="<redacted>"/g; /^[^#]/d'
+  done < <(sed -n '/^[^#[:space:]]/p' <<<"$manifest")
+  exit 0
+fi
+
+if [[ "$use_mpv" == true ]]; then
+  echo "Starting mpv at 2% volume; the signed URL is not printed or saved."
+  echo "Use space to pause/resume and the arrow keys to seek. Press q to quit."
+  exec mpv --no-video --volume=2 --cache=yes "$manifest_uri"
+fi
 
 echo "Starting vanilla GStreamer at volume $test_volume; the signed URL is not printed or saved."
 echo "Use space to pause/resume and the arrow keys to seek. Press q to quit."
