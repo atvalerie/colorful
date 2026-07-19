@@ -31,4 +31,10 @@ describe("TIDAL playback manifest request", () => {
     expect(url.searchParams.get("usage")).toBe("PLAYBACK");
     expect(url.searchParams.get("adaptive")).toBe("false");
   });
+
+  test("lets the desktop request a DASH timeline", () => {
+    const url = buildPlaybackManifestUrl("https://openapi.tidal.com/v2", "123", "MPEG_DASH");
+    expect(url.searchParams.get("manifestType")).toBe("MPEG_DASH");
+    expect(url.searchParams.get("adaptive")).toBe("false");
+  });
 });

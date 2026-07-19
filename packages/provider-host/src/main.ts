@@ -1,7 +1,7 @@
 import { normalizeVerificationUrl, pollDeviceAuth, refreshUserToken, startDeviceAuth, type UserToken } from "./auth";
 import { BrowseClient } from "./browse";
 import { readTidalConfig } from "./config";
-import { UserSession } from "./manifest";
+import { UserSession, type ManifestType } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
 import { loadSubscriptionStatus } from "./subscription";
 
@@ -107,7 +107,15 @@ async function handle(request: RequestMessage): Promise<void> {
       if (provider !== "tidal") throw new Error(`Playback is not implemented for ${provider}`);
       const trackId = String(request.payload?.trackId ?? "").trim();
       if (!trackId) throw new Error("Track ID is empty");
-      send({ id: request.id, ok: true, data: await session.sourceFor(trackId) });
+      const requestedManifestType = String(request.payload?.manifestType ?? "HLS");
+      if (requestedManifestType !== "HLS" && requestedManifestType !== "MPEG_DASH") {
+        throw new Error(`Unsupported manifest type: ${requestedManifestType}`);
+      }
+      send({
+        id: request.id,
+        ok: true,
+        data: await session.sourceFor(trackId, requestedManifestType as ManifestType),
+      });
       return;
     }
     default:

@@ -9,6 +9,8 @@ export type PlaybackSource = {
   previewReason: string | null;
 };
 
+export type ManifestType = PlaybackSource["manifestType"];
+
 type ManifestAttributes = {
   uri?: unknown;
   manifestType?: unknown;
@@ -22,17 +24,15 @@ export function requiresEntitlementRefresh(attributes: ManifestAttributes): bool
     && attributes.previewReason === "FULL_REQUIRES_SUBSCRIPTION";
 }
 
-export function buildPlaybackManifestUrl(apiBaseUrl: string, trackId: string): URL {
+export function buildPlaybackManifestUrl(apiBaseUrl: string, trackId: string, manifestType: ManifestType = "HLS"): URL {
   const base = apiBaseUrl.endsWith("/") ? apiBaseUrl : `${apiBaseUrl}/`;
   const url = new URL(`trackManifests/${encodeURIComponent(trackId)}`, base);
-  url.searchParams.append("manifestType", "HLS");
+  url.searchParams.append("manifestType", manifestType);
   for (const format of ["FLAC_HIRES", "FLAC", "AACLC"]) url.searchParams.append("formats", format);
   url.searchParams.set("uriScheme", "HTTPS");
   url.searchParams.set("usage", "PLAYBACK");
-  // Qt/FFmpeg treats TIDAL's adaptive audio master as simultaneous programs.
-  // The resulting timelines wrap independently, freezing position and making
-  // seeks unreliable. TIDAL still chooses the best entitled format from the
-  // preference list when adaptive playback is disabled.
+  // Native shells ask TIDAL for one entitled representation. This avoids an
+  // adaptive master being interpreted as simultaneous audio programs.
   url.searchParams.set("adaptive", "false");
   return url;
 }
@@ -52,8 +52,8 @@ export class UserSession {
     return this.token.accessToken;
   }
 
-  async sourceFor(trackId: string): Promise<PlaybackSource> {
-    const url = buildPlaybackManifestUrl(this.config.apiBaseUrl, trackId);
+  async sourceFor(trackId: string, manifestType: ManifestType = "HLS"): Promise<PlaybackSource> {
+    const url = buildPlaybackManifestUrl(this.config.apiBaseUrl, trackId, manifestType);
     const request = async (force: boolean) => fetch(url, {
       headers: { Authorization: `Bearer ${await this.accessToken(force)}`, Accept: "application/vnd.api+json" },
     });

@@ -94,13 +94,6 @@ Backend::Backend(QObject *parent)
         emit accentChanged();
     });
 
-    m_audioOutput.setVolume(0.78);
-    m_player.setAudioOutput(&m_audioOutput);
-    m_positionTicker.setInterval(250);
-    connect(&m_positionTicker, &QTimer::timeout, this, [this] {
-        if (m_positionClockRunning) emit positionChanged();
-    });
-    m_positionTicker.start();
     m_checkpointTimer.setInterval(10'000);
     connect(&m_checkpointTimer, &QTimer::timeout, this, [this] {
         if (m_currentIndex < 0 || !playing()) return;
@@ -125,12 +118,7 @@ Backend::Backend(QObject *parent)
         setStatus(QStringLiteral("TIDAL provider stopped (exit %1)").arg(exitCode));
     });
 
-    connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this] {
-        if (m_sourceTransitionPending && m_player.playbackState() == QMediaPlayer::PlayingState) {
-            m_sourceTransitionPending = false;
-            m_sourceLoadingObserved = false;
-        }
-        resetPositionClock(position(), m_player.playbackState() == QMediaPlayer::PlayingState);
+    connect(&m_playback, &LinuxPlayback::stateChanged, this, [this] {
         emit playbackChanged();
         updateDiscordPresence();
     });
@@ -139,50 +127,29 @@ Backend::Backend(QObject *parent)
         updateDiscordPresence();
     });
     connect(this, &Backend::seeked, this, [this] { updateDiscordPresence(); });
-    connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 value) {
-        // setSource() is asynchronous. The old FFmpeg stream can publish one
-        // last timestamp after the queue has already selected the next entry.
-        // Do not let that stale value overwrite the new track's zeroed clock.
-        if (m_sourceTransitionPending) {
-            emit positionChanged();
-            return;
-        }
-        // TIDAL occasionally serves an HLS media playlist whose declared
-        // timeline ends early and then wraps. Qt/FFmpeg keeps decoding audio,
-        // but its position freezes or jumps backwards. Accept advancing native
-        // timestamps and ignore a wrapped timestamp behind our monotonic clock.
-        if (value + 1500 >= position()) {
-            resetPositionClock(value, m_player.playbackState() == QMediaPlayer::PlayingState);
-        }
+    connect(&m_playback, &LinuxPlayback::positionChanged, this, &Backend::positionChanged);
+    connect(&m_playback, &LinuxPlayback::durationChanged, this, &Backend::durationChanged);
+    connect(&m_playback, &LinuxPlayback::volumeChanged, this, &Backend::volumeChanged);
+    connect(&m_playback, &LinuxPlayback::loadingChanged, this, [this](bool loading) {
+        setBusy(loading);
+        setStatus(loading ? QStringLiteral("Opening lossless stream…")
+                          : QStringLiteral("Playing from TIDAL"));
+    });
+    connect(&m_playback, &LinuxPlayback::errorOccurred, this, [this](const QString &error) {
+        setBusy(false);
+        setStatus(QStringLiteral("Playback error: %1").arg(error));
+    });
+    connect(&m_playback, &LinuxPlayback::seekCompleted, this, [this](qint64 confirmedPositionMs) {
+        m_resumePositionMs = confirmedPositionMs;
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("seek_to")},
+                      {QStringLiteral("position_ms"), confirmedPositionMs}});
+        emit seeked(confirmedPositionMs);
+    });
+    connect(&m_playback, &LinuxPlayback::seekFailed, this, [this](qint64, const QString &reason) {
+        setStatus(QStringLiteral("Seek failed: %1").arg(reason));
         emit positionChanged();
     });
-    connect(&m_player, &QMediaPlayer::durationChanged, this, [this] { emit durationChanged(); });
-    connect(&m_audioOutput, &QAudioOutput::volumeChanged, this, &Backend::volumeChanged);
-    connect(&m_player, &QMediaPlayer::errorOccurred, this,
-            [this](QMediaPlayer::Error, const QString &error) {
-        m_sourceTransitionPending = false;
-        m_sourceLoadingObserved = false;
-        if (!error.isEmpty()) setStatus(QStringLiteral("Playback error: %1").arg(error));
-    });
-    connect(&m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
-        if (status == QMediaPlayer::LoadingMedia) {
-            if (m_sourceTransitionPending) m_sourceLoadingObserved = true;
-            setStatus(QStringLiteral("Opening lossless stream…"));
-        }
-        if (status == QMediaPlayer::BufferedMedia || status == QMediaPlayer::LoadedMedia) {
-            if (m_sourceTransitionPending && m_sourceLoadingObserved) {
-                resetPositionClock(
-                    m_pendingSourcePosition,
-                    m_player.playbackState() == QMediaPlayer::PlayingState);
-                m_sourceTransitionPending = false;
-                m_sourceLoadingObserved = false;
-                emit positionChanged();
-            }
-            setBusy(false);
-            setStatus(QStringLiteral("Playing from TIDAL"));
-        }
-        if (status == QMediaPlayer::EndOfMedia) next();
-    });
+    connect(&m_playback, &LinuxPlayback::endOfMedia, this, &Backend::next);
 
     openCore();
     startProviderHost();
@@ -275,10 +242,7 @@ void Backend::refreshCoreSnapshot()
     m_currentIndex = nextCurrentIndex;
     m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
-    if (currentWasChanged) {
-        resetPositionClock(playback.value(QStringLiteral("positionMs")).toInteger(), false);
-        emit positionChanged();
-    }
+    if (currentWasChanged) m_resumePositionMs = playback.value(QStringLiteral("positionMs")).toInteger();
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
@@ -343,17 +307,12 @@ QVariantMap Backend::coreTrackToVariant(const QJsonObject &track)
 
 bool Backend::playing() const
 {
-    return m_player.playbackState() == QMediaPlayer::PlayingState;
+    return m_playback.playing();
 }
 
 qint64 Backend::position() const
 {
-    const auto elapsed = m_positionClockRunning && m_positionClock.isValid()
-        ? m_positionClock.elapsed()
-        : 0;
-    const auto logical = std::max<qint64>(0, m_positionAnchor + elapsed);
-    const auto trackDuration = duration();
-    return trackDuration > 0 ? std::min(logical, trackDuration) : logical;
+    return m_playback.position();
 }
 
 qint64 Backend::duration() const
@@ -363,15 +322,15 @@ qint64 Backend::duration() const
     // duration describes the complete track and is stable for the timeline,
     // seeking, and MPRIS metadata.
     const auto catalogDuration = currentTrack().value(QStringLiteral("durationMs")).toLongLong();
-    return catalogDuration > 0 ? catalogDuration : m_player.duration();
+    return catalogDuration > 0 ? catalogDuration : m_playback.duration();
 }
 
 QString Backend::playbackStatus() const
 {
-    switch (m_player.playbackState()) {
-    case QMediaPlayer::PlayingState: return QStringLiteral("Playing");
-    case QMediaPlayer::PausedState: return QStringLiteral("Paused");
-    case QMediaPlayer::StoppedState: return QStringLiteral("Stopped");
+    switch (m_playback.state()) {
+    case LinuxPlayback::State::Playing: return QStringLiteral("Playing");
+    case LinuxPlayback::State::Paused: return QStringLiteral("Paused");
+    case LinuxPlayback::State::Stopped: return QStringLiteral("Stopped");
     }
     return QStringLiteral("Stopped");
 }
@@ -599,9 +558,9 @@ void Backend::removeQueueIndex(int index)
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove")},
                   {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
     if (removingCurrent) {
-        m_player.stop();
+        m_playback.stop();
         if (m_currentIndex >= 0) resolveCurrentSource(0, wasPlaying);
-        else m_player.setSource(QUrl());
+        else m_playback.clearSource();
     }
 }
 
@@ -635,8 +594,7 @@ void Backend::removeLibraryIndex(int index)
 void Backend::playTrackAt(int index)
 {
     if (index < 0 || index >= m_queueEntryIds.size()) return;
-    m_player.stop();
-    resetPositionClock(0, false);
+    m_playback.stop();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("select")},
                   {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
     resolveCurrentSource();
@@ -648,22 +606,16 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     if (track.isEmpty()) return;
     const auto requestedTrackId = track.value(QStringLiteral("id")).toString();
     const auto sourceGeneration = ++m_sourceGeneration;
-    m_pendingSourcePosition = std::max<qint64>(0, startPositionMs);
-    m_sourceTransitionPending = true;
-    m_sourceLoadingObserved = false;
-    resetPositionClock(m_pendingSourcePosition, false);
-    emit positionChanged();
     setBusy(true);
     setStatus(QStringLiteral("Getting playback source for %1…").arg(track.value(QStringLiteral("title")).toString()));
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());
     request(QStringLiteral("source"), {{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
-                                        {QStringLiteral("trackId"), requestedTrackId}},
+                                        {QStringLiteral("trackId"), requestedTrackId},
+                                        {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")}},
             [this, requestedTrackId, startPositionMs, autoplay, sourceGeneration](const QJsonObject &message) {
         if (sourceGeneration != m_sourceGeneration
             || currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
         if (!message.value(QStringLiteral("ok")).toBool()) {
-            m_sourceTransitionPending = false;
-            m_sourceLoadingObserved = false;
             setBusy(false);
             const auto error = message.value(QStringLiteral("error")).toString();
             setStatus(error);
@@ -677,15 +629,11 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         const auto source = message.value(QStringLiteral("data")).toObject();
         const auto uri = source.value(QStringLiteral("uri")).toString();
         if (uri.isEmpty()) {
-            m_sourceTransitionPending = false;
-            m_sourceLoadingObserved = false;
             setBusy(false);
             setStatus(QStringLiteral("TIDAL returned an empty playback source"));
             return;
         }
-        m_player.setSource(QUrl(uri));
-        if (startPositionMs > 0) m_player.setPosition(startPositionMs);
-        if (autoplay) m_player.play();
+        m_playback.setSource(QUrl(uri), startPositionMs, autoplay);
     });
 }
 
@@ -698,25 +646,22 @@ void Backend::play()
     }
     if (m_currentIndex < 0) return;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("play")}});
-    if (m_player.source().isEmpty()) resolveCurrentSource(position(), true);
-    else m_player.play();
+    if (!m_playback.hasSource()) resolveCurrentSource(m_resumePositionMs, true);
+    else m_playback.play();
 }
 void Backend::pause()
 {
     dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                   {QStringLiteral("position_ms"), position()}});
     dispatchCore({{QStringLiteral("command"), QStringLiteral("pause")}});
-    m_player.pause();
+    m_playback.pause();
 }
 void Backend::stop()
 {
     ++m_sourceGeneration;
-    m_sourceTransitionPending = false;
-    m_sourceLoadingObserved = false;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("stop")}});
-    m_player.stop();
-    resetPositionClock(0, false);
-    emit positionChanged();
+    m_resumePositionMs = 0;
+    m_playback.stop();
 }
 
 void Backend::next()
@@ -728,7 +673,7 @@ void Backend::next()
     }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                   {QStringLiteral("position_ms"), position()}});
-    m_player.stop();
+    m_playback.stop();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_next")}});
     resolveCurrentSource();
 }
@@ -777,7 +722,7 @@ void Backend::previous()
     else {
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                       {QStringLiteral("position_ms"), position()}});
-        m_player.stop();
+        m_playback.stop();
         dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_previous")}});
         resolveCurrentSource();
     }
@@ -786,26 +731,14 @@ void Backend::previous()
 void Backend::seek(qint64 positionMs)
 {
     const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, duration()));
-    resetPositionClock(target, playing());
-    dispatchCore({{QStringLiteral("command"), QStringLiteral("seek_to")},
-                  {QStringLiteral("position_ms"), target}});
-    m_player.setPosition(target);
-    emit positionChanged();
-    emit seeked(target);
+    m_playback.seek(target);
 }
 
 void Backend::seekBy(qint64 offsetMs) { seek(position() + offsetMs); }
 
-void Backend::resetPositionClock(qint64 positionMs, bool running)
-{
-    m_positionAnchor = std::max<qint64>(0, positionMs);
-    m_positionClockRunning = running;
-    m_positionClock.restart();
-}
-
 void Backend::setVolume(double volume)
 {
-    m_audioOutput.setVolume(std::clamp(volume, 0.0, 1.0));
+    m_playback.setVolume(volume);
 }
 
 void Backend::setAutoplayEnabled(bool enabled)
@@ -818,7 +751,7 @@ void Backend::setAutoplayEnabled(bool enabled)
 void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
-    if (track.isEmpty() || m_player.playbackState() == QMediaPlayer::StoppedState) {
+    if (track.isEmpty() || m_playback.state() == LinuxPlayback::State::Stopped) {
         m_discordPresence.clear();
         return;
     }
@@ -827,7 +760,7 @@ void Backend::updateDiscordPresence()
         track.value(QStringLiteral("artistText")).toString(),
         track.value(QStringLiteral("albumTitle")).toString(),
         track.value(QStringLiteral("coverUrl")).toString(),
-        m_player.position(),
+        m_playback.position(),
         duration(),
         playing());
 }

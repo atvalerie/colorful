@@ -9,9 +9,9 @@ the provider and playback boundaries have been exercised here.
 
 ## Try the Linux player
 
-The current client is native Qt 6 Quick/QML with TIDAL device linking, catalog
-search, streaming playback, a live queue, album-derived colors, secure refresh
-token storage through Linux Secret Service, and MPRIS desktop controls.
+The current client is native Qt 6 Quick/QML with GStreamer playback, TIDAL
+device linking, catalog search, a live queue, album-derived colors, secure
+refresh-token storage through Linux Secret Service, and MPRIS controls.
 
 ```bash
 ./scripts/run-linux.sh

@@ -2,13 +2,11 @@
 
 #include "discordpresence.h"
 #include "corebridge.h"
+#include "linuxplayback.h"
 
-#include <QAudioOutput>
 #include <QColor>
-#include <QElapsedTimer>
 #include <QHash>
 #include <QJsonObject>
-#include <QMediaPlayer>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QProcess>
@@ -62,7 +60,7 @@ public:
     bool playing() const;
     qint64 position() const;
     qint64 duration() const;
-    double volume() const { return m_audioOutput.volume(); }
+    double volume() const { return m_playback.volume(); }
     QColor accent() const { return m_accent; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
 
@@ -140,7 +138,6 @@ private:
     static QVariantMap coreTrackToVariant(const QJsonObject &track);
     void loadAccent(const QString &artworkUrl);
     void updateDiscordPresence();
-    void resetPositionClock(qint64 positionMs, bool running);
     QColor paletteColor(const QImage &image) const;
     static QVariantMap jsonTrackToVariant(const QJsonObject &track);
 
@@ -149,17 +146,10 @@ private:
     QHash<int, ReplyHandler> m_replies;
     int m_nextRequestId = 1;
 
-    QMediaPlayer m_player;
-    QElapsedTimer m_positionClock;
-    QTimer m_positionTicker;
+    LinuxPlayback m_playback;
     QTimer m_checkpointTimer;
-    qint64 m_positionAnchor = 0;
-    bool m_positionClockRunning = false;
-    bool m_sourceTransitionPending = false;
-    bool m_sourceLoadingObserved = false;
-    qint64 m_pendingSourcePosition = 0;
     quint64 m_sourceGeneration = 0;
-    QAudioOutput m_audioOutput;
+    qint64 m_resumePositionMs = 0;
     DiscordPresence m_discordPresence;
     QNetworkAccessManager m_network;
     QVariantAnimation m_accentAnimation;

@@ -6,7 +6,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Multimedia Network DBus)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network DBus)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-audio-1.0)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -16,6 +18,8 @@ qt_add_executable(colorful-linux
     src/backend.h
     src/corebridge.cpp
     src/corebridge.h
+    src/linuxplayback.cpp
+    src/linuxplayback.h
     src/discordpresence.cpp
     src/discordpresence.h
     src/mpris.cpp
@@ -87,9 +91,9 @@ target_link_libraries(colorful-linux PRIVATE
     Qt6::Gui
     Qt6::Quick
     Qt6::QuickControls2
-    Qt6::Multimedia
     Qt6::Network
     Qt6::DBus
+    PkgConfig::GSTREAMER
     colorful-core
     ${CMAKE_DL_LIBS}
 )
