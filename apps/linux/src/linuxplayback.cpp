@@ -25,11 +25,6 @@ LinuxPlayback::LinuxPlayback(QObject *parent)
         return;
     }
     m_bus = gst_element_get_bus(m_playbin);
-    if (!createPersistentOutput()) {
-        QMetaObject::invokeMethod(this, [this] {
-            emit errorOccurred(QStringLiteral("Could not create the persistent audio output"));
-        }, Qt::QueuedConnection);
-    }
     // Keep playbin's output graph alive while the URI changes. This avoids
     // closing and reopening the PipeWire/Pulse stream between every track.
     g_object_set(m_playbin, "instant-uri", TRUE, nullptr);
@@ -72,10 +67,8 @@ LinuxPlayback::~LinuxPlayback()
 {
     m_pollTimer.stop();
     if (m_playbin) gst_element_set_state(m_playbin, GST_STATE_NULL);
-    if (m_outputPipeline) gst_element_set_state(m_outputPipeline, GST_STATE_NULL);
     if (m_bus) gst_object_unref(m_bus);
     if (m_playbin) gst_object_unref(m_playbin);
-    if (m_outputPipeline) gst_object_unref(m_outputPipeline);
 }
 
 void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay)
@@ -296,9 +289,6 @@ void LinuxPlayback::updateQueries(bool allowWhileLoading)
 
 void LinuxPlayback::updateState(GstState state)
 {
-    // PAUSED is used internally for URI preroll and flushing seeks. Preserve
-    // the user-visible state so MPRIS/Discord never report a fake pause.
-    if ((m_loading || m_confirmingSeekMs >= 0) && state != GST_STATE_PLAYING) return;
     const auto next = m_logicallyStopped
         ? State::Stopped
         : state == GST_STATE_PLAYING
@@ -370,49 +360,6 @@ void LinuxPlayback::fadeTo(double target, int durationMs, std::function<void()> 
 void LinuxPlayback::applyVolume()
 {
     if (m_playbin) g_object_set(m_playbin, "volume", m_volume * m_transitionGain, nullptr);
-}
-
-bool LinuxPlayback::createPersistentOutput()
-{
-    // playbin may pause or flush while seeking. Route it through an internal
-    // channel so the real platform sink belongs to a second pipeline which
-    // continuously runs (and supplies silence during an underrun). This keeps
-    // PipeWire/Pulse and the physical device awake without advancing playback.
-    auto *bridgeSink = gst_element_factory_make("interaudiosink", "colorful-audio-bridge");
-    if (!bridgeSink) return false;
-    g_object_set(bridgeSink,
-                 "channel", "colorful-output",
-                 "sync", TRUE,
-                 nullptr);
-    g_object_set(m_playbin, "audio-sink", bridgeSink, nullptr);
-    gst_object_unref(bridgeSink);
-
-    GError *error = nullptr;
-    m_outputPipeline = gst_parse_launch(
-        "interaudiosrc channel=colorful-output automatic-eos=false "
-        "buffer-time=100000000 latency-time=20000000 period-time=10000000 ! "
-        "audioconvert ! audioresample ! autoaudiosink",
-        &error);
-    if (error) {
-        g_error_free(error);
-        if (m_outputPipeline) {
-            gst_object_unref(m_outputPipeline);
-            m_outputPipeline = nullptr;
-        }
-        g_object_set(m_playbin, "audio-sink", nullptr, nullptr);
-        return false;
-    }
-    if (!m_outputPipeline) {
-        g_object_set(m_playbin, "audio-sink", nullptr, nullptr);
-        return false;
-    }
-    if (gst_element_set_state(m_outputPipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-        gst_object_unref(m_outputPipeline);
-        m_outputPipeline = nullptr;
-        g_object_set(m_playbin, "audio-sink", nullptr, nullptr);
-        return false;
-    }
-    return true;
 }
 
 void LinuxPlayback::handleAboutToFinish(GstElement *, gpointer userData)
