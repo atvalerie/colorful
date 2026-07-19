@@ -121,25 +121,28 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 76
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
-                        RowLayout {
-                            anchors.fill: parent
+                        Column {
+                            anchors.left: parent.left
                             anchors.leftMargin: 15
-                            anchors.topMargin: 15
-                            anchors.bottomMargin: 15
-                            anchors.rightMargin: 0
-                            ColumnLayout { Layout.fillWidth: true; spacing: 3
-                                Text { text: "Autoplay"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                Text { text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11 }
-                            }
-                            Rectangle {
-                                Layout.preferredWidth: 42
-                                Layout.preferredHeight: 22
-                                color: colorful.autoplayEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
-                                border.width: 1; border.color: colorful.autoplayEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
-                                Rectangle { width: 16; height: 16; y: 3; x: colorful.autoplayEnabled ? parent.width - width - 3 : 3; color: colorful.autoplayEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
-                                HoverHandler { cursorShape: Qt.PointingHandCursor }
-                                TapHandler { onTapped: colorful.autoplayEnabled = !colorful.autoplayEnabled }
-                            }
+                            anchors.right: autoplaySwitch.left
+                            anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 3
+                            Text { text: "Autoplay"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                            Text { width: parent.width; text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                        }
+                        Rectangle {
+                            id: autoplaySwitch
+                            anchors.right: parent.right
+                            anchors.rightMargin: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 42
+                            height: 22
+                            color: colorful.autoplayEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.autoplayEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.autoplayEnabled ? parent.width - width - 3 : 3; color: colorful.autoplayEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.autoplayEnabled = !colorful.autoplayEnabled }
                         }
                     }
                     Text { text: "TIDAL stream quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 5 }
