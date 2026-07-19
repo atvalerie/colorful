@@ -629,19 +629,19 @@ void Backend::openTrack(const QString &id) { openCatalog(QStringLiteral("track")
 void Backend::openAlbum(const QString &id) { openCatalog(QStringLiteral("album"), id); }
 void Backend::openArtist(const QString &id) { openCatalog(QStringLiteral("artist"), id); }
 
-void Backend::openPrimaryArtist(const QVariantMap &track)
+void Backend::openTrackArtist(const QVariantMap &track, int artistIndex)
 {
     const auto credits = track.value(QStringLiteral("artistCredits")).toList();
-    if (!credits.isEmpty()) {
-        const auto artistId = credits.first().toMap().value(QStringLiteral("id")).toString();
+    if (artistIndex >= 0 && artistIndex < credits.size()) {
+        const auto artistId = credits.at(artistIndex).toMap().value(QStringLiteral("id")).toString();
         if (!artistId.isEmpty()) {
             openArtist(artistId);
             return;
         }
     }
     const auto names = track.value(QStringLiteral("artists")).toStringList();
-    if (names.isEmpty() || names.first().trimmed().isEmpty()) return;
-    const auto wantedName = names.first().trimmed();
+    if (artistIndex < 0 || artistIndex >= names.size() || names.at(artistIndex).trimmed().isEmpty()) return;
+    const auto wantedName = names.at(artistIndex).trimmed();
     setStatus(QStringLiteral("Finding %1 on TIDAL…").arg(wantedName));
     request(QStringLiteral("search"), {{QStringLiteral("query"), wantedName}}, [this, wantedName](const QJsonObject &message) {
         if (!message.value(QStringLiteral("ok")).toBool()) {

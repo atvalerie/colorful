@@ -655,15 +655,37 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 5
-                                MetadataLink {
+                                Row {
                                     Layout.maximumWidth: parent.width * 0.48
-                                    text: window.now.artistText || "Choose a track"
-                                    normalColor: window.mutedInk
-                                    elide: Text.ElideRight
+                                    spacing: 3
+                                    clip: true
+                                    Repeater {
+                                        model: window.now.artistCredits || []
+                                        delegate: Row {
+                                            required property var modelData
+                                            required property int index
+                                            spacing: 3
+                                            MetadataLink {
+                                                text: modelData.name
+                                                normalColor: window.mutedInk
+                                                font.pixelSize: 11
+                                                font.weight: Font.Normal
+                                                onActivated: colorful.openTrackArtist(window.now, index)
+                                            }
+                                            Text {
+                                                visible: index + 1 < (window.now.artistCredits || []).length
+                                                text: ","
+                                                color: window.mutedInk
+                                                font.pixelSize: 11
+                                            }
+                                        }
+                                    }
+                                }
+                                Text {
+                                    visible: !(window.now.artistCredits || []).length
+                                    text: "Choose a track"
+                                    color: window.mutedInk
                                     font.pixelSize: 11
-                                    font.weight: Font.Normal
-                                    linkEnabled: Boolean(window.now.id) && Boolean(window.now.artistText)
-                                    onActivated: colorful.openPrimaryArtist(window.now)
                                 }
                                 Text {
                                     visible: Boolean(window.now.albumId)

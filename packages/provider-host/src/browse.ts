@@ -28,6 +28,7 @@ export type AlbumSummary = {
   numberOfTracks: number | null;
   albumType: string | null;
   explicit: boolean;
+  mediaTags: string[];
 };
 
 export type ArtistSummary = {
@@ -60,6 +61,38 @@ export function mergeRelatedTracks(similar: TrackSummary[], radio: TrackSummary[
     if (radioTrack) interleaved.push(radioTrack);
   }
   return [...new Map(interleaved.map((track) => [track.id, track])).values()].slice(0, limit);
+}
+
+function albumPreference(album: AlbumSummary): number {
+  const tags = new Set(album.mediaTags.map((tag) => tag.toUpperCase()));
+  return (album.explicit ? 1_000 : 0)
+    + (tags.has("HIRES_LOSSLESS") ? 300 : 0)
+    + (tags.has("LOSSLESS") ? 200 : 0)
+    + (tags.has("DOLBY_ATMOS") ? 50 : 0)
+    + (album.coverUrl ? 10 : 0);
+}
+
+export function deduplicateAlbums(albums: AlbumSummary[]): AlbumSummary[] {
+  const result: AlbumSummary[] = [];
+  const positions = new Map<string, number>();
+  for (const album of albums) {
+    const key = [
+      album.title.trim().toLocaleLowerCase(),
+      album.artists.map((artist) => artist.trim().toLocaleLowerCase()).join("\u0001"),
+      album.releaseDate ?? "",
+      album.numberOfTracks ?? "",
+      album.albumType ?? "",
+    ].join("\u0000");
+    const existingIndex = positions.get(key);
+    if (existingIndex === undefined) {
+      positions.set(key, result.length);
+      result.push(album);
+    } else {
+      const existing = result[existingIndex];
+      if (existing && albumPreference(album) > albumPreference(existing)) result[existingIndex] = album;
+    }
+  }
+  return result;
 }
 
 export function cursorFromNextLink(document: { links?: { next?: unknown } }): string | undefined {
@@ -154,6 +187,9 @@ export function mapAlbums(document: { data?: Resource | Resource[]; included?: R
       numberOfTracks: Number.isFinite(album.attributes?.numberOfItems) ? Number(album.attributes?.numberOfItems) : null,
       albumType: typeof album.attributes?.albumType === "string" ? album.attributes.albumType : null,
       explicit: album.attributes?.explicit === true,
+      mediaTags: Array.isArray(album.attributes?.mediaTags)
+        ? album.attributes.mediaTags.filter((tag: unknown): tag is string => typeof tag === "string")
+        : [],
     };
   });
 }
@@ -277,6 +313,30 @@ export class BrowseClient {
     return tracks;
   }
 
+  private async relationshipAlbumList(path: string, limit = 100): Promise<AlbumSummary[]> {
+    const albums: AlbumSummary[] = [];
+    const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    while (albums.length < limit) {
+      const document = await this.get(path, {
+        include: "albums",
+        "page[limit]": String(Math.min(20, limit - albums.length)),
+        ...(cursor ? { "page[cursor]": cursor } : {}),
+      });
+      for (const album of await this.hydrateAlbums(mapAlbums(document))) {
+        if (seenIds.has(album.id)) continue;
+        seenIds.add(album.id);
+        albums.push(album);
+      }
+      const nextCursor = cursorFromNextLink(document);
+      if (!nextCursor || seenCursors.has(nextCursor)) break;
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+    return deduplicateAlbums(albums);
+  }
+
   private async relationshipTracks(
     trackId: string,
     relationship: "similarTracks" | "radio",
@@ -330,7 +390,7 @@ export class BrowseClient {
     if (tracksResult.status === "rejected" && albumsResult.status === "rejected" && artistsResult.status === "rejected") throw tracksResult.reason;
     return {
       tracks: tracksResult.status === "fulfilled" ? tracksResult.value : [],
-      albums: albumsResult.status === "fulfilled" ? await this.hydrateAlbums(mapAlbums(albumsResult.value)) : [],
+      albums: albumsResult.status === "fulfilled" ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(albumsResult.value))) : [],
       artists: artistsResult.status === "fulfilled" ? await this.hydrateArtists(mapArtists(artistsResult.value)) : [],
     };
   }
@@ -358,7 +418,7 @@ export class BrowseClient {
     const [artistResult, tracksResult, albumsResult] = await Promise.allSettled([
       this.get(`artists/${encoded}`, { include: "profileArt" }),
       this.get(`artists/${encoded}/relationships/tracks`, { include: "tracks", collapseBy: "FINGERPRINT", "page[limit]": "20" }),
-      this.get(`artists/${encoded}/relationships/albums`, { include: "albums", "page[limit]": "20" }),
+      this.relationshipAlbumList(`artists/${encoded}/relationships/albums`),
     ]);
     if (artistResult.status === "rejected") throw artistResult.reason;
     const artist = mapArtists(artistResult.value)[0];
@@ -367,7 +427,7 @@ export class BrowseClient {
       kind: "artist",
       artist,
       topTracks: tracksResult.status === "fulfilled" ? await this.hydrateTracks(mapTracks(tracksResult.value)) : [],
-      albums: albumsResult.status === "fulfilled" ? await this.hydrateAlbums(mapAlbums(albumsResult.value)) : [],
+      albums: albumsResult.status === "fulfilled" ? albumsResult.value : [],
     };
   }
 

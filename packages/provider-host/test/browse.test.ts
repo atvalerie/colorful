@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cursorFromNextLink, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapTracks, mergeRelatedTracks, type TrackSummary } from "../src/browse";
+import { cursorFromNextLink, deduplicateAlbums, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapTracks, mergeRelatedTracks, type AlbumSummary, type TrackSummary } from "../src/browse";
 
 describe("TIDAL browse mapping", () => {
   test("parses ISO durations", () => {
@@ -76,6 +76,20 @@ describe("TIDAL browse mapping", () => {
       coverUrl: "https://example.test/album.jpg",
     }));
     expect(mapArtists(document)[0]).toEqual({ id: "artist-1", name: "Someone", pictureUrl: "https://example.test/artist.jpg" });
+  });
+
+  test("collapses delivery variants and keeps the best explicit lossless release", () => {
+    const album = (id: string, explicit: boolean, mediaTags: string[]): AlbumSummary => ({
+      id, title: "One release", version: null, artists: ["Someone"],
+      artistCredits: [{ id: "artist-1", name: "Someone" }], coverUrl: null,
+      releaseDate: "2026-07-19", durationMs: 180_000, numberOfTracks: 1,
+      albumType: "ALBUM", explicit, mediaTags,
+    });
+    expect(deduplicateAlbums([
+      album("clean-atmos", false, ["DOLBY_ATMOS"]),
+      album("explicit-lossless", true, ["LOSSLESS"]),
+      album("clean-hires", false, ["HIRES_LOSSLESS"]),
+    ])).toEqual([expect.objectContaining({ id: "explicit-lossless" })]);
   });
 
   test("maps the same sanitized fixture as the portable Rust adapter", async () => {
