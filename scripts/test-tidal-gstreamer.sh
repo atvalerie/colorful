@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 TIDAL_TRACK_ID" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "usage: $0 TIDAL_TRACK_ID [VOLUME_0_TO_0.25]" >&2
   exit 2
 fi
+
+test_volume="${2:-0.02}"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
@@ -23,6 +25,12 @@ for command in bun jq gst-play-1.0; do
     exit 1
   fi
 done
+
+if ! jq -en --arg value "$test_volume" \
+    '($value | tonumber? // -1) as $volume | $volume >= 0 and $volume <= 0.25' >/dev/null; then
+  echo "Diagnostic volume must be between 0 and 0.25" >&2
+  exit 2
+fi
 
 coproc PROVIDER { bun "$repo_dir/packages/provider-host/src/main.ts"; }
 provider_pid="$PROVIDER_PID"
@@ -70,6 +78,6 @@ fi
 cleanup
 trap - EXIT
 
-echo "Starting vanilla GStreamer at 2% volume; the signed URL is not printed or saved."
+echo "Starting vanilla GStreamer at volume $test_volume; the signed URL is not printed or saved."
 echo "Use space to pause/resume and the arrow keys to seek. Press q to quit."
-exec gst-play-1.0 --accurate-seeks --instant-uri --volume=0.02 "$manifest_uri"
+exec gst-play-1.0 --accurate-seeks --instant-uri --volume="$test_volume" "$manifest_uri"
