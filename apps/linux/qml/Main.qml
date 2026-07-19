@@ -654,15 +654,15 @@ ApplicationWindow {
                                     if (window.now.id) colorful.openTrack(window.now.id)
                                 }
                             }
-                            RowLayout {
+                            Row {
+                                id: playerMetadataLine
                                 Layout.fillWidth: true
+                                height: 16
                                 spacing: 5
+                                clip: true
                                 Row {
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
                                     visible: (window.now.artistCredits || []).length > 0
                                     spacing: 3
-                                    clip: true
                                     Repeater {
                                         model: window.now.artistCredits || []
                                         delegate: Row {
@@ -686,8 +686,6 @@ ApplicationWindow {
                                     }
                                 }
                                 Text {
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
                                     visible: !(window.now.artistCredits || []).length
                                     text: "Choose a track"
                                     color: window.mutedInk
@@ -701,9 +699,8 @@ ApplicationWindow {
                                     font.pixelSize: 11
                                 }
                                 MetadataLink {
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
                                     visible: Boolean(window.now.albumId)
+                                    width: Math.max(0, playerMetadataLine.width - x)
                                     text: window.now.albumTitle || "Open album"
                                     normalColor: window.mutedInk
                                     elide: Text.ElideRight
