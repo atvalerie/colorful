@@ -108,10 +108,12 @@ export function deduplicateAlbums(albums: AlbumSummary[]): AlbumSummary[] {
   return result;
 }
 
-export function cursorFromNextLink(document: { links?: { next?: unknown } }): string | undefined {
+export function cursorFromNextLink(document: { links?: { next?: unknown; meta?: { nextCursor?: unknown } } }): string | undefined {
+  const metadataCursor = document.links?.meta?.nextCursor;
+  if (typeof metadataCursor === "string" && metadataCursor) return metadataCursor;
   if (typeof document.links?.next !== "string" || !document.links.next) return undefined;
   try {
-    return new URL(document.links.next).searchParams.get("page[cursor]") ?? undefined;
+    return new URL(document.links.next, "https://openapi.tidal.com").searchParams.get("page[cursor]") ?? undefined;
   } catch {
     return undefined;
   }

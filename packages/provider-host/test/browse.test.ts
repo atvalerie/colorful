@@ -29,6 +29,13 @@ describe("TIDAL browse mapping", () => {
     expect(cursorFromNextLink({ links: {
       next: "https://openapi.tidal.com/v2/tracks/123/relationships/radio?page%5Bcursor%5D=next-page",
     } })).toBe("next-page");
+    expect(cursorFromNextLink({ links: {
+      next: "/artists/123/relationships/albums?page%5Bcursor%5D=relative-page",
+    } })).toBe("relative-page");
+    expect(cursorFromNextLink({ links: {
+      meta: { nextCursor: "metadata-page" },
+      next: "/artists/123/relationships/albums?page%5Bcursor%5D=ignored-page",
+    } })).toBe("metadata-page");
     expect(cursorFromNextLink({ links: {} })).toBeUndefined();
   });
 
