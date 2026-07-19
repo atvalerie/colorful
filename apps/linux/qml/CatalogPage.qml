@@ -104,12 +104,20 @@ Item {
                         visible: root.kind !== "artist" && (root.primary.artistCredits || []).length > 0
                         Repeater {
                             model: root.primary.artistCredits || []
-                            delegate: ColorButton {
+                            delegate: Row {
                                 required property var modelData
-                                text: modelData.name
-                                quiet: true
-                                implicitHeight: 30
-                                onClicked: colorful.openArtist(modelData.id)
+                                required property int index
+                                spacing: 4
+                                MetadataLink {
+                                    text: modelData.name
+                                    onActivated: colorful.openArtist(modelData.id)
+                                }
+                                Text {
+                                    visible: index + 1 < (root.primary.artistCredits || []).length
+                                    text: "·"
+                                    color: Qt.rgba(1, 1, 1, 0.34)
+                                    font.pixelSize: 13
+                                }
                             }
                         }
                     }
@@ -121,12 +129,12 @@ Item {
                         color: Qt.rgba(1, 1, 1, 0.48)
                         font.pixelSize: 11
                     }
-                    ColorButton {
+                    MetadataLink {
                         visible: root.kind === "track" && root.primary.albumId
                         text: root.primary.albumTitle || "Open album"
-                        quiet: true
-                        implicitHeight: 30
-                        onClicked: colorful.openAlbum(root.primary.albumId)
+                        normalColor: Qt.rgba(1, 1, 1, 0.5)
+                        font.pixelSize: 12
+                        onActivated: colorful.openAlbum(root.primary.albumId)
                     }
                     RowLayout {
                         Layout.topMargin: 8

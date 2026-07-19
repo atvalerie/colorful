@@ -51,6 +51,7 @@ qt_add_qml_module(colorful-linux
         qml/TrackDelegate.qml
         qml/CatalogCard.qml
         qml/CatalogPage.qml
+        qml/MetadataLink.qml
     RESOURCES
         qml/icons/add.svg
         qml/icons/close.svg

@@ -30,7 +30,8 @@ qmllint -I "$repo_dir/build/linux" \
   "$repo_dir/apps/linux/qml/TitleButton.qml" \
   "$repo_dir/apps/linux/qml/TrackDelegate.qml" \
   "$repo_dir/apps/linux/qml/CatalogCard.qml" \
-  "$repo_dir/apps/linux/qml/CatalogPage.qml"
+  "$repo_dir/apps/linux/qml/CatalogPage.qml" \
+  "$repo_dir/apps/linux/qml/MetadataLink.qml"
 
 dbus-run-session -- bash -c '
   set -euo pipefail
