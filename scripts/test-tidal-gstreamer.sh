@@ -111,9 +111,9 @@ if [[ "$inspect_only" == true ]]; then
 fi
 
 if [[ "$use_mpv" == true ]]; then
-  echo "Starting mpv at 2% volume; the signed URL is not printed or saved."
+  echo "Starting mpv at 30% volume; the signed URL is not printed or saved."
   echo "Use space to pause/resume and the arrow keys to seek. Press q to quit."
-  exec mpv --no-video --volume=2 --cache=yes "$manifest_uri"
+  exec mpv --no-video --volume=30 --cache=yes "$manifest_uri"
 fi
 
 echo "Starting vanilla GStreamer at volume $test_volume; the signed URL is not printed or saved."
