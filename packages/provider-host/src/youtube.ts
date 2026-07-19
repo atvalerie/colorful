@@ -69,7 +69,9 @@ function thumbnailFor(entry: YtDlpEntry): string | null {
 export function mapYouTubeTrack(entry: YtDlpEntry): YouTubeTrackSummary | null {
   const id = text(entry.id);
   const title = text(entry.title);
-  if (!id || !title) return null;
+  // Flat search output may also contain channels and playlists. YouTube video
+  // IDs are exactly 11 URL-safe characters; everything else is not a track.
+  if (id.startsWith("UC") || !/^[A-Za-z0-9_-]{11}$/.test(id) || !title) return null;
   const artist = text(entry.channel) || text(entry.uploader) || "YouTube Music";
   const artistId = text(entry.channel_id) || text(entry.uploader_id);
   const durationSeconds = Number(entry.duration);

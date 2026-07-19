@@ -141,6 +141,7 @@ Item {
                     onPlayRequested: colorful.playCatalogTrack(modelData)
                     onAddRequested: colorful.enqueueCatalogTrack(modelData)
                     onDetailsRequested: colorful.openTrackItem(modelData)
+                    onStartRadioRequested: colorful.startRadio(modelData)
                 }
                 footer: ColorButton {
                     anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined

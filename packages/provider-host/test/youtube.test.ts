@@ -4,7 +4,7 @@ import { mapYouTubeTrack } from "../src/youtube";
 describe("YouTube Music mapping", () => {
   test("maps yt-dlp metadata into a provider-aware track", () => {
     expect(mapYouTubeTrack({
-      id: "video-one",
+      id: "abcdefghijk",
       title: "A colorful song",
       duration: 123.456,
       channel: "An Artist - Topic",
@@ -16,7 +16,7 @@ describe("YouTube Music mapping", () => {
       ],
     })).toEqual({
       provider: "youtube",
-      id: "video-one",
+      id: "abcdefghijk",
       title: "A colorful song",
       version: null,
       artists: ["An Artist - Topic"],
@@ -32,5 +32,8 @@ describe("YouTube Music mapping", () => {
   test("rejects playlist placeholders without a usable video identity", () => {
     expect(mapYouTubeTrack({ title: "Missing ID" })).toBeNull();
     expect(mapYouTubeTrack({ id: "missing-title" })).toBeNull();
+    expect(mapYouTubeTrack({ id: "UCNw2hq-0-3", title: "A channel-shaped result" })).toBeNull();
+    expect(mapYouTubeTrack({ id: "UCNw2hq-0-3-Wideo", title: "A channel" })).toBeNull();
+    expect(mapYouTubeTrack({ id: "PL123456789012345", title: "A playlist" })).toBeNull();
   });
 });

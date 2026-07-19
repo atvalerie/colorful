@@ -442,11 +442,14 @@ ApplicationWindow {
                                 onPlayRequested: window.currentSection === "library"
                                                  ? colorful.playLibraryIndex(index)
                                                  : colorful.playSearchResult(index)
-                                onAddRequested: colorful.enqueueSearchResult(index)
+                                onAddRequested: window.currentSection === "library"
+                                                ? colorful.enqueueCatalogTrack(modelData)
+                                                : colorful.enqueueSearchResult(index)
                                 onRemoveRequested: colorful.removeLibraryIndex(index)
                                 onSaveRequested: colorful.addSearchResultToLibrary(index)
                                 onDownloadRequested: colorful.downloadTrack(modelData)
                                 onDetailsRequested: colorful.openTrackItem(modelData)
+                                onStartRadioRequested: colorful.startRadio(modelData)
                             }
 
                             header: Column {
@@ -622,6 +625,7 @@ ApplicationWindow {
                                     onRemoveRequested: colorful.removeQueueIndex(index)
                                     onDownloadRequested: colorful.downloadTrack(modelData)
                                     onDetailsRequested: colorful.openTrackItem(modelData)
+                                    onStartRadioRequested: colorful.startRadio(modelData)
                                 }
 
                                 Column {

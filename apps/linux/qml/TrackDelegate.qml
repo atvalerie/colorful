@@ -16,6 +16,7 @@ ItemDelegate {
     signal saveRequested()
     signal downloadRequested()
     signal detailsRequested()
+    signal startRadioRequested()
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 500)
     height: 54
@@ -23,6 +24,40 @@ ItemDelegate {
     padding: 6
     onDoubleClicked: playRequested()
     onClicked: detailsRequested()
+
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: contextMenu.popup()
+    }
+
+    Menu {
+        id: contextMenu
+
+        MenuItem { text: "Play"; onTriggered: root.playRequested() }
+        MenuItem { text: "Start radio"; onTriggered: root.startRadioRequested() }
+        MenuSeparator {}
+        MenuItem {
+            text: root.queueMode ? "Remove from queue" : "Add to queue"
+            onTriggered: root.queueMode ? root.removeRequested() : root.addRequested()
+        }
+        MenuItem {
+            visible: root.libraryMode
+            text: "Remove from library"
+            onTriggered: root.removeRequested()
+        }
+        MenuItem {
+            visible: root.showSaveAction
+            text: "Save to library"
+            onTriggered: root.saveRequested()
+        }
+        MenuItem {
+            visible: root.showDownloadAction
+            text: "Download"
+            onTriggered: root.downloadRequested()
+        }
+        MenuSeparator {}
+        MenuItem { text: "Open details"; onTriggered: root.detailsRequested() }
+    }
 
     background: Rectangle {
         color: root.active ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.12)

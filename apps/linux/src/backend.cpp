@@ -1066,6 +1066,16 @@ void Backend::playCatalogTrack(const QVariantMap &track)
     playSingleTrack(track);
 }
 
+void Backend::startRadio(const QVariantMap &track)
+{
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    setAutoplayEnabled(true);
+    playSingleTrack(track);
+    requestRelated(false);
+    notify(QStringLiteral("Starting radio from %1")
+               .arg(track.value(QStringLiteral("title")).toString()));
+}
+
 void Backend::saveCatalogTrack(const QVariantMap &track) { saveTrack(track); }
 
 void Backend::playCatalogCollection()
@@ -1918,9 +1928,15 @@ void Backend::next()
 void Backend::requestRelated(bool continueWhenReady)
 {
     if (m_relatedPending) {
-        m_relatedContinueWhenReady = m_relatedContinueWhenReady || continueWhenReady;
-        if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
-        return;
+        if (m_relatedSeedEntryId == m_currentEntryId) {
+            m_relatedContinueWhenReady = m_relatedContinueWhenReady || continueWhenReady;
+            if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
+            return;
+        }
+        ++m_relatedGeneration;
+        m_relatedPending = false;
+        m_relatedContinueWhenReady = false;
+        m_relatedSeedEntryId = -1;
     }
     const auto seed = currentTrack();
     if (seed.isEmpty()) {
@@ -1930,11 +1946,13 @@ void Backend::requestRelated(bool continueWhenReady)
     m_relatedPending = true;
     m_relatedContinueWhenReady = continueWhenReady;
     m_relatedSeedEntryId = m_currentEntryId;
+    const auto generation = ++m_relatedGeneration;
     const auto seedEntryId = m_relatedSeedEntryId;
     if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
     request(QStringLiteral("related"), {{QStringLiteral("provider"), seed.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                          {QStringLiteral("trackId"), seed.value(QStringLiteral("id")).toString()},
-                                         {QStringLiteral("limit"), 20}}, [this, seedEntryId](const QJsonObject &message) {
+                                         {QStringLiteral("limit"), 20}}, [this, seedEntryId, generation](const QJsonObject &message) {
+        if (generation != m_relatedGeneration) return;
         const bool continueWhenReady = m_relatedContinueWhenReady;
         m_relatedPending = false;
         m_relatedContinueWhenReady = false;

@@ -141,6 +141,7 @@ public:
     Q_INVOKABLE void loadMoreCatalog(const QString &section);
     Q_INVOKABLE void enqueueCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void playCatalogTrack(const QVariantMap &track);
+    Q_INVOKABLE void startRadio(const QVariantMap &track);
     Q_INVOKABLE void saveCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void playCatalogCollection();
     Q_INVOKABLE void enqueueSearchResult(int index);
@@ -348,6 +349,7 @@ private:
     bool m_relatedPending = false;
     bool m_relatedContinueWhenReady = false;
     qint64 m_relatedSeedEntryId = -1;
+    quint64 m_relatedGeneration = 0;
     QElapsedTimer m_listenClock;
     QVariantMap m_listenTrack;
     QString m_listenTrackKey;

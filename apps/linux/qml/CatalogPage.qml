@@ -229,6 +229,7 @@ Item {
                         onSaveRequested: colorful.saveCatalogTrack(modelData)
                         onDownloadRequested: colorful.downloadTrack(modelData)
                         onDetailsRequested: colorful.openTrackItem(modelData)
+                        onStartRadioRequested: colorful.startRadio(modelData)
                     }
                 }
             }
