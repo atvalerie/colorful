@@ -102,6 +102,23 @@ async function handle(request: RequestMessage): Promise<void> {
       else throw new Error(`Unsupported catalog page: ${kind}`);
       return;
     }
+    case "detail.more": {
+      const provider = String(request.payload?.provider ?? "tidal");
+      if (provider !== "tidal") throw new Error(`Catalog pagination is not implemented for ${provider}`);
+      const kind = String(request.payload?.kind ?? "");
+      const resourceId = String(request.payload?.id ?? "").trim();
+      const section = String(request.payload?.section ?? "");
+      const cursor = String(request.payload?.cursor ?? "").trim();
+      if (!resourceId || !cursor) throw new Error("Catalog pagination state is incomplete");
+      send({ id: request.id, ok: true, data: await browse.catalogMore(kind, resourceId, section, cursor) });
+      return;
+    }
+    case "detail.albumTracks": {
+      const resourceId = String(request.payload?.id ?? "").trim();
+      if (!resourceId) throw new Error("Album ID is empty");
+      send({ id: request.id, ok: true, data: { tracks: await browse.allAlbumTracks(resourceId) } });
+      return;
+    }
     case "related": {
       const provider = String(request.payload?.provider ?? "tidal");
       if (provider !== "tidal") throw new Error(`Related tracks are not implemented for ${provider}`);

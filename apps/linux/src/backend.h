@@ -34,6 +34,7 @@ class Backend final : public QObject
     Q_PROPERTY(QVariantList searchArtists READ searchArtists NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantMap catalogPage READ catalogPage NOTIFY catalogPageChanged)
     Q_PROPERTY(bool catalogLoading READ catalogLoading NOTIFY catalogPageChanged)
+    Q_PROPERTY(bool catalogMoreLoading READ catalogMoreLoading NOTIFY catalogPageChanged)
     Q_PROPERTY(bool canNavigateCatalogBack READ canNavigateCatalogBack NOTIFY catalogPageChanged)
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
     Q_PROPERTY(QVariantList library READ library NOTIFY libraryChanged)
@@ -73,6 +74,7 @@ public:
     QVariantList searchArtists() const { return m_searchArtists; }
     QVariantMap catalogPage() const { return m_catalogPage; }
     bool catalogLoading() const { return m_catalogLoading; }
+    bool catalogMoreLoading() const { return m_catalogMoreLoading; }
     bool canNavigateCatalogBack() const { return !m_catalogHistory.isEmpty(); }
     QVariantList queue() const { return m_queue; }
     QVariantList library() const { return m_library; }
@@ -111,6 +113,7 @@ public:
     Q_INVOKABLE void openTrackArtist(const QVariantMap &track, int artistIndex);
     Q_INVOKABLE void navigateCatalogBack();
     Q_INVOKABLE void closeCatalog();
+    Q_INVOKABLE void loadMoreCatalog(const QString &section);
     Q_INVOKABLE void enqueueCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void playCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void saveCatalogTrack(const QVariantMap &track);
@@ -223,6 +226,7 @@ private:
     QVariantMap m_catalogPage;
     QVariantList m_catalogHistory;
     bool m_catalogLoading = false;
+    bool m_catalogMoreLoading = false;
     quint64 m_catalogGeneration = 0;
     QVariantList m_queue;
     QVariantList m_library;

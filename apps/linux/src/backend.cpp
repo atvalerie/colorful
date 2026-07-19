@@ -669,6 +669,7 @@ void Backend::openCatalog(const QString &kind, const QString &id, bool preserveC
     if (id.trimmed().isEmpty()) return;
     const auto generation = ++m_catalogGeneration;
     m_catalogLoading = true;
+    m_catalogMoreLoading = false;
     emit catalogPageChanged();
     request(QStringLiteral("detail"), {
         {QStringLiteral("provider"), QStringLiteral("tidal")},
@@ -697,6 +698,7 @@ void Backend::navigateCatalogBack()
     }
     ++m_catalogGeneration;
     m_catalogLoading = false;
+    m_catalogMoreLoading = false;
     m_catalogPage = m_catalogHistory.takeLast().toMap();
     emit catalogPageChanged();
 }
@@ -705,9 +707,92 @@ void Backend::closeCatalog()
 {
     ++m_catalogGeneration;
     m_catalogLoading = false;
+    m_catalogMoreLoading = false;
     m_catalogPage.clear();
     m_catalogHistory.clear();
     emit catalogPageChanged();
+}
+
+void Backend::loadMoreCatalog(const QString &section)
+{
+    if (m_catalogPage.isEmpty() || m_catalogMoreLoading) return;
+    const auto cursorKey = section == QStringLiteral("albums")
+        ? QStringLiteral("albumCursor") : QStringLiteral("trackCursor");
+    const auto cursor = m_catalogPage.value(cursorKey).toString();
+    const auto kind = m_catalogPage.value(QStringLiteral("kind")).toString();
+    const auto resourceId = m_catalogPage.value(QStringLiteral("resourceId")).toString();
+    if (cursor.isEmpty() || resourceId.isEmpty()) return;
+    const auto generation = m_catalogGeneration;
+    m_catalogMoreLoading = true;
+    emit catalogPageChanged();
+    request(QStringLiteral("detail.more"), {
+        {QStringLiteral("provider"), QStringLiteral("tidal")},
+        {QStringLiteral("kind"), kind},
+        {QStringLiteral("id"), resourceId},
+        {QStringLiteral("section"), section},
+        {QStringLiteral("cursor"), cursor},
+    }, [this, generation, section, cursorKey](const QJsonObject &message) {
+        if (generation != m_catalogGeneration) return;
+        m_catalogMoreLoading = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            setStatus(message.value(QStringLiteral("error")).toString());
+            emit catalogPageChanged();
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        if (section == QStringLiteral("albums")) {
+            auto albums = m_catalogPage.value(QStringLiteral("albums")).toList();
+            QHash<QString, qsizetype> releasePositions;
+            const auto releaseKey = [](const QVariantMap &album) {
+                return album.value(QStringLiteral("title")).toString().toCaseFolded()
+                    + QLatin1Char('\n') + album.value(QStringLiteral("artistText")).toString().toCaseFolded()
+                    + QLatin1Char('\n') + album.value(QStringLiteral("releaseDate")).toString()
+                    + QLatin1Char('\n') + album.value(QStringLiteral("numberOfTracks")).toString();
+            };
+            const auto preference = [](const QVariantMap &album) {
+                const auto tags = album.value(QStringLiteral("mediaTags")).toStringList();
+                return (album.value(QStringLiteral("explicit")).toBool() ? 1000 : 0)
+                    + (tags.contains(QStringLiteral("HIRES_LOSSLESS")) ? 300 : 0)
+                    + (tags.contains(QStringLiteral("LOSSLESS")) ? 200 : 0)
+                    + (tags.contains(QStringLiteral("DOLBY_ATMOS")) ? 50 : 0)
+                    + (!album.value(QStringLiteral("coverUrl")).toString().isEmpty() ? 10 : 0);
+            };
+            for (qsizetype index = 0; index < albums.size(); ++index) {
+                const auto value = albums.at(index);
+                const auto album = value.toMap();
+                releasePositions.insert(releaseKey(album), index);
+            }
+            for (const auto &value : data.value(QStringLiteral("albums")).toArray()) {
+                const auto album = jsonAlbumToVariant(value.toObject());
+                const auto key = releaseKey(album);
+                if (!releasePositions.contains(key)) {
+                    releasePositions.insert(key, albums.size());
+                    albums.append(album);
+                } else {
+                    const auto index = releasePositions.value(key);
+                    if (preference(album) > preference(albums.at(index).toMap())) albums[index] = album;
+                }
+            }
+            m_catalogPage.insert(QStringLiteral("albums"), albums);
+        } else {
+            const auto listKey = m_catalogPage.value(QStringLiteral("kind")).toString() == QStringLiteral("artist")
+                ? QStringLiteral("topTracks") : QStringLiteral("tracks");
+            auto tracks = m_catalogPage.value(listKey).toList();
+            QSet<QString> ids;
+            for (const auto &value : tracks) ids.insert(value.toMap().value(QStringLiteral("id")).toString());
+            for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
+                const auto track = jsonTrackToVariant(value.toObject());
+                const auto id = track.value(QStringLiteral("id")).toString();
+                if (!ids.contains(id)) {
+                    ids.insert(id);
+                    tracks.append(track);
+                }
+            }
+            m_catalogPage.insert(listKey, tracks);
+        }
+        m_catalogPage.insert(cursorKey, data.value(QStringLiteral("cursor")).toString());
+        emit catalogPageChanged();
+    });
 }
 
 void Backend::enqueueTrack(const QVariantMap &track)
@@ -746,6 +831,35 @@ void Backend::playCatalogCollection()
     if (kind == QStringLiteral("album")) tracks = m_catalogPage.value(QStringLiteral("tracks")).toList();
     else if (kind == QStringLiteral("artist")) tracks = m_catalogPage.value(QStringLiteral("topTracks")).toList();
     else if (kind == QStringLiteral("track")) tracks = {m_catalogPage.value(QStringLiteral("track"))};
+    if (kind == QStringLiteral("album") && !m_catalogPage.value(QStringLiteral("trackCursor")).toString().isEmpty()) {
+        const auto generation = m_catalogGeneration;
+        m_catalogMoreLoading = true;
+        emit catalogPageChanged();
+        request(QStringLiteral("detail.albumTracks"), {
+            {QStringLiteral("provider"), QStringLiteral("tidal")},
+            {QStringLiteral("id"), m_catalogPage.value(QStringLiteral("resourceId")).toString()},
+        }, [this, generation](const QJsonObject &message) {
+            if (generation != m_catalogGeneration) return;
+            m_catalogMoreLoading = false;
+            if (!message.value(QStringLiteral("ok")).toBool()) {
+                setStatus(message.value(QStringLiteral("error")).toString());
+                emit catalogPageChanged();
+                return;
+            }
+            QVariantList allTracks;
+            for (const auto &value : message.value(QStringLiteral("data")).toObject().value(QStringLiteral("tracks")).toArray()) {
+                allTracks.append(jsonTrackToVariant(value.toObject()));
+            }
+            m_catalogPage.insert(QStringLiteral("tracks"), allTracks);
+            m_catalogPage.insert(QStringLiteral("trackCursor"), QString{});
+            emit catalogPageChanged();
+            if (allTracks.isEmpty()) return;
+            const auto firstIndex = m_queue.size();
+            for (const auto &value : allTracks) enqueueTrack(value.toMap());
+            playTrackAt(firstIndex);
+        });
+        return;
+    }
     if (tracks.isEmpty()) return;
     const auto firstIndex = m_queue.size();
     for (const auto &value : tracks) enqueueTrack(value.toMap());
@@ -1248,6 +1362,8 @@ QVariantMap Backend::jsonAlbumToVariant(const QJsonObject &album)
     for (const auto &credit : album.value(QStringLiteral("artistCredits")).toArray()) {
         artistCredits.append(credit.toObject().toVariantMap());
     }
+    QStringList mediaTags;
+    for (const auto &tag : album.value(QStringLiteral("mediaTags")).toArray()) mediaTags.append(tag.toString());
     return {
         {QStringLiteral("provider"), QStringLiteral("tidal")},
         {QStringLiteral("id"), album.value(QStringLiteral("id")).toString()},
@@ -1262,6 +1378,7 @@ QVariantMap Backend::jsonAlbumToVariant(const QJsonObject &album)
         {QStringLiteral("numberOfTracks"), album.value(QStringLiteral("numberOfTracks")).toInteger()},
         {QStringLiteral("albumType"), album.value(QStringLiteral("albumType")).toString()},
         {QStringLiteral("explicit"), album.value(QStringLiteral("explicit")).toBool()},
+        {QStringLiteral("mediaTags"), mediaTags},
     };
 }
 
@@ -1290,15 +1407,24 @@ QVariantMap Backend::jsonCatalogPageToVariant(const QJsonObject &page)
     };
     const auto kind = result.value(QStringLiteral("kind")).toString();
     if (kind == QStringLiteral("track")) {
-        result.insert(QStringLiteral("track"), jsonTrackToVariant(page.value(QStringLiteral("track")).toObject()));
+        const auto track = jsonTrackToVariant(page.value(QStringLiteral("track")).toObject());
+        result.insert(QStringLiteral("track"), track);
+        result.insert(QStringLiteral("resourceId"), track.value(QStringLiteral("id")));
         result.insert(QStringLiteral("relatedTracks"), mapTracks(QStringLiteral("relatedTracks")));
     } else if (kind == QStringLiteral("album")) {
-        result.insert(QStringLiteral("album"), jsonAlbumToVariant(page.value(QStringLiteral("album")).toObject()));
+        const auto album = jsonAlbumToVariant(page.value(QStringLiteral("album")).toObject());
+        result.insert(QStringLiteral("album"), album);
+        result.insert(QStringLiteral("resourceId"), album.value(QStringLiteral("id")));
         result.insert(QStringLiteral("tracks"), mapTracks(QStringLiteral("tracks")));
+        result.insert(QStringLiteral("trackCursor"), page.value(QStringLiteral("trackCursor")).toString());
     } else if (kind == QStringLiteral("artist")) {
-        result.insert(QStringLiteral("artist"), jsonArtistToVariant(page.value(QStringLiteral("artist")).toObject()));
+        const auto artist = jsonArtistToVariant(page.value(QStringLiteral("artist")).toObject());
+        result.insert(QStringLiteral("artist"), artist);
+        result.insert(QStringLiteral("resourceId"), artist.value(QStringLiteral("id")));
         result.insert(QStringLiteral("topTracks"), mapTracks(QStringLiteral("topTracks")));
         result.insert(QStringLiteral("albums"), mapAlbums(QStringLiteral("albums")));
+        result.insert(QStringLiteral("trackCursor"), page.value(QStringLiteral("trackCursor")).toString());
+        result.insert(QStringLiteral("albumCursor"), page.value(QStringLiteral("albumCursor")).toString());
     }
     return result;
 }

@@ -39,8 +39,21 @@ export type ArtistSummary = {
 
 export type CatalogSearch = { tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[] };
 export type TrackPage = { kind: "track"; track: TrackSummary; relatedTracks: TrackSummary[] };
-export type AlbumPage = { kind: "album"; album: AlbumSummary; tracks: TrackSummary[] };
-export type ArtistPage = { kind: "artist"; artist: ArtistSummary; topTracks: TrackSummary[]; albums: AlbumSummary[] };
+export type AlbumPage = { kind: "album"; album: AlbumSummary; tracks: TrackSummary[]; trackCursor?: string };
+export type ArtistPage = {
+  kind: "artist";
+  artist: ArtistSummary;
+  topTracks: TrackSummary[];
+  albums: AlbumSummary[];
+  trackCursor?: string;
+  albumCursor?: string;
+};
+export type CatalogMore = {
+  section: "tracks" | "albums";
+  tracks?: TrackSummary[];
+  albums?: AlbumSummary[];
+  cursor?: string;
+};
 
 export function formatTrackTitle(title: string, version: string | null | undefined): string {
   const cleanTitle = title.trim() || "Unknown title";
@@ -289,52 +302,31 @@ export class BrowseClient {
     }
   }
 
-  private async relationshipTrackList(path: string, params: Record<string, string> = {}, limit = 500): Promise<TrackSummary[]> {
-    const tracks: TrackSummary[] = [];
-    const seenIds = new Set<string>();
-    const seenCursors = new Set<string>();
-    let cursor: string | undefined;
-    while (tracks.length < limit) {
-      const document = await this.get(path, {
-        ...params,
-        "page[limit]": String(Math.min(20, limit - tracks.length)),
-        ...(cursor ? { "page[cursor]": cursor } : {}),
-      });
-      for (const track of await this.hydrateTracks(mapTracks(document))) {
-        if (seenIds.has(track.id)) continue;
-        seenIds.add(track.id);
-        tracks.push(track);
-      }
-      const nextCursor = cursorFromNextLink(document);
-      if (!nextCursor || seenCursors.has(nextCursor)) break;
-      seenCursors.add(nextCursor);
-      cursor = nextCursor;
-    }
-    return tracks;
+  private async relationshipTrackPage(
+    path: string,
+    params: Record<string, string> = {},
+    cursor?: string,
+  ): Promise<{ tracks: TrackSummary[]; cursor?: string }> {
+    const document = await this.get(path, {
+      ...params,
+      "page[limit]": "20",
+      ...(cursor ? { "page[cursor]": cursor } : {}),
+    });
+    const nextCursor = cursorFromNextLink(document);
+    return { tracks: await this.hydrateTracks(mapTracks(document)), ...(nextCursor ? { cursor: nextCursor } : {}) };
   }
 
-  private async relationshipAlbumList(path: string, limit = 100): Promise<AlbumSummary[]> {
-    const albums: AlbumSummary[] = [];
-    const seenIds = new Set<string>();
-    const seenCursors = new Set<string>();
-    let cursor: string | undefined;
-    while (albums.length < limit) {
-      const document = await this.get(path, {
-        include: "albums",
-        "page[limit]": String(Math.min(20, limit - albums.length)),
-        ...(cursor ? { "page[cursor]": cursor } : {}),
-      });
-      for (const album of await this.hydrateAlbums(mapAlbums(document))) {
-        if (seenIds.has(album.id)) continue;
-        seenIds.add(album.id);
-        albums.push(album);
-      }
-      const nextCursor = cursorFromNextLink(document);
-      if (!nextCursor || seenCursors.has(nextCursor)) break;
-      seenCursors.add(nextCursor);
-      cursor = nextCursor;
-    }
-    return deduplicateAlbums(albums);
+  private async relationshipAlbumPage(path: string, cursor?: string): Promise<{ albums: AlbumSummary[]; cursor?: string }> {
+    const document = await this.get(path, {
+      include: "albums",
+      "page[limit]": "20",
+      ...(cursor ? { "page[cursor]": cursor } : {}),
+    });
+    const nextCursor = cursorFromNextLink(document);
+    return {
+      albums: deduplicateAlbums(await this.hydrateAlbums(mapAlbums(document))),
+      ...(nextCursor ? { cursor: nextCursor } : {}),
+    };
   }
 
   private async relationshipTracks(
@@ -404,21 +396,22 @@ export class BrowseClient {
 
   async albumPage(albumId: string): Promise<AlbumPage> {
     const encoded = encodeURIComponent(albumId);
-    const [albumDocument, tracks] = await Promise.all([
+    const [albumDocument, trackPage] = await Promise.all([
       this.get(`albums/${encoded}`, { include: "artists,coverArt" }),
-      this.relationshipTrackList(`albums/${encoded}/relationships/items`, { include: "items" }).catch(() => []),
+      this.relationshipTrackPage(`albums/${encoded}/relationships/items`, { include: "items" })
+        .catch((): { tracks: TrackSummary[]; cursor?: string } => ({ tracks: [] })),
     ]);
     const album = mapAlbums(albumDocument)[0];
     if (!album) throw new Error("TIDAL did not return that album");
-    return { kind: "album", album, tracks };
+    return { kind: "album", album, tracks: trackPage.tracks, ...(trackPage.cursor ? { trackCursor: trackPage.cursor } : {}) };
   }
 
   async artistPage(artistId: string): Promise<ArtistPage> {
     const encoded = encodeURIComponent(artistId);
     const [artistResult, tracksResult, albumsResult] = await Promise.allSettled([
       this.get(`artists/${encoded}`, { include: "profileArt" }),
-      this.get(`artists/${encoded}/relationships/tracks`, { include: "tracks", collapseBy: "FINGERPRINT", "page[limit]": "20" }),
-      this.relationshipAlbumList(`artists/${encoded}/relationships/albums`),
+      this.relationshipTrackPage(`artists/${encoded}/relationships/tracks`, { include: "tracks", collapseBy: "FINGERPRINT" }),
+      this.relationshipAlbumPage(`artists/${encoded}/relationships/albums`),
     ]);
     if (artistResult.status === "rejected") throw artistResult.reason;
     const artist = mapArtists(artistResult.value)[0];
@@ -426,9 +419,53 @@ export class BrowseClient {
     return {
       kind: "artist",
       artist,
-      topTracks: tracksResult.status === "fulfilled" ? await this.hydrateTracks(mapTracks(tracksResult.value)) : [],
-      albums: albumsResult.status === "fulfilled" ? albumsResult.value : [],
+      topTracks: tracksResult.status === "fulfilled" ? tracksResult.value.tracks : [],
+      albums: albumsResult.status === "fulfilled" ? albumsResult.value.albums : [],
+      ...(tracksResult.status === "fulfilled" && tracksResult.value.cursor ? { trackCursor: tracksResult.value.cursor } : {}),
+      ...(albumsResult.status === "fulfilled" && albumsResult.value.cursor ? { albumCursor: albumsResult.value.cursor } : {}),
     };
+  }
+
+  async catalogMore(kind: string, resourceId: string, section: string, cursor: string): Promise<CatalogMore> {
+    const encoded = encodeURIComponent(resourceId);
+    if (kind === "album" && section === "tracks") {
+      const page = await this.relationshipTrackPage(`albums/${encoded}/relationships/items`, { include: "items" }, cursor);
+      return { section: "tracks", tracks: page.tracks, ...(page.cursor ? { cursor: page.cursor } : {}) };
+    }
+    if (kind === "artist" && section === "tracks") {
+      const page = await this.relationshipTrackPage(
+        `artists/${encoded}/relationships/tracks`,
+        { include: "tracks", collapseBy: "FINGERPRINT" },
+        cursor,
+      );
+      return { section: "tracks", tracks: page.tracks, ...(page.cursor ? { cursor: page.cursor } : {}) };
+    }
+    if (kind === "artist" && section === "albums") {
+      const page = await this.relationshipAlbumPage(`artists/${encoded}/relationships/albums`, cursor);
+      return { section: "albums", albums: page.albums, ...(page.cursor ? { cursor: page.cursor } : {}) };
+    }
+    throw new Error(`Cannot paginate ${kind} ${section}`);
+  }
+
+  async allAlbumTracks(albumId: string, limit = 500): Promise<TrackSummary[]> {
+    const path = `albums/${encodeURIComponent(albumId)}/relationships/items`;
+    const tracks: TrackSummary[] = [];
+    const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    while (tracks.length < limit) {
+      const page = await this.relationshipTrackPage(path, { include: "items" }, cursor);
+      for (const track of page.tracks) {
+        if (!seenIds.has(track.id)) {
+          seenIds.add(track.id);
+          tracks.push(track);
+        }
+      }
+      if (!page.cursor || seenCursors.has(page.cursor)) break;
+      seenCursors.add(page.cursor);
+      cursor = page.cursor;
+    }
+    return tracks;
   }
 
   async relatedTracks(trackId: string, limit = 20): Promise<TrackSummary[]> {

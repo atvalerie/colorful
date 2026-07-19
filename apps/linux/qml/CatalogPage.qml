@@ -8,6 +8,7 @@ Item {
     property bool loading: false
 
     readonly property string kind: page.kind || ""
+    readonly property string pageIdentity: kind + ":" + (page.resourceId || "")
     readonly property var primary: kind === "track" ? (page.track || {})
                                            : kind === "album" ? (page.album || {})
                                                               : (page.artist || {})
@@ -15,7 +16,7 @@ Item {
                                          : kind === "album" ? (page.tracks || [])
                                                             : (page.topTracks || [])
 
-    onPageChanged: catalogScroll.contentY = 0
+    onPageIdentityChanged: catalogScroll.contentY = 0
 
     function formatTime(milliseconds) {
         if (!milliseconds || milliseconds < 0) return ""
@@ -186,6 +187,14 @@ Item {
                     }
                 }
             }
+            ColorButton {
+                Layout.alignment: Qt.AlignHCenter
+                visible: Boolean(root.page.trackCursor)
+                quiet: true
+                text: colorful.catalogMoreLoading ? "Loading…" : "Show 20 more tracks"
+                enabled: !colorful.catalogMoreLoading
+                onClicked: colorful.loadMoreCatalog("tracks")
+            }
 
             Text {
                 visible: root.kind === "artist" && (root.page.albums || []).length > 0
@@ -207,6 +216,14 @@ Item {
                         onOpenRequested: colorful.openAlbum(modelData.id)
                     }
                 }
+            }
+            ColorButton {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.kind === "artist" && Boolean(root.page.albumCursor)
+                quiet: true
+                text: colorful.catalogMoreLoading ? "Loading…" : "Show more releases"
+                enabled: !colorful.catalogMoreLoading
+                onClicked: colorful.loadMoreCatalog("albums")
             }
         }
     }
