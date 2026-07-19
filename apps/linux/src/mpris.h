@@ -82,6 +82,7 @@ signals:
     void Seeked(qlonglong position);
 private:
     Backend *m_backend;
+    QString m_lastTrackPath;
 };
 
 class MprisService final : public QObject

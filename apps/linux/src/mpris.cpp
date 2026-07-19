@@ -15,7 +15,14 @@ void MprisRootAdaptor::Quit() { emit m_backend->quitRequested(); }
 MprisPlayerAdaptor::MprisPlayerAdaptor(Backend *backend)
     : QDBusAbstractAdaptor(backend), m_backend(backend)
 {
+    m_lastTrackPath = metadata().value(QStringLiteral("mpris:trackid")).value<QDBusObjectPath>().path();
     connect(backend, &Backend::seeked, this, [this](qint64 positionMs) { emit Seeked(positionMs * 1000); });
+    connect(backend, &Backend::currentTrackChanged, this, [this] {
+        const auto trackPath = metadata().value(QStringLiteral("mpris:trackid")).value<QDBusObjectPath>().path();
+        if (trackPath == m_lastTrackPath) return;
+        m_lastTrackPath = trackPath;
+        emit Seeked(m_backend->position() * 1000);
+    });
 }
 
 QString MprisPlayerAdaptor::playbackStatus() const { return m_backend->playbackStatus(); }
@@ -75,4 +82,3 @@ void MprisService::propertiesChanged(const QString &interface, const QVariantMap
     message << interface << changed << QStringList{};
     QDBusConnection::sessionBus().send(message);
 }
-

@@ -182,11 +182,16 @@ void LinuxPlayback::stop()
 
 bool LinuxPlayback::seek(qint64 positionMs)
 {
-    if (!m_mpv || !hasSource() || !m_seekable) {
-        emit seekFailed(positionMs, QStringLiteral("The current stream is not seekable"));
+    if (!m_mpv || !hasSource()) {
+        emit seekFailed(positionMs, QStringLiteral("There is no active playback source"));
         return false;
     }
-    const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, m_durationMs));
+    // The backend already clamps against catalog duration. libmpv's duration
+    // and seekable properties can briefly describe a prefetched playlist item
+    // instead of the active DASH stream, so they must not veto or truncate a
+    // valid user seek here. The asynchronous command reply remains the source
+    // of truth for actual seek failures.
+    const auto target = std::max<qint64>(0, positionMs);
     if (m_confirmingSeekMs >= 0) {
         m_queuedSeekMs = target;
         return true;
