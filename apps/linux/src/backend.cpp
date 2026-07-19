@@ -1499,8 +1499,13 @@ void Backend::invalidatePreparedNext()
 
 void Backend::prepareNextSource()
 {
-    if (!m_playback.hasSource() || !m_playbackReady || !canGoNext()) {
+    if (!m_playback.hasSource() || !m_playbackReady) {
         if (m_preparedEntryId >= 0 || m_playback.hasPreparedNext()) invalidatePreparedNext();
+        return;
+    }
+    if (!canGoNext()) {
+        if (m_preparedEntryId >= 0 || m_playback.hasPreparedNext()) invalidatePreparedNext();
+        if (m_autoplayEnabled && m_currentIndex >= 0) requestRelated(false);
         return;
     }
 
@@ -1605,7 +1610,7 @@ void Backend::next()
 {
     finishListeningSession();
     if (!canGoNext()) {
-        if (m_autoplayEnabled && m_currentIndex >= 0) requestRelatedAndContinue();
+        if (m_autoplayEnabled && m_currentIndex >= 0) requestRelated(true);
         else stop();
         return;
     }
@@ -1631,20 +1636,39 @@ void Backend::next()
     resolveCurrentSource(0, autoplay);
 }
 
-void Backend::requestRelatedAndContinue()
+void Backend::requestRelated(bool continueWhenReady)
 {
-    if (m_relatedPending) return;
+    if (m_relatedPending) {
+        m_relatedContinueWhenReady = m_relatedContinueWhenReady || continueWhenReady;
+        if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
+        return;
+    }
     const auto seed = currentTrack();
-    if (seed.isEmpty()) { stop(); return; }
+    if (seed.isEmpty()) {
+        if (continueWhenReady) stop();
+        return;
+    }
     m_relatedPending = true;
-    setStatus(QStringLiteral("Finding something related…"));
+    m_relatedContinueWhenReady = continueWhenReady;
+    m_relatedSeedEntryId = m_currentEntryId;
+    const auto seedEntryId = m_relatedSeedEntryId;
+    if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
     request(QStringLiteral("related"), {{QStringLiteral("provider"), seed.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                          {QStringLiteral("trackId"), seed.value(QStringLiteral("id")).toString()},
-                                         {QStringLiteral("limit"), 60}}, [this](const QJsonObject &message) {
+                                         {QStringLiteral("limit"), 20}}, [this, seedEntryId](const QJsonObject &message) {
+        const bool continueWhenReady = m_relatedContinueWhenReady;
         m_relatedPending = false;
+        m_relatedContinueWhenReady = false;
+        m_relatedSeedEntryId = -1;
+        if (seedEntryId != m_currentEntryId || !m_autoplayEnabled) {
+            prepareNextSource();
+            return;
+        }
         if (!message.value(QStringLiteral("ok")).toBool()) {
-            setStatus(message.value(QStringLiteral("error")).toString());
-            stop();
+            if (continueWhenReady) {
+                setStatus(message.value(QStringLiteral("error")).toString());
+                stop();
+            }
             return;
         }
         QSet<QString> queuedIds;
@@ -1657,14 +1681,17 @@ void Backend::requestRelatedAndContinue()
             dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
                           {QStringLiteral("track"), variantTrackToCore(track)}});
             queuedIds.insert(id);
-            if (++added >= 40) break;
+            if (++added >= 20) break;
         }
         if (canGoNext()) {
             setStatus(QStringLiteral("Autoplay added %1 related tracks").arg(added));
-            next();
+            if (continueWhenReady) next();
+            else prepareNextSource();
         } else {
-            setStatus(QStringLiteral("No new related tracks were available"));
-            stop();
+            if (continueWhenReady) {
+                setStatus(QStringLiteral("No new related tracks were available"));
+                stop();
+            }
         }
     });
 }
@@ -1706,6 +1733,7 @@ void Backend::setAutoplayEnabled(bool enabled)
     m_autoplayEnabled = enabled;
     QSettings().setValue(QStringLiteral("playback/autoplay"), enabled);
     emit autoplayEnabledChanged();
+    if (enabled) prepareNextSource();
 }
 
 void Backend::setStreamQuality(const QString &quality)

@@ -238,7 +238,7 @@ private:
     QString downloadArtworkPath(const QVariantMap &track) const;
     void downloadArtwork(const QVariantMap &track);
     QString downloadsDirectory() const;
-    void requestRelatedAndContinue();
+    void requestRelated(bool continueWhenReady);
     bool openCore();
     QJsonObject dispatchCore(const QJsonObject &command);
     void refreshCoreSnapshot();
@@ -319,6 +319,8 @@ private:
     bool m_autoplayEnabled = true;
     QString m_streamQuality = QStringLiteral("best");
     bool m_relatedPending = false;
+    bool m_relatedContinueWhenReady = false;
+    qint64 m_relatedSeedEntryId = -1;
     QElapsedTimer m_listenClock;
     QVariantMap m_listenTrack;
     QString m_listenTrackKey;
