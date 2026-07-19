@@ -231,7 +231,10 @@ secret leakage, and manual verification on the affected platform.
 
 ## Licensing
 
-No project license has been selected yet. Until a license file is added, this
-repository should not be assumed to grant redistribution rights. Any eventual
-binary distribution must also comply with the licenses of its linked libraries,
-including the exact libmpv build being shipped.
+colorful is free software licensed under the GNU General Public License,
+version 3 or (at your option) any later version (`GPL-3.0-or-later`). See
+the [LICENSE](LICENSE) file.
+
+Dependencies and bundled assets retain their own licenses. Binary distributors
+must also comply with the licenses of the exact Qt, libmpv, and other dependency
+builds they ship.
