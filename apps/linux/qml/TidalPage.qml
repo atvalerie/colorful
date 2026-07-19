@@ -5,7 +5,7 @@ import QtQuick.Layouts
 Item {
     id: root
     property int tab: 0
-    signal integrationsRequested()
+    signal settingsRequested()
     readonly property bool collectionEmpty: (colorful.tidalHub.tracks || []).length === 0
                                             && (colorful.tidalHub.albums || []).length === 0
                                             && (colorful.tidalHub.artists || []).length === 0
@@ -317,7 +317,7 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true; Layout.topMargin: 16; spacing: 8
                         ColorButton { text: "Open TIDAL account"; onClicked: colorful.openTidalAccount() }
-                        ColorButton { text: "Integrations"; quiet: true; onClicked: root.integrationsRequested() }
+                        ColorButton { text: "Settings"; quiet: true; onClicked: root.settingsRequested() }
                         Item { Layout.fillWidth: true }
                         ColorButton { text: "Disconnect"; quiet: true; onClicked: colorful.unlink() }
                     }

@@ -96,6 +96,7 @@ Backend::Backend(QObject *parent)
     }
     const QColor restoredAccent(settings.value(QStringLiteral("appearance/accent")).toString());
     if (restoredAccent.isValid()) m_accent = restoredAccent;
+    m_autoplayEnabled = settings.value(QStringLiteral("playback/autoplay"), true).toBool();
 
     m_accentAnimation.setDuration(720);
     m_accentAnimation.setEasingCurve(QEasingCurve::OutCubic);
@@ -1182,6 +1183,7 @@ void Backend::setAutoplayEnabled(bool enabled)
 {
     if (m_autoplayEnabled == enabled) return;
     m_autoplayEnabled = enabled;
+    QSettings().setValue(QStringLiteral("playback/autoplay"), enabled);
     emit autoplayEnabledChanged();
 }
 

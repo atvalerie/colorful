@@ -54,6 +54,7 @@ qt_add_qml_module(colorful-linux
         qml/PlaylistCard.qml
         qml/TidalPage.qml
         qml/AccountCard.qml
+        qml/SettingsPage.qml
         qml/MetadataLink.qml
         qml/ArtworkImage.qml
     RESOURCES
@@ -74,6 +75,7 @@ qt_add_qml_module(colorful-linux
         qml/icons/queue.svg
         qml/icons/restore.svg
         qml/icons/search.svg
+        qml/icons/settings.svg
         qml/icons/user.svg
         qml/icons/volume.svg
 )

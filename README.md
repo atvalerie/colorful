@@ -64,12 +64,11 @@ colorful is an early personal alpha, not a packaged consumer release.
 - album-art-derived, contrast-safe accent colors
 - qualified local listening history and top-track/top-artist/top-album statistics
 - opt-in Discord profile statistics publishing with Secret Service token storage
+- desktop settings for accounts, playback behavior, Discord integrations, and appearance status
 - sync-ready, idempotent history event identities
 
 ### On the roadmap
 
-- a proper settings hub for provider accounts, playback, appearance, storage,
-  Discord integrations, and future sync controls
 - broader TIDAL home/recommendation surfaces and offline downloads
 - gapless/prepared-next playback and a shared DSP contract for EQ
 - SoundCloud public accounts, catalog, and playback
