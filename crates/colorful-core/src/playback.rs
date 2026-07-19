@@ -10,6 +10,39 @@ pub enum RepeatMode {
     One,
 }
 
+/// Frequencies used by every colorful platform's graphic equalizer.
+pub const EQUALIZER_FREQUENCIES_HZ: [u32; 10] =
+    [31, 62, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000];
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioProcessingSettings {
+    pub normalization_enabled: bool,
+    pub equalizer_db: [f32; 10],
+}
+
+impl Default for AudioProcessingSettings {
+    fn default() -> Self {
+        Self {
+            normalization_enabled: false,
+            equalizer_db: [0.0; 10],
+        }
+    }
+}
+
+impl AudioProcessingSettings {
+    pub fn sanitized(mut self) -> Self {
+        for gain in &mut self.equalizer_db {
+            *gain = if gain.is_finite() {
+                gain.clamp(-12.0, 12.0)
+            } else {
+                0.0
+            };
+        }
+        self
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PlaybackCommand {
     Play,
@@ -73,5 +106,17 @@ mod tests {
         assert!(state.playing);
         assert_eq!(state.position_ms, 1234);
         assert_eq!(state.repeat, RepeatMode::All);
+    }
+
+    #[test]
+    fn audio_processing_values_are_portable_and_bounded() {
+        let settings = AudioProcessingSettings {
+            normalization_enabled: true,
+            equalizer_db: [f32::NAN, -20.0, 20.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }
+        .sanitized();
+        assert_eq!(settings.equalizer_db[0], 0.0);
+        assert_eq!(settings.equalizer_db[1], -12.0);
+        assert_eq!(settings.equalizer_db[2], 12.0);
     }
 }

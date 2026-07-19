@@ -77,6 +77,12 @@ DSP contract. The implementation may be shared where platform APIs allow raw
 PCM access, but the platform playback adapter controls insertion into its audio
 graph. Gapless is not implemented as a crossfade and must work with EQ off.
 
+The portable contract fixes ten bands at 31 Hz through 16 kHz, bounds each to
+±12 dB, and carries the normalization preference. Linux implements the bands
+with libmpv's FFmpeg audio-filter graph, adds a limiter only while EQ is active,
+and uses track ReplayGain metadata for normalization. Other native adapters map
+the same contract onto their platform audio graphs.
+
 ## Native targets
 
 | Target | UI | Playback integration |

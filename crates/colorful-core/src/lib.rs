@@ -20,6 +20,8 @@ pub use engine::{
 pub use history::{ListenEvent, ListenStats, TopAlbum, TopArtist, TopTrack};
 pub use media::{MediaId, Provider, Track};
 pub use party::{ConnectivityPolicy, NetworkObservation, Transport};
-pub use playback::{PlaybackCommand, PlaybackState, RepeatMode};
+pub use playback::{
+    AudioProcessingSettings, EQUALIZER_FREQUENCIES_HZ, PlaybackCommand, PlaybackState, RepeatMode,
+};
 pub use queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
 pub use storage::{Storage, StorageError, StorageResult, StoredPlayback};

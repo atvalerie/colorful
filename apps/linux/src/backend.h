@@ -54,6 +54,9 @@ class Backend final : public QObject
     Q_PROPERTY(QColor fixedAccent READ fixedAccent WRITE setFixedAccent NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
+    Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
+    Q_PROPERTY(QVariantList equalizerBands READ equalizerBands NOTIFY audioProcessingChanged)
+    Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
     Q_PROPERTY(QVariantMap buildInfo READ buildInfo CONSTANT)
     Q_PROPERTY(bool discordWidgetEnabled READ discordWidgetEnabled WRITE setDiscordWidgetEnabled NOTIFY discordWidgetChanged)
@@ -102,6 +105,9 @@ public:
     QColor fixedAccent() const { return m_fixedAccent; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
     QString streamQuality() const { return m_streamQuality; }
+    bool normalizationEnabled() const { return m_normalizationEnabled; }
+    QVariantList equalizerBands() const { return m_equalizerBands; }
+    QString equalizerPreset() const { return m_equalizerPreset; }
     QVariantMap listenStats() const { return m_listenStats; }
     QVariantMap buildInfo() const;
     bool discordWidgetEnabled() const { return m_discordWidget.enabled(); }
@@ -161,6 +167,9 @@ public:
     Q_INVOKABLE void setVolume(double volume);
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
+    Q_INVOKABLE void setNormalizationEnabled(bool enabled);
+    Q_INVOKABLE void setEqualizerBand(int index, double gainDb);
+    Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
     Q_INVOKABLE void setAccentMode(const QString &mode);
     Q_INVOKABLE void setFixedAccent(const QColor &color);
     Q_INVOKABLE void setDiscordWidgetEnabled(bool enabled);
@@ -196,6 +205,7 @@ signals:
     void appearanceChanged();
     void autoplayEnabledChanged();
     void streamQualityChanged();
+    void audioProcessingChanged();
     void listenStatsChanged();
     void discordWidgetChanged();
     void toastRequested(const QString &message, const QString &kind);
@@ -330,6 +340,9 @@ private:
     QString m_pendingArtworkUrl;
     bool m_autoplayEnabled = true;
     QString m_streamQuality = QStringLiteral("best");
+    bool m_normalizationEnabled = false;
+    QVariantList m_equalizerBands;
+    QString m_equalizerPreset = QStringLiteral("Flat");
     bool m_relatedPending = false;
     bool m_relatedContinueWhenReady = false;
     qint64 m_relatedSeedEntryId = -1;

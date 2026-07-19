@@ -127,6 +127,7 @@ Item {
             Flickable {
                 clip: true; contentWidth: width; contentHeight: playbackBody.implicitHeight + 30
                 boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 ColumnLayout {
                     id: playbackBody
                     width: Math.min(parent.width, 820); spacing: 14
@@ -180,7 +181,83 @@ Item {
                             }
                         }
                     }
-                    Text { text: "Output selection, normalization, gapless preparation, and EQ will be added here with their playback implementations."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: 5 }
+                    Text { text: "Volume normalization"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 8 }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 76
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.left: parent.left; anchors.leftMargin: 15
+                            anchors.right: normalizationSwitch.left; anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                            Text { text: "ReplayGain"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                            Text { width: parent.width; text: "Match track loudness when ReplayGain metadata is available. Audio without tags remains unchanged."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                        }
+                        Rectangle {
+                            id: normalizationSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 42; height: 22
+                            color: colorful.normalizationEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.normalizationEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.normalizationEnabled ? parent.width - width - 3 : 3; color: colorful.normalizationEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.normalizationEnabled = !colorful.normalizationEnabled }
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; Layout.topMargin: 7
+                        Text { text: "Equalizer"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
+                        Text { text: colorful.equalizerPreset; color: colorful.accent; font.bold: true; font.pixelSize: 10 }
+                        Item { Layout.fillWidth: true }
+                    }
+                    Row {
+                        Layout.fillWidth: true; spacing: 0
+                        Repeater {
+                            model: ["Flat", "Bass boost", "Treble boost", "Vocal", "V-shaped"]
+                            delegate: Rectangle {
+                                required property string modelData
+                                width: presetLabel.implicitWidth + 24; height: 34
+                                color: colorful.equalizerPreset === modelData ? Qt.rgba(1, 1, 1, 0.075) : presetHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                border.width: 1; border.color: colorful.equalizerPreset === modelData ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                Text { id: presetLabel; anchors.centerIn: parent; text: modelData; color: "#f5f5f5"; font.bold: true; font.pixelSize: 10 }
+                                HoverHandler { id: presetHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: colorful.applyEqualizerPreset(modelData) }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 230
+                        color: Qt.rgba(1, 1, 1, 0.018); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.08)
+                        Row {
+                            anchors.fill: parent; anchors.margins: 12; spacing: 0
+                            Repeater {
+                                model: [["31", 0], ["62", 1], ["125", 2], ["250", 3], ["500", 4], ["1k", 5], ["2k", 6], ["4k", 7], ["8k", 8], ["16k", 9]]
+                                delegate: Item {
+                                    required property var modelData
+                                    width: parent.width / 10; height: parent.height
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Number(eqSlider.value).toFixed(1) + " dB"; color: Qt.rgba(1, 1, 1, 0.54); font.pixelSize: 9 }
+                                    Slider {
+                                        id: eqSlider
+                                        anchors.horizontalCenter: parent.horizontalCenter; anchors.top: parent.top; anchors.topMargin: 25; anchors.bottom: bandLabel.top; anchors.bottomMargin: 7
+                                        orientation: Qt.Vertical; from: -12; to: 12; stepSize: 0.5
+                                        Component.onCompleted: value = Number(colorful.equalizerBands[modelData[1]] || 0)
+                                        onPressedChanged: if (!pressed) colorful.setEqualizerBand(modelData[1], value)
+                                        background: Rectangle { x: eqSlider.leftPadding + eqSlider.availableWidth / 2 - 1; y: eqSlider.topPadding; width: 2; height: eqSlider.availableHeight; color: Qt.rgba(1, 1, 1, 0.16) }
+                                        handle: Rectangle { x: eqSlider.leftPadding + eqSlider.availableWidth / 2 - width / 2; y: eqSlider.topPadding + eqSlider.visualPosition * (eqSlider.availableHeight - height); width: 12; height: 4; color: colorful.accent; border.width: 1; border.color: "#111114" }
+                                        Connections {
+                                            target: colorful
+                                            function onAudioProcessingChanged() {
+                                                if (!eqSlider.pressed)
+                                                    eqSlider.value = Number(colorful.equalizerBands[modelData[1]] || 0)
+                                            }
+                                        }
+                                    }
+                                    Text { id: bandLabel; anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[0] + " Hz"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 9 }
+                                }
+                            }
+                        }
+                    }
+                    Text { text: "EQ is applied locally through the native playback engine. Boosted bands are protected by a limiter; Flat leaves the audio filter path untouched."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 }
             }
 

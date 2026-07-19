@@ -225,6 +225,46 @@ void LinuxPlayback::setVolume(double volume)
     emit volumeChanged();
 }
 
+void LinuxPlayback::setReplayGain(bool enabled)
+{
+    if (m_replayGainEnabled == enabled) return;
+    m_replayGainEnabled = enabled;
+    if (!m_mpv) return;
+    const auto value = enabled ? QByteArrayLiteral("track") : QByteArrayLiteral("no");
+    mpv_set_property_string(m_mpv, "replaygain", value.constData());
+}
+
+void LinuxPlayback::setEqualizer(const QList<double> &gainsDb)
+{
+    if (gainsDb.size() != 10) return;
+    QList<double> normalized;
+    normalized.reserve(gainsDb.size());
+    for (const auto gain : gainsDb) normalized.append(std::clamp(gain, -12.0, 12.0));
+    if (m_equalizerGains == normalized) return;
+    m_equalizerGains = normalized;
+    applyAudioProcessing();
+}
+
+void LinuxPlayback::applyAudioProcessing()
+{
+    if (!m_mpv) return;
+    static constexpr int frequencies[] = {31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+    QStringList filters;
+    for (qsizetype index = 0; index < m_equalizerGains.size(); ++index) {
+        const auto gain = m_equalizerGains.at(index);
+        if (std::abs(gain) < 0.05) continue;
+        filters.append(QStringLiteral("equalizer=f=%1:t=o:w=1:g=%2")
+                           .arg(frequencies[index])
+                           .arg(gain, 0, 'f', 1));
+    }
+    // Positive EQ bands can otherwise clip before the user's volume control.
+    // alimiter is only inserted with the EQ, leaving the bit-perfect flat path
+    // untouched.
+    if (!filters.isEmpty()) filters.append(QStringLiteral("alimiter=limit=0.95"));
+    const auto value = filters.join(QLatin1Char(',')).toUtf8();
+    mpv_set_property_string(m_mpv, "af", value.constData());
+}
+
 void LinuxPlayback::drainEvents()
 {
     if (!m_mpv) return;

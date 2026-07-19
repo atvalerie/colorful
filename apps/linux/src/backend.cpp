@@ -109,6 +109,20 @@ Backend::Backend(QObject *parent)
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
+    m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
+    const auto storedEq = settings.value(QStringLiteral("playback/equalizerBands")).toList();
+    if (storedEq.size() == 10) {
+        for (const auto &gain : storedEq)
+            m_equalizerBands.append(std::clamp(gain.toDouble(), -12.0, 12.0));
+    } else {
+        for (int index = 0; index < 10; ++index) m_equalizerBands.append(0.0);
+    }
+    m_equalizerPreset = settings.value(QStringLiteral("playback/equalizerPreset"), QStringLiteral("Flat")).toString();
+    QList<double> initialEq;
+    initialEq.reserve(m_equalizerBands.size());
+    for (const auto &gain : std::as_const(m_equalizerBands)) initialEq.append(gain.toDouble());
+    m_playback.setReplayGain(m_normalizationEnabled);
+    m_playback.setEqualizer(initialEq);
 
     m_accentAnimation.setDuration(720);
     m_accentAnimation.setEasingCurve(QEasingCurve::OutCubic);
@@ -1960,6 +1974,55 @@ void Backend::setStreamQuality(const QString &quality)
     QSettings().setValue(QStringLiteral("playback/streamQuality"), quality);
     emit streamQualityChanged();
     notify(QStringLiteral("Stream quality will apply to the next track"));
+}
+
+void Backend::setNormalizationEnabled(bool enabled)
+{
+    if (m_normalizationEnabled == enabled) return;
+    m_normalizationEnabled = enabled;
+    QSettings().setValue(QStringLiteral("playback/normalization"), enabled);
+    m_playback.setReplayGain(enabled);
+    emit audioProcessingChanged();
+    notify(enabled ? QStringLiteral("Track normalization enabled")
+                   : QStringLiteral("Track normalization disabled"));
+}
+
+void Backend::setEqualizerBand(int index, double gainDb)
+{
+    if (index < 0 || index >= m_equalizerBands.size()) return;
+    const auto normalized = std::clamp(gainDb, -12.0, 12.0);
+    if (qFuzzyCompare(m_equalizerBands.at(index).toDouble() + 13.0, normalized + 13.0)) return;
+    m_equalizerBands[index] = normalized;
+    m_equalizerPreset = QStringLiteral("Custom");
+    QSettings settings;
+    settings.setValue(QStringLiteral("playback/equalizerBands"), m_equalizerBands);
+    settings.setValue(QStringLiteral("playback/equalizerPreset"), m_equalizerPreset);
+    QList<double> gains;
+    gains.reserve(m_equalizerBands.size());
+    for (const auto &gain : std::as_const(m_equalizerBands)) gains.append(gain.toDouble());
+    m_playback.setEqualizer(gains);
+    emit audioProcessingChanged();
+}
+
+void Backend::applyEqualizerPreset(const QString &preset)
+{
+    static const QHash<QString, QList<double>> presets = {
+        {QStringLiteral("Flat"), {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        {QStringLiteral("Bass boost"), {6, 5, 4, 2, 1, 0, 0, 0, 0, 0}},
+        {QStringLiteral("Treble boost"), {0, 0, 0, 0, 0, 1, 2, 4, 5, 6}},
+        {QStringLiteral("Vocal"), {-2, -1, 0, 2, 4, 5, 4, 2, 0, -1}},
+        {QStringLiteral("V-shaped"), {5, 4, 2, 0, -2, -1, 1, 3, 4, 5}},
+    };
+    const auto found = presets.constFind(preset);
+    if (found == presets.cend()) return;
+    m_equalizerBands.clear();
+    for (const auto gain : found.value()) m_equalizerBands.append(gain);
+    m_equalizerPreset = preset;
+    QSettings settings;
+    settings.setValue(QStringLiteral("playback/equalizerBands"), m_equalizerBands);
+    settings.setValue(QStringLiteral("playback/equalizerPreset"), preset);
+    m_playback.setEqualizer(found.value());
+    emit audioProcessingChanged();
 }
 
 void Backend::setAccentMode(const QString &mode)

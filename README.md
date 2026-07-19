@@ -64,6 +64,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - Android system media session and background playback ownership
 - album-art-derived, contrast-safe accent colors
 - selectable TIDAL stream quality and album-derived or fixed accent modes
+- persistent 10-band Linux equalizer with presets, clipping protection, and ReplayGain normalization
 - resumable desktop TIDAL downloads with durable checkpoints, metadata/artwork, and local-file playback
 - qualified local listening history and top-track/top-artist/top-album statistics
 - opt-in Discord profile statistics publishing with Secret Service token storage
@@ -73,7 +74,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 ### On the roadmap
 
 - broader TIDAL home/recommendation surfaces
-- a shared DSP contract for EQ and normalization
+- Android EQ and normalization using the shared audio-processing contract
 - SoundCloud public accounts, catalog, and playback
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback

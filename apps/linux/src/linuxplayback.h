@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QUrl>
+#include <QList>
 #include <mpv/client.h>
 
 class LinuxPlayback final : public QObject
@@ -34,6 +35,8 @@ public:
     void stop();
     bool seek(qint64 positionMs);
     void setVolume(double volume);
+    void setReplayGain(bool enabled);
+    void setEqualizer(const QList<double> &gainsDb);
 
 signals:
     void stateChanged();
@@ -59,6 +62,7 @@ private:
     void promotePreparedSource(bool notifyOwner);
     void finishLoading();
     void command(const char *arguments[], quint64 requestId = 0);
+    void applyAudioProcessing();
     static void handleWakeup(void *userData);
 
     mpv_handle *m_mpv = nullptr;
@@ -79,4 +83,6 @@ private:
     quint64 m_loadRequestId = 0;
     quint64 m_prepareRequestId = 0;
     double m_volume = 0.78;
+    bool m_replayGainEnabled = false;
+    QList<double> m_equalizerGains = QList<double>(10, 0.0);
 };
