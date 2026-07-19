@@ -23,11 +23,6 @@ Item {
                 font.bold: true
                 font.pixelSize: 24
             }
-            Text {
-                text: colorful.downloads.length
-                color: Qt.rgba(1, 1, 1, 0.4)
-                font.pixelSize: 11
-            }
             Item { Layout.fillWidth: true }
             ColorButton {
                 text: "Open folder"

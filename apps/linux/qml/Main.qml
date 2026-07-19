@@ -414,14 +414,6 @@ ApplicationWindow {
                                 font.weight: Font.Bold
                                 font.pixelSize: 24
                             }
-                            Text {
-                                visible: (window.currentSection === "library" ? colorful.library.length
-                                          : colorful.searchResults.length + colorful.searchAlbums.length + colorful.searchArtists.length) > 0
-                                text: window.currentSection === "library" ? colorful.library.length
-                                      : colorful.searchResults.length + colorful.searchAlbums.length + colorful.searchArtists.length
-                                color: window.mutedInk
-                                font.pixelSize: 11
-                            }
                             Item { Layout.fillWidth: true }
                         }
 
@@ -571,36 +563,37 @@ ApplicationWindow {
 
                             RowLayout {
                                 Layout.fillWidth: true
+                                Layout.preferredHeight: 32
+                                spacing: 8
                                 Text {
                                     text: "Queue"
                                     color: window.ink
                                     font.weight: Font.Bold
                                     font.pixelSize: 18
+                                    Layout.alignment: Qt.AlignVCenter
                                 }
-                                Text {
-                                    text: colorful.queue.length
-                                    color: window.mutedInk
-                                    font.pixelSize: 11
-                                }
+                                Item { Layout.fillWidth: true }
                                 ColorButton {
                                     text: colorful.autoplayEnabled ? "Autoplay on" : "Autoplay off"
                                     quiet: true
                                     implicitWidth: 94
-                                    implicitHeight: 30
+                                    implicitHeight: 32
+                                    Layout.alignment: Qt.AlignVCenter
                                     onClicked: colorful.autoplayEnabled = !colorful.autoplayEnabled
                                 }
-                                Item { Layout.fillWidth: true }
                                 ColorButton {
                                     text: "Clear"
                                     quiet: true
                                     enabled: colorful.queue.length > 0
                                     implicitWidth: 52
-                                    implicitHeight: 30
+                                    implicitHeight: 32
+                                    Layout.alignment: Qt.AlignVCenter
                                     onClicked: colorful.clearQueue()
                                 }
                                 IconButton {
-                                    implicitWidth: 36
-                                    implicitHeight: 36
+                                    implicitWidth: 32
+                                    implicitHeight: 32
+                                    Layout.alignment: Qt.AlignVCenter
                                     iconSource: "icons/close.svg"
                                     tooltipText: "Close queue"
                                     onClicked: window.queueOpen = false

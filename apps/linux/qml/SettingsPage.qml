@@ -207,7 +207,6 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true; Layout.topMargin: 7
                         Text { text: "Equalizer"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
-                        Text { text: colorful.equalizerPreset; color: colorful.accent; font.bold: true; font.pixelSize: 10 }
                         Item { Layout.fillWidth: true }
                     }
                     Row {
