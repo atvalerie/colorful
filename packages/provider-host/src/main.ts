@@ -87,8 +87,19 @@ async function handle(request: RequestMessage): Promise<void> {
     case "search": {
       const query = String(request.payload?.query ?? "").trim();
       if (!query) throw new Error("Search query is empty");
-      const tracks = await browse.searchTracks(query);
-      send({ id: request.id, ok: true, data: { tracks } });
+      send({ id: request.id, ok: true, data: await browse.searchCatalog(query) });
+      return;
+    }
+    case "detail": {
+      const provider = String(request.payload?.provider ?? "tidal");
+      if (provider !== "tidal") throw new Error(`Catalog pages are not implemented for ${provider}`);
+      const kind = String(request.payload?.kind ?? "");
+      const resourceId = String(request.payload?.id ?? "").trim();
+      if (!resourceId) throw new Error("Catalog resource ID is empty");
+      if (kind === "track") send({ id: request.id, ok: true, data: await browse.trackPage(resourceId) });
+      else if (kind === "album") send({ id: request.id, ok: true, data: await browse.albumPage(resourceId) });
+      else if (kind === "artist") send({ id: request.id, ok: true, data: await browse.artistPage(resourceId) });
+      else throw new Error(`Unsupported catalog page: ${kind}`);
       return;
     }
     case "related": {

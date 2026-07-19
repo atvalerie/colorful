@@ -31,6 +31,7 @@ ApplicationWindow {
         if (!query || colorful.busy || !colorful.providerReady) return
         submittedQuery = query
         currentSection = "search"
+        colorful.closeCatalog()
         colorful.search(query)
     }
 
@@ -197,7 +198,10 @@ ApplicationWindow {
                             iconSource: "icons/home.svg"
                             selected: window.currentSection === "search"
                             tooltipText: "Search"
-                            onClicked: window.currentSection = "search"
+                            onClicked: {
+                                window.currentSection = "search"
+                                colorful.closeCatalog()
+                            }
                         }
                         Rectangle {
                             anchors.left: parent.left
@@ -214,7 +218,10 @@ ApplicationWindow {
                         iconSource: "icons/library.svg"
                         selected: window.currentSection === "library"
                         tooltipText: "Library"
-                        onClicked: window.currentSection = "library"
+                        onClicked: {
+                            window.currentSection = "library"
+                            colorful.closeCatalog()
+                        }
                     }
 
                     IconButton {
@@ -280,7 +287,7 @@ ApplicationWindow {
                                 TextField {
                                     id: searchField
                                     Layout.fillWidth: true
-                                    placeholderText: "Search tracks on TIDAL"
+                                    placeholderText: "Search tracks, albums, artists"
                                     placeholderTextColor: Qt.rgba(1, 1, 1, 0.34)
                                     color: window.ink
                                     font.pixelSize: 13
@@ -323,7 +330,16 @@ ApplicationWindow {
                         Layout.bottomMargin: 12
                         spacing: 14
 
+                        CatalogPage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0
+                            page: colorful.catalogPage
+                            loading: colorful.catalogLoading
+                        }
+
                         RowLayout {
+                            visible: !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                             Layout.fillWidth: true
                             spacing: 10
 
@@ -336,8 +352,10 @@ ApplicationWindow {
                                 font.pixelSize: 24
                             }
                             Text {
-                                visible: (window.currentSection === "library" ? colorful.library.length : colorful.searchResults.length) > 0
-                                text: window.currentSection === "library" ? colorful.library.length : colorful.searchResults.length
+                                visible: (window.currentSection === "library" ? colorful.library.length
+                                          : colorful.searchResults.length + colorful.searchAlbums.length + colorful.searchArtists.length) > 0
+                                text: window.currentSection === "library" ? colorful.library.length
+                                      : colorful.searchResults.length + colorful.searchAlbums.length + colorful.searchArtists.length
                                 color: window.mutedInk
                                 font.pixelSize: 11
                             }
@@ -349,6 +367,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             model: window.currentSection === "library" ? colorful.library : colorful.searchResults
+                            visible: !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                             spacing: 0
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
@@ -366,13 +385,74 @@ ApplicationWindow {
                                 onAddRequested: colorful.enqueueSearchResult(index)
                                 onRemoveRequested: colorful.removeLibraryIndex(index)
                                 onSaveRequested: colorful.addSearchResultToLibrary(index)
+                                onDetailsRequested: colorful.openTrack(modelData.id)
+                            }
+
+                            header: Column {
+                                width: resultsList.width
+                                spacing: 16
+                                visible: window.currentSection === "search"
+                                         && (colorful.searchAlbums.length > 0 || colorful.searchArtists.length > 0)
+                                height: visible ? implicitHeight + 18 : 0
+
+                                Text {
+                                    visible: colorful.searchArtists.length > 0
+                                    text: "Artists"
+                                    color: window.ink
+                                    font.bold: true
+                                    font.pixelSize: 16
+                                }
+                                ListView {
+                                    width: parent.width
+                                    height: visible ? 190 : 0
+                                    visible: colorful.searchArtists.length > 0
+                                    orientation: ListView.Horizontal
+                                    spacing: 8
+                                    clip: true
+                                    model: colorful.searchArtists
+                                    delegate: CatalogCard {
+                                        required property var modelData
+                                        entry: modelData
+                                        artistMode: true
+                                        onOpenRequested: colorful.openArtist(modelData.id)
+                                    }
+                                }
+                                Text {
+                                    visible: colorful.searchAlbums.length > 0
+                                    text: "Albums"
+                                    color: window.ink
+                                    font.bold: true
+                                    font.pixelSize: 16
+                                }
+                                ListView {
+                                    width: parent.width
+                                    height: visible ? 190 : 0
+                                    visible: colorful.searchAlbums.length > 0
+                                    orientation: ListView.Horizontal
+                                    spacing: 8
+                                    clip: true
+                                    model: colorful.searchAlbums
+                                    delegate: CatalogCard {
+                                        required property var modelData
+                                        entry: modelData
+                                        onOpenRequested: colorful.openAlbum(modelData.id)
+                                    }
+                                }
+                                Text {
+                                    visible: colorful.searchResults.length > 0
+                                    text: "Tracks"
+                                    color: window.ink
+                                    font.bold: true
+                                    font.pixelSize: 16
+                                }
                             }
 
                             Column {
                                 anchors.centerIn: parent
                                 width: Math.min(400, parent.width - 48)
                                 spacing: 12
-                                visible: resultsList.count === 0
+                                visible: window.currentSection === "library" ? resultsList.count === 0
+                                         : colorful.searchResults.length + colorful.searchAlbums.length + colorful.searchArtists.length === 0
 
                                 AppIcon {
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -466,6 +546,7 @@ ApplicationWindow {
                                     active: index === colorful.currentQueueIndex
                                     onPlayRequested: colorful.playQueueIndex(index)
                                     onRemoveRequested: colorful.removeQueueIndex(index)
+                                    onDetailsRequested: colorful.openTrack(modelData.id)
                                 }
 
                                 Column {

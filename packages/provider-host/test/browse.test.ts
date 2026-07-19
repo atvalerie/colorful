@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cursorFromNextLink, formatTrackTitle, isoDurationToMs, mapTracks, mergeRelatedTracks, type TrackSummary } from "../src/browse";
+import { cursorFromNextLink, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapTracks, mergeRelatedTracks, type TrackSummary } from "../src/browse";
 
 describe("TIDAL browse mapping", () => {
   test("parses ISO durations", () => {
@@ -15,7 +15,7 @@ describe("TIDAL browse mapping", () => {
 
   test("interleaves similar tracks and radio without duplicates", () => {
     const track = (id: string): TrackSummary => ({
-      id, title: id, version: null, artists: [], albumId: null,
+      id, title: id, version: null, artists: [], artistCredits: [], albumId: null,
       albumTitle: null, durationMs: null, isrc: null, coverUrl: null,
     });
     expect(mergeRelatedTracks(
@@ -49,10 +49,33 @@ describe("TIDAL browse mapping", () => {
       title: "Color (Live)",
       version: "Live",
       artists: ["Someone"],
+      artistCredits: [{ id: "artist-1", name: "Someone" }],
       albumTitle: "Bright",
       coverUrl: "https://example.test/cover.jpg",
       durationMs: 120_000,
     })]);
+  });
+
+  test("normalizes album and artist artwork", () => {
+    const document = { included: [
+      { id: "album-1", type: "albums", attributes: {
+        title: "Bright", duration: "PT42M", releaseDate: "2026-07-19", numberOfItems: 12,
+        albumType: "ALBUM", explicit: true,
+      }, relationships: {
+        artists: { data: [{ id: "artist-1", type: "artists" }] },
+        coverArt: { data: [{ id: "cover-1", type: "artworks" }] },
+      } },
+      { id: "artist-1", type: "artists", attributes: { name: "Someone" }, relationships: {
+        profileArt: { data: [{ id: "profile-1", type: "artworks" }] },
+      } },
+      { id: "cover-1", type: "artworks", attributes: { files: [{ href: "https://example.test/album.jpg" }] } },
+      { id: "profile-1", type: "artworks", attributes: { files: [{ href: "https://example.test/artist.jpg" }] } },
+    ] };
+    expect(mapAlbums(document)[0]).toEqual(expect.objectContaining({
+      id: "album-1", artists: ["Someone"], durationMs: 2_520_000, numberOfTracks: 12,
+      coverUrl: "https://example.test/album.jpg",
+    }));
+    expect(mapArtists(document)[0]).toEqual({ id: "artist-1", name: "Someone", pictureUrl: "https://example.test/artist.jpg" });
   });
 
   test("maps the same sanitized fixture as the portable Rust adapter", async () => {

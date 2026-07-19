@@ -28,7 +28,9 @@ qmllint -I "$repo_dir/build/linux" \
   "$repo_dir/apps/linux/qml/IconButton.qml" \
   "$repo_dir/apps/linux/qml/ResizeHandle.qml" \
   "$repo_dir/apps/linux/qml/TitleButton.qml" \
-  "$repo_dir/apps/linux/qml/TrackDelegate.qml"
+  "$repo_dir/apps/linux/qml/TrackDelegate.qml" \
+  "$repo_dir/apps/linux/qml/CatalogCard.qml" \
+  "$repo_dir/apps/linux/qml/CatalogPage.qml"
 
 dbus-run-session -- bash -c '
   set -euo pipefail
@@ -43,6 +45,7 @@ dbus-run-session -- bash -c '
   QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
     COLORFUL_PROVIDER_HOST="$repo_dir/apps/linux/tests/fake-provider.ts" \
     COLORFUL_SMOKE_SEARCH="fixture" \
+    COLORFUL_SMOKE_DETAIL=1 \
     "$repo_dir/build/linux/colorful-linux" >"$log_file" 2>&1 &
   app_pid=$!
   for _ in {1..40}; do

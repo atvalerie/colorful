@@ -6,12 +6,40 @@ export type TrackSummary = {
   title: string;
   version: string | null;
   artists: string[];
+  artistCredits: ArtistCredit[];
   albumId: string | null;
   albumTitle: string | null;
   durationMs: number | null;
   isrc: string | null;
   coverUrl: string | null;
 };
+
+export type ArtistCredit = { id: string; name: string };
+
+export type AlbumSummary = {
+  id: string;
+  title: string;
+  version: string | null;
+  artists: string[];
+  artistCredits: ArtistCredit[];
+  coverUrl: string | null;
+  releaseDate: string | null;
+  durationMs: number | null;
+  numberOfTracks: number | null;
+  albumType: string | null;
+  explicit: boolean;
+};
+
+export type ArtistSummary = {
+  id: string;
+  name: string;
+  pictureUrl: string | null;
+};
+
+export type CatalogSearch = { tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[] };
+export type TrackPage = { kind: "track"; track: TrackSummary; relatedTracks: TrackSummary[] };
+export type AlbumPage = { kind: "album"; album: AlbumSummary; tracks: TrackSummary[] };
+export type ArtistPage = { kind: "artist"; artist: ArtistSummary; topTracks: TrackSummary[]; albums: AlbumSummary[] };
 
 export function formatTrackTitle(title: string, version: string | null | undefined): string {
   const cleanTitle = title.trim() || "Unknown title";
@@ -76,11 +104,13 @@ export function mapTracks(document: { data?: Resource | Resource[]; included?: R
     const coverId = album?.relationships?.coverArt?.data?.[0]?.id;
     const cover = coverId ? artwork.get(coverId) : undefined;
     const artistIds = track.relationships?.artists?.data?.map((item) => item.id) ?? [];
+    const artistCredits = artistIds.map((id) => ({ id, name: String(artists.get(id)?.attributes?.name ?? "") })).filter((artist) => artist.name);
     return {
       id: track.id,
       title: formatTrackTitle(String(track.attributes?.title ?? "Unknown title"), version),
       version,
-      artists: artistIds.map((id) => String(artists.get(id)?.attributes?.name ?? "")).filter(Boolean),
+      artists: artistCredits.map((artist) => artist.name),
+      artistCredits,
       albumId,
       albumTitle: album ? String(album.attributes?.title ?? "") || null : null,
       durationMs: isoDurationToMs(track.attributes?.duration),
@@ -92,6 +122,50 @@ export function mapTracks(document: { data?: Resource | Resource[]; included?: R
           : null,
     };
   });
+}
+
+function artworkUrl(resource: Resource | undefined, artwork: Map<string, Resource>, relationship = "coverArt"): string | null {
+  const artworkId = resource?.relationships?.[relationship]?.data?.[0]?.id;
+  const linked = artworkId ? artwork.get(artworkId) : undefined;
+  return typeof linked?.attributes?.files?.[0]?.href === "string"
+    ? linked.attributes.files[0].href
+    : typeof resource?.attributes?.imageLinks?.[0]?.href === "string"
+      ? resource.attributes.imageLinks[0].href
+      : null;
+}
+
+export function mapAlbums(document: { data?: Resource | Resource[]; included?: Resource[] }): AlbumSummary[] {
+  const resources = resourcesFrom(document);
+  const artists = new Map(resources.filter((resource) => resource.type === "artists").map((resource) => [resource.id, resource]));
+  const artwork = new Map(resources.filter((resource) => resource.type === "artworks").map((resource) => [resource.id, resource]));
+  return resources.filter((resource) => resource.type === "albums").map((album) => {
+    const artistIds = album.relationships?.artists?.data?.map((item) => item.id) ?? [];
+    const artistCredits = artistIds.map((id) => ({ id, name: String(artists.get(id)?.attributes?.name ?? "") })).filter((artist) => artist.name);
+    const version = typeof album.attributes?.version === "string" && album.attributes.version.trim() ? album.attributes.version.trim() : null;
+    return {
+      id: album.id,
+      title: formatTrackTitle(String(album.attributes?.title ?? "Unknown album"), version),
+      version,
+      artists: artistCredits.map((artist) => artist.name),
+      artistCredits,
+      coverUrl: artworkUrl(album, artwork),
+      releaseDate: typeof album.attributes?.releaseDate === "string" ? album.attributes.releaseDate : null,
+      durationMs: isoDurationToMs(album.attributes?.duration),
+      numberOfTracks: Number.isFinite(album.attributes?.numberOfItems) ? Number(album.attributes?.numberOfItems) : null,
+      albumType: typeof album.attributes?.albumType === "string" ? album.attributes.albumType : null,
+      explicit: album.attributes?.explicit === true,
+    };
+  });
+}
+
+export function mapArtists(document: { data?: Resource | Resource[]; included?: Resource[] }): ArtistSummary[] {
+  const resources = resourcesFrom(document);
+  const artwork = new Map(resources.filter((resource) => resource.type === "artworks").map((resource) => [resource.id, resource]));
+  return resources.filter((resource) => resource.type === "artists").map((artist) => ({
+    id: artist.id,
+    name: String(artist.attributes?.name ?? "Unknown artist"),
+    pictureUrl: artworkUrl(artist, artwork, "profileArt"),
+  }));
 }
 
 export class BrowseClient {
@@ -137,6 +211,72 @@ export class BrowseClient {
     }
   }
 
+  private async hydrateTracks(tracks: TrackSummary[]): Promise<TrackSummary[]> {
+    if (tracks.length === 0) return tracks;
+    try {
+      const document = await this.get("tracks", {
+        include: "albums,artists",
+        "filter[id]": tracks.slice(0, 20).map((track) => track.id).join(","),
+      });
+      const hydrated = new Map((await this.hydrateMissingArtwork(mapTracks(document))).map((track) => [track.id, track]));
+      return tracks.map((track) => hydrated.get(track.id) ?? track);
+    } catch {
+      return this.hydrateMissingArtwork(tracks);
+    }
+  }
+
+  private async hydrateAlbums(albums: AlbumSummary[]): Promise<AlbumSummary[]> {
+    if (albums.length === 0) return albums;
+    try {
+      const document = await this.get("albums", {
+        include: "coverArt,artists",
+        "filter[id]": albums.slice(0, 20).map((album) => album.id).join(","),
+      });
+      const hydrated = new Map(mapAlbums(document).map((album) => [album.id, album]));
+      return albums.map((album) => hydrated.get(album.id) ?? album);
+    } catch {
+      return albums;
+    }
+  }
+
+  private async hydrateArtists(artists: ArtistSummary[]): Promise<ArtistSummary[]> {
+    if (artists.length === 0) return artists;
+    try {
+      const document = await this.get("artists", {
+        include: "profileArt",
+        "filter[id]": artists.slice(0, 20).map((artist) => artist.id).join(","),
+      });
+      const hydrated = new Map(mapArtists(document).map((artist) => [artist.id, artist]));
+      return artists.map((artist) => hydrated.get(artist.id) ?? artist);
+    } catch {
+      return artists;
+    }
+  }
+
+  private async relationshipTrackList(path: string, params: Record<string, string> = {}, limit = 500): Promise<TrackSummary[]> {
+    const tracks: TrackSummary[] = [];
+    const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    while (tracks.length < limit) {
+      const document = await this.get(path, {
+        ...params,
+        "page[limit]": String(Math.min(20, limit - tracks.length)),
+        ...(cursor ? { "page[cursor]": cursor } : {}),
+      });
+      for (const track of await this.hydrateTracks(mapTracks(document))) {
+        if (seenIds.has(track.id)) continue;
+        seenIds.add(track.id);
+        tracks.push(track);
+      }
+      const nextCursor = cursorFromNextLink(document);
+      if (!nextCursor || seenCursors.has(nextCursor)) break;
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+    return tracks;
+  }
+
   private async relationshipTracks(
     trackId: string,
     relationship: "similarTracks" | "radio",
@@ -177,6 +317,58 @@ export class BrowseClient {
       "page[limit]": String(Math.max(1, Math.min(limit, 20))),
     });
     return this.hydrateMissingArtwork(mapTracks(document));
+  }
+
+  async searchCatalog(query: string, limit = 20): Promise<CatalogSearch> {
+    const pageLimit = String(Math.max(1, Math.min(limit, 20)));
+    const encoded = encodeURIComponent(query);
+    const [tracksResult, albumsResult, artistsResult] = await Promise.allSettled([
+      this.searchTracks(query, limit),
+      this.get(`searchResults/${encoded}/relationships/albums`, { include: "albums", "page[limit]": pageLimit }),
+      this.get(`searchResults/${encoded}/relationships/artists`, { include: "artists", "page[limit]": pageLimit }),
+    ]);
+    if (tracksResult.status === "rejected" && albumsResult.status === "rejected" && artistsResult.status === "rejected") throw tracksResult.reason;
+    return {
+      tracks: tracksResult.status === "fulfilled" ? tracksResult.value : [],
+      albums: albumsResult.status === "fulfilled" ? await this.hydrateAlbums(mapAlbums(albumsResult.value)) : [],
+      artists: artistsResult.status === "fulfilled" ? await this.hydrateArtists(mapArtists(artistsResult.value)) : [],
+    };
+  }
+
+  async trackPage(trackId: string): Promise<TrackPage> {
+    const document = await this.get(`tracks/${encodeURIComponent(trackId)}`, { include: "albums,artists" });
+    const track = (await this.hydrateMissingArtwork(mapTracks(document)))[0];
+    if (!track) throw new Error("TIDAL did not return that track");
+    return { kind: "track", track, relatedTracks: await this.relatedTracks(trackId, 20).catch(() => []) };
+  }
+
+  async albumPage(albumId: string): Promise<AlbumPage> {
+    const encoded = encodeURIComponent(albumId);
+    const [albumDocument, tracks] = await Promise.all([
+      this.get(`albums/${encoded}`, { include: "artists,coverArt" }),
+      this.relationshipTrackList(`albums/${encoded}/relationships/items`, { include: "items" }).catch(() => []),
+    ]);
+    const album = mapAlbums(albumDocument)[0];
+    if (!album) throw new Error("TIDAL did not return that album");
+    return { kind: "album", album, tracks };
+  }
+
+  async artistPage(artistId: string): Promise<ArtistPage> {
+    const encoded = encodeURIComponent(artistId);
+    const [artistResult, tracksResult, albumsResult] = await Promise.allSettled([
+      this.get(`artists/${encoded}`, { include: "profileArt" }),
+      this.get(`artists/${encoded}/relationships/tracks`, { include: "tracks", collapseBy: "FINGERPRINT", "page[limit]": "20" }),
+      this.get(`artists/${encoded}/relationships/albums`, { include: "albums", "page[limit]": "20" }),
+    ]);
+    if (artistResult.status === "rejected") throw artistResult.reason;
+    const artist = mapArtists(artistResult.value)[0];
+    if (!artist) throw new Error("TIDAL did not return that artist");
+    return {
+      kind: "artist",
+      artist,
+      topTracks: tracksResult.status === "fulfilled" ? await this.hydrateTracks(mapTracks(tracksResult.value)) : [],
+      albums: albumsResult.status === "fulfilled" ? await this.hydrateAlbums(mapAlbums(albumsResult.value)) : [],
+    };
   }
 
   async relatedTracks(trackId: string, limit = 20): Promise<TrackSummary[]> {

@@ -1,4 +1,17 @@
-type Request = { id: number; type: string };
+type Request = { id: number; type: string; payload?: Record<string, unknown> };
+
+const track = {
+  id: "fixture-one",
+  title: "A Very colorful Fixture",
+  version: null,
+  artists: ["Test Artist"],
+  artistCredits: [{ id: "artist-one", name: "Test Artist" }],
+  albumId: "album-one",
+  albumTitle: "QML Delegate Tests",
+  durationMs: 123000,
+  isrc: null,
+  coverUrl: null,
+};
 
 function reply(request: Request): unknown {
   if (request.type === "status") {
@@ -6,27 +19,28 @@ function reply(request: Request): unknown {
   }
   if (request.type === "search") {
     return { id: request.id, ok: true, data: { tracks: [
-      {
-        id: "fixture-one",
-        title: "A Very colorful Fixture",
-        artists: ["Test Artist"],
-        albumId: "album-one",
-        albumTitle: "QML Delegate Tests",
-        durationMs: 123000,
-        isrc: null,
-        coverUrl: null,
-      },
+      track,
       {
         id: "fixture-two",
         title: "The Second Fixture",
+        version: null,
         artists: ["Another Artist"],
+        artistCredits: [{ id: "artist-two", name: "Another Artist" }],
         albumId: "album-two",
         albumTitle: "No Runtime Errors",
         durationMs: 245000,
         isrc: null,
         coverUrl: null,
       },
-    ] } };
+    ], albums: [{
+      id: "album-one", title: "QML Delegate Tests", version: null,
+      artists: ["Test Artist"], artistCredits: [{ id: "artist-one", name: "Test Artist" }],
+      coverUrl: null, releaseDate: "2026-07-19", durationMs: 123000,
+      numberOfTracks: 1, albumType: "ALBUM", explicit: false,
+    }], artists: [{ id: "artist-one", name: "Test Artist", pictureUrl: null }] } };
+  }
+  if (request.type === "detail" && request.payload?.kind === "track") {
+    return { id: request.id, ok: true, data: { kind: "track", track, relatedTracks: [track] } };
   }
   return { id: request.id, ok: false, error: `Unsupported fixture request: ${request.type}` };
 }

@@ -13,12 +13,14 @@ ItemDelegate {
     signal addRequested()
     signal removeRequested()
     signal saveRequested()
+    signal detailsRequested()
 
-    width: ListView.view ? ListView.view.width : 500
+    width: ListView.view ? ListView.view.width : (parent ? parent.width : 500)
     height: 54
     hoverEnabled: true
     padding: 6
     onDoubleClicked: playRequested()
+    onClicked: detailsRequested()
 
     background: Rectangle {
         color: root.active ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.12)

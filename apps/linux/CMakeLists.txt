@@ -49,6 +49,8 @@ qt_add_qml_module(colorful-linux
         qml/ResizeHandle.qml
         qml/TitleButton.qml
         qml/TrackDelegate.qml
+        qml/CatalogCard.qml
+        qml/CatalogPage.qml
     RESOURCES
         qml/icons/add.svg
         qml/icons/close.svg

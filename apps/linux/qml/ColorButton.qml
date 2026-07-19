@@ -4,7 +4,8 @@ import QtQuick.Controls
 Button {
     id: control
     property color fillColor: colorful.accent
-    property color textColor: strong ? "#0b0b0d" : "white"
+    readonly property real fillLuminance: 0.2126 * fillColor.r + 0.7152 * fillColor.g + 0.0722 * fillColor.b
+    property color textColor: strong ? (fillLuminance > 0.56 ? "#0b0b0d" : "white") : "white"
     property bool quiet: false
     property bool strong: !quiet
 

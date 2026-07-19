@@ -30,6 +30,11 @@ class Backend final : public QObject
     Q_PROPERTY(QString verificationUrl READ verificationUrl NOTIFY authDetailsChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
+    Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
+    Q_PROPERTY(QVariantList searchArtists READ searchArtists NOTIFY searchResultsChanged)
+    Q_PROPERTY(QVariantMap catalogPage READ catalogPage NOTIFY catalogPageChanged)
+    Q_PROPERTY(bool catalogLoading READ catalogLoading NOTIFY catalogPageChanged)
+    Q_PROPERTY(bool canNavigateCatalogBack READ canNavigateCatalogBack NOTIFY catalogPageChanged)
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
     Q_PROPERTY(QVariantList library READ library NOTIFY libraryChanged)
     Q_PROPERTY(int currentQueueIndex READ currentQueueIndex NOTIFY currentTrackChanged)
@@ -64,6 +69,11 @@ public:
     QString verificationUrl() const { return m_verificationUrl; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
+    QVariantList searchAlbums() const { return m_searchAlbums; }
+    QVariantList searchArtists() const { return m_searchArtists; }
+    QVariantMap catalogPage() const { return m_catalogPage; }
+    bool catalogLoading() const { return m_catalogLoading; }
+    bool canNavigateCatalogBack() const { return !m_catalogHistory.isEmpty(); }
     QVariantList queue() const { return m_queue; }
     QVariantList library() const { return m_library; }
     int currentQueueIndex() const { return m_currentIndex; }
@@ -95,6 +105,15 @@ public:
     Q_INVOKABLE void dismissEntitlementWarning();
     Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
+    Q_INVOKABLE void openTrack(const QString &id);
+    Q_INVOKABLE void openAlbum(const QString &id);
+    Q_INVOKABLE void openArtist(const QString &id);
+    Q_INVOKABLE void navigateCatalogBack();
+    Q_INVOKABLE void closeCatalog();
+    Q_INVOKABLE void enqueueCatalogTrack(const QVariantMap &track);
+    Q_INVOKABLE void playCatalogTrack(const QVariantMap &track);
+    Q_INVOKABLE void saveCatalogTrack(const QVariantMap &track);
+    Q_INVOKABLE void playCatalogCollection();
     Q_INVOKABLE void enqueueSearchResult(int index);
     Q_INVOKABLE void playSearchResult(int index);
     Q_INVOKABLE void playQueueIndex(int index);
@@ -131,6 +150,7 @@ signals:
     void authDetailsChanged();
     void statusMessageChanged();
     void searchResultsChanged();
+    void catalogPageChanged();
     void queueChanged();
     void libraryChanged();
     void currentTrackChanged();
@@ -160,6 +180,9 @@ private:
     void setStatus(const QString &message);
     void setEntitlementWarning(bool visible, const QString &message = {});
     void playTrackAt(int index);
+    void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true);
+    void enqueueTrack(const QVariantMap &track);
+    void saveTrack(const QVariantMap &track);
     void resolveCurrentSource(qint64 startPositionMs = 0, bool autoplay = true);
     void requestRelatedAndContinue();
     bool openCore();
@@ -175,6 +198,9 @@ private:
     QString trackKey(const QVariantMap &track) const;
     QColor paletteColor(const QImage &image) const;
     static QVariantMap jsonTrackToVariant(const QJsonObject &track);
+    static QVariantMap jsonAlbumToVariant(const QJsonObject &album);
+    static QVariantMap jsonArtistToVariant(const QJsonObject &artist);
+    static QVariantMap jsonCatalogPageToVariant(const QJsonObject &page);
 
     QProcess m_provider;
     QByteArray m_providerBuffer;
@@ -191,6 +217,12 @@ private:
     QNetworkAccessManager m_network;
     QVariantAnimation m_accentAnimation;
     QVariantList m_searchResults;
+    QVariantList m_searchAlbums;
+    QVariantList m_searchArtists;
+    QVariantMap m_catalogPage;
+    QVariantList m_catalogHistory;
+    bool m_catalogLoading = false;
+    quint64 m_catalogGeneration = 0;
     QVariantList m_queue;
     QVariantList m_library;
     QVariantMap m_listenStats;
