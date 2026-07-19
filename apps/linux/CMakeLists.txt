@@ -53,6 +53,7 @@ qt_add_qml_module(colorful-linux
         qml/CatalogPage.qml
         qml/PlaylistCard.qml
         qml/TidalPage.qml
+        qml/AccountCard.qml
         qml/MetadataLink.qml
         qml/ArtworkImage.qml
     RESOURCES
