@@ -4,7 +4,7 @@ colorful's durable state lives in one device-local SQLite database. Provider
 credentials remain in the operating system's secret store and media files remain
 on disk; the database holds only credential handles and file paths.
 
-The first migration is
+The initial migration is
 `crates/colorful-core/migrations/0001_local_state.sql`. It defines:
 
 - normalized track metadata and ordered artist credits;
@@ -12,6 +12,13 @@ The first migration is
 - stable queue entry IDs, visible order, shuffled play order, and playback state;
 - offline download jobs and cache eviction metadata;
 - JSON settings with database-level validation.
+
+`0002_listening_history.sql` adds provider-neutral, globally identified listen
+events. Each event records its originating device, track reference, wall-clock
+interval, and actual audible milliseconds. The event ID is the primary key, so
+replaying an event received through multi-device sync cannot increment
+statistics twice. Aggregates are derived locally; no listening profile needs to
+be uploaded to a colorful service.
 
 Queue rows distinguish `visible_position` from `play_position`. This keeps manual
 reordering predictable while shuffle is active and allows the portable queue

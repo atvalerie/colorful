@@ -32,6 +32,7 @@ and troubleshooting.
 - `docs/architecture.md`: component boundaries and delivery order
 - `docs/connectivity.md`: LAN, NAT traversal, relay, and party synchronization
 - `docs/sync.md`: proposed encrypted multi-device sync and playback handoff
+- `docs/discord-widget.md`: optional client-side listening-statistics profile widget
 - `docs/storage.md`: device-local SQLite schema and migration rules
 - `docs/core-abi.md`: versioned C/JSON boundary for native platform shells
 - `docs/provider-migration.md`: what to reuse from `backend` and `mocha`

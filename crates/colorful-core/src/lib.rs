@@ -5,6 +5,7 @@
 pub mod download;
 pub mod engine;
 pub mod ffi;
+pub mod history;
 pub mod media;
 pub mod party;
 pub mod playback;
@@ -16,6 +17,7 @@ pub use download::{DownloadJob, DownloadState, DownloadTransitionError};
 pub use engine::{
     Engine, EngineCommand, EngineError, EngineEvent, EngineResult, PlaybackDirective,
 };
+pub use history::{ListenEvent, ListenStats, TopArtist, TopTrack};
 pub use media::{MediaId, Provider, Track};
 pub use party::{ConnectivityPolicy, NetworkObservation, Transport};
 pub use playback::{PlaybackCommand, PlaybackState, RepeatMode};

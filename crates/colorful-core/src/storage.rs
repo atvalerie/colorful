@@ -1,4 +1,5 @@
 use crate::download::{DownloadJob, DownloadState};
+use crate::history::{ListenEvent, ListenStats, TopArtist, TopTrack};
 use crate::media::{ArtistCredit, Artwork, MediaId, Provider, Track};
 use crate::playback::RepeatMode;
 use crate::queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
@@ -7,8 +8,9 @@ use std::fmt;
 use std::path::Path;
 use std::time::Duration;
 
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_local_state.sql");
+const LISTENING_HISTORY_MIGRATION: &str = include_str!("../migrations/0002_listening_history.sql");
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -108,17 +110,21 @@ impl Storage {
              PRAGMA synchronous = NORMAL;",
         )?;
         let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        match version {
-            0 => {
-                if let Err(error) = connection
-                    .execute_batch(&format!("BEGIN IMMEDIATE;\n{INITIAL_MIGRATION}\nCOMMIT;"))
-                {
-                    let _ = connection.execute_batch("ROLLBACK;");
-                    return Err(error.into());
-                }
-            }
-            CURRENT_SCHEMA_VERSION => {}
+        let migrations = match version {
+            0 => Some(format!(
+                "{INITIAL_MIGRATION}\n{LISTENING_HISTORY_MIGRATION}"
+            )),
+            1 => Some(LISTENING_HISTORY_MIGRATION.to_owned()),
+            CURRENT_SCHEMA_VERSION => None,
             other => return Err(StorageError::UnsupportedSchema(other)),
+        };
+        if let Some(migrations) = migrations {
+            if let Err(error) =
+                connection.execute_batch(&format!("BEGIN IMMEDIATE;\n{migrations}\nCOMMIT;"))
+            {
+                let _ = connection.execute_batch("ROLLBACK;");
+                return Err(error.into());
+            }
         }
         let foreign_keys: i64 =
             connection.pragma_query_value(None, "foreign_keys", |row| row.get(0))?;
@@ -184,6 +190,136 @@ impl Storage {
                 load_track(&self.connection, &id)?.ok_or(StorageError::InvalidMediaId)
             })
             .collect()
+    }
+
+    /// Inserts a globally identified listen once. Replayed sync operations are
+    /// harmless because the event ID is the primary key.
+    pub fn record_listen(&mut self, track: &Track, event: &ListenEvent) -> StorageResult<bool> {
+        let transaction = self.connection.transaction()?;
+        upsert_track(&transaction, track)?;
+        let inserted = transaction.execute(
+            "INSERT OR IGNORE INTO listen_events (
+                event_id, device_id, provider, provider_id, started_at_ms,
+                ended_at_ms, listened_ms, track_duration_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                event.event_id,
+                event.device_id,
+                event.media_id.provider.to_string(),
+                event.media_id.provider_id,
+                event.started_at_ms,
+                event.ended_at_ms,
+                sqlite_u64(event.listened_ms, "listened milliseconds")?,
+                event
+                    .track_duration_ms
+                    .map(|value| sqlite_u64(value, "track duration"))
+                    .transpose()?,
+            ],
+        )? > 0;
+        transaction.commit()?;
+        Ok(inserted)
+    }
+
+    pub fn listen_stats(&self, since_ms: Option<i64>, limit: usize) -> StorageResult<ListenStats> {
+        let since = since_ms.unwrap_or(0).max(0);
+        let (total_listened_ms, play_count): (i64, i64) = self.connection.query_row(
+            "SELECT COALESCE(SUM(listened_ms), 0), COUNT(*)
+             FROM listen_events WHERE ended_at_ms >= ?1",
+            [since],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        let track_rows = {
+            let mut statement = self.connection.prepare(
+                "SELECT provider, provider_id, SUM(listened_ms), COUNT(*)
+                 FROM listen_events WHERE ended_at_ms >= ?1
+                 GROUP BY provider, provider_id
+                 ORDER BY SUM(listened_ms) DESC, COUNT(*) DESC, provider, provider_id
+                 LIMIT ?2",
+            )?;
+            statement
+                .query_map(
+                    params![since, sqlite_usize(limit, "statistics limit")?],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut top_tracks = Vec::with_capacity(track_rows.len());
+        for (provider, provider_id, listened_ms, plays) in track_rows {
+            let id = media_id(&provider, provider_id)?;
+            let track = load_track(&self.connection, &id)?.ok_or(StorageError::InvalidMediaId)?;
+            top_tracks.push(TopTrack {
+                track,
+                listened_ms: listened_ms
+                    .try_into()
+                    .map_err(|_| StorageError::InvalidMediaId)?,
+                play_count: plays.try_into().map_err(|_| StorageError::InvalidMediaId)?,
+            });
+        }
+
+        let artist_rows = {
+            let mut statement = self.connection.prepare(
+                "SELECT a.artist_provider, a.artist_provider_id, a.name,
+                        SUM(e.listened_ms), COUNT(*)
+                 FROM listen_events e
+                 JOIN track_artists a
+                   ON a.track_provider = e.provider AND a.track_provider_id = e.provider_id
+                 WHERE e.ended_at_ms >= ?1
+                 GROUP BY a.artist_provider, a.artist_provider_id, a.name
+                 ORDER BY SUM(e.listened_ms) DESC, COUNT(*) DESC, a.name
+                 LIMIT ?2",
+            )?;
+            statement
+                .query_map(
+                    params![since, sqlite_usize(limit, "statistics limit")?],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                        ))
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let top_artists = artist_rows
+            .into_iter()
+            .map(|(provider, provider_id, name, listened_ms, plays)| {
+                let id = match (provider, provider_id) {
+                    (Some(provider), Some(provider_id)) => Some(media_id(&provider, provider_id)?),
+                    (None, None) => None,
+                    _ => return Err(StorageError::InvalidMediaId),
+                };
+                Ok(TopArtist {
+                    id,
+                    name,
+                    listened_ms: listened_ms
+                        .try_into()
+                        .map_err(|_| StorageError::InvalidMediaId)?,
+                    play_count: plays.try_into().map_err(|_| StorageError::InvalidMediaId)?,
+                })
+            })
+            .collect::<StorageResult<Vec<_>>>()?;
+
+        Ok(ListenStats {
+            total_listened_ms: total_listened_ms
+                .try_into()
+                .map_err(|_| StorageError::InvalidMediaId)?,
+            play_count: play_count
+                .try_into()
+                .map_err(|_| StorageError::InvalidMediaId)?,
+            top_tracks,
+            top_artists,
+        })
     }
 
     pub fn save_playback(
@@ -679,6 +815,18 @@ fn unix_time_ms() -> i64 {
 mod tests {
     use super::*;
 
+    fn listen_event(track: &Track, event_id: &str, listened_ms: u64) -> ListenEvent {
+        ListenEvent {
+            event_id: event_id.into(),
+            device_id: "device-a".into(),
+            media_id: track.id.clone(),
+            started_at_ms: 1_000,
+            ended_at_ms: 1_000 + listened_ms as i64,
+            listened_ms,
+            track_duration_ms: track.duration_ms,
+        }
+    }
+
     fn track(id: &str) -> Track {
         Track {
             id: MediaId::new(Provider::Tidal, id).unwrap(),
@@ -706,6 +854,49 @@ mod tests {
     fn opens_and_migrates_a_new_database() {
         let storage = Storage::open_in_memory().unwrap();
         assert_eq!(storage.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn upgrades_a_version_one_database_without_losing_state() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_MIGRATION).unwrap();
+        connection
+            .execute(
+                "INSERT INTO settings (key, value_json, updated_at_ms)
+                 VALUES ('kept', 'true', 1)",
+                [],
+            )
+            .unwrap();
+
+        let storage = Storage::from_connection(connection).unwrap();
+        assert_eq!(storage.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+        assert_eq!(storage.setting("kept").unwrap().as_deref(), Some("true"));
+        assert_eq!(
+            storage.listen_stats(None, 5).unwrap(),
+            ListenStats::default()
+        );
+    }
+
+    #[test]
+    fn listening_history_is_idempotent_and_aggregates_tracks_and_artists() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        let first = track("first");
+        let second = track("second");
+        let first_event = listen_event(&first, "event-1", 100_000);
+        let second_event = listen_event(&second, "event-2", 40_000);
+
+        assert!(storage.record_listen(&first, &first_event).unwrap());
+        assert!(!storage.record_listen(&first, &first_event).unwrap());
+        assert!(storage.record_listen(&second, &second_event).unwrap());
+
+        let stats = storage.listen_stats(None, 5).unwrap();
+        assert_eq!(stats.total_listened_ms, 140_000);
+        assert_eq!(stats.play_count, 2);
+        assert_eq!(stats.top_tracks[0].track.id, first.id);
+        assert_eq!(stats.top_tracks[0].listened_ms, 100_000);
+        assert_eq!(stats.top_artists[0].name, "Someone");
+        assert_eq!(stats.top_artists[0].listened_ms, 140_000);
+        assert_eq!(stats.top_artists[0].play_count, 2);
     }
 
     #[test]

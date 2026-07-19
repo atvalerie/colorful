@@ -3,7 +3,8 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
-migration="$repo_dir/crates/colorful-core/migrations/0001_local_state.sql"
+migration_one="$repo_dir/crates/colorful-core/migrations/0001_local_state.sql"
+migration_two="$repo_dir/crates/colorful-core/migrations/0002_listening_history.sql"
 test_db="$(mktemp --suffix=.colorful-storage-test.sqlite)"
 
 cleanup() {
@@ -11,11 +12,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-sqlite3 -bail "$test_db" < "$migration"
+sqlite3 -bail "$test_db" < "$migration_one"
+sqlite3 -bail "$test_db" < "$migration_two"
 
-[[ "$(sqlite3 "$test_db" 'PRAGMA user_version;')" == "1" ]]
+[[ "$(sqlite3 "$test_db" 'PRAGMA user_version;')" == "2" ]]
 [[ -z "$(sqlite3 "$test_db" 'PRAGMA foreign_key_check;')" ]]
 [[ "$(sqlite3 "$test_db" 'SELECT count(*) FROM schema_migrations WHERE version = 1;')" == "1" ]]
+[[ "$(sqlite3 "$test_db" 'SELECT count(*) FROM schema_migrations WHERE version = 2;')" == "1" ]]
 [[ "$(sqlite3 "$test_db" 'SELECT count(*) FROM playback_state WHERE singleton_id = 1;')" == "1" ]]
 
 sqlite3 -bail "$test_db" <<'SQL'
@@ -48,9 +51,15 @@ WHERE singleton_id = 1;
 
 INSERT INTO settings (key, value_json, updated_at_ms)
 VALUES ('audio.quality', '{"stream":"lossless"}', 5);
+
+INSERT INTO listen_events (
+  event_id, device_id, provider, provider_id, started_at_ms,
+  ended_at_ms, listened_ms, track_duration_ms
+) VALUES ('event-a', 'device-a', 'tidal', 'track-a', 10, 100010, 100000, 180000);
 SQL
 
 [[ "$(sqlite3 "$test_db" 'SELECT provider_id FROM playback_queue ORDER BY play_position;')" == $'track-b\ntrack-a' ]]
+[[ "$(sqlite3 "$test_db" "SELECT listened_ms FROM listen_events WHERE event_id = 'event-a';")" == "100000" ]]
 
 if sqlite3 -bail "$test_db" \
   "PRAGMA foreign_keys = ON; INSERT INTO tracks (provider, provider_id, title, metadata_updated_at_ms) VALUES ('invalid', 'x', 'x', 1);" \

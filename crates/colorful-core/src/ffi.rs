@@ -6,6 +6,7 @@
 
 use crate::download::DownloadJob;
 use crate::engine::{Engine, EngineCommand, EngineEvent, PlaybackDirective};
+use crate::history::{ListenEvent, ListenStats};
 use crate::media::{MediaId, Track};
 use crate::playback::RepeatMode;
 use crate::queue::QueueEntryId;
@@ -96,6 +97,10 @@ enum WireCommand {
     RemoveDownload {
         id: MediaId,
     },
+    RecordListen {
+        track: Track,
+        event: ListenEvent,
+    },
 }
 
 impl From<WireCommand> for EngineCommand {
@@ -129,6 +134,7 @@ impl From<WireCommand> for EngineCommand {
             WireCommand::SetSetting { key, value_json } => Self::SetSetting { key, value_json },
             WireCommand::SaveDownload { track, job } => Self::SaveDownload { track, job },
             WireCommand::RemoveDownload { id } => Self::RemoveDownload(id),
+            WireCommand::RecordListen { track, event } => Self::RecordListen { track, event },
         }
     }
 }
@@ -189,6 +195,7 @@ enum WireEvent {
     DownloadRemoved {
         id: MediaId,
     },
+    HistoryChanged,
 }
 
 impl From<EngineEvent> for WireEvent {
@@ -203,6 +210,7 @@ impl From<EngineEvent> for WireEvent {
             EngineEvent::SettingChanged(key) => Self::SettingChanged { key },
             EngineEvent::DownloadChanged(job) => Self::DownloadChanged { job },
             EngineEvent::DownloadRemoved(id) => Self::DownloadRemoved { id },
+            EngineEvent::HistoryChanged => Self::HistoryChanged,
         }
     }
 }
@@ -216,6 +224,7 @@ struct Snapshot<'a> {
     playback: &'a crate::playback::PlaybackState,
     library: Vec<Track>,
     downloads: Vec<DownloadJob>,
+    listen_stats: ListenStats,
 }
 
 #[derive(Serialize)]
@@ -352,6 +361,7 @@ pub extern "C" fn colorful_engine_snapshot(handle: u64) -> *mut c_char {
             playback: engine.playback(),
             library: engine.library().map_err(|error| error.to_string())?,
             downloads: engine.downloads().map_err(|error| error.to_string())?,
+            listen_stats: engine.listen_stats().map_err(|error| error.to_string())?,
         };
         Ok(success(snapshot))
     })
@@ -401,6 +411,7 @@ pub unsafe extern "C" fn colorful_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::media::{ArtistCredit, Provider};
 
     fn response(pointer: *mut c_char) -> serde_json::Value {
         let json = unsafe { CStr::from_ptr(pointer) }
@@ -456,5 +467,52 @@ mod tests {
         let mapped = response(unsafe { colorful_tidal_map_tracks(fixture.as_ptr()) });
         assert!(mapped["ok"].as_bool().unwrap());
         assert_eq!(mapped["value"][0]["title"], "Brutal (Instrumental)");
+    }
+
+    #[test]
+    fn c_abi_records_listens_and_exposes_statistics() {
+        let path = CString::new(":memory:").unwrap();
+        let opened = response(unsafe { colorful_engine_open(path.as_ptr()) });
+        let handle = opened["value"]["handle"].as_u64().unwrap();
+        let track = Track {
+            id: MediaId::new(Provider::Tidal, "history").unwrap(),
+            title: "History".into(),
+            version: None,
+            artists: vec![ArtistCredit {
+                id: None,
+                name: "Artist".into(),
+            }],
+            album_id: None,
+            album_title: None,
+            artwork: None,
+            duration_ms: Some(120_000),
+            isrc: None,
+            explicit: None,
+        };
+        let event = ListenEvent {
+            event_id: "event-1".into(),
+            device_id: "device-1".into(),
+            media_id: track.id.clone(),
+            started_at_ms: 1,
+            ended_at_ms: 60_001,
+            listened_ms: 60_000,
+            track_duration_ms: track.duration_ms,
+        };
+        let command = CString::new(
+            serde_json::to_string(&serde_json::json!({
+                "command": "record_listen",
+                "track": track,
+                "event": event,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let dispatched = response(unsafe { colorful_engine_dispatch(handle, command.as_ptr()) });
+        assert_eq!(dispatched["value"]["events"][0]["event"], "history_changed");
+
+        let snapshot = response(colorful_engine_snapshot(handle));
+        assert_eq!(snapshot["value"]["listenStats"]["playCount"], 1);
+        assert_eq!(snapshot["value"]["listenStats"]["totalListenedMs"], 60_000);
+        assert!(colorful_engine_close(handle));
     }
 }

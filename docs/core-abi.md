@@ -46,6 +46,13 @@ array. Stable entry IDs remain the control identity, while the hydrated tracks
 let native shells restore artwork and metadata without maintaining a second
 queue database.
 
+Qualified listens enter through `record_listen`. The shell supplies a globally
+unique event ID and originating device ID, while the core validates the event,
+stores its track metadata transactionally, and ignores duplicate IDs. Snapshots
+expose `listenStats` with total audible time, play count, and top tracks/artists.
+Platform shells decide what counts as audible time; forward seeks, buffering,
+and pauses must not inflate the supplied duration.
+
 The ABI registry serializes access to each SQLite-backed engine, catches Rust
 panics before they cross the C boundary, validates UTF-8/JSON, and reports stale
 handles as errors. `colorful_core_abi_version()` lets a shell reject an

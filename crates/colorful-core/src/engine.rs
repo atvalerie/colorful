@@ -1,4 +1,5 @@
 use crate::download::DownloadJob;
+use crate::history::{ListenEvent, ListenStats};
 use crate::media::{MediaId, Track};
 use crate::playback::{PlaybackState, RepeatMode};
 use crate::queue::{PlaybackQueue, QueueEntryId, QueueSnapshot};
@@ -40,6 +41,10 @@ pub enum EngineCommand {
         job: DownloadJob,
     },
     RemoveDownload(MediaId),
+    RecordListen {
+        track: Track,
+        event: ListenEvent,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,12 +70,14 @@ pub enum EngineEvent {
     SettingChanged(String),
     DownloadChanged(DownloadJob),
     DownloadRemoved(MediaId),
+    HistoryChanged,
 }
 
 #[derive(Debug)]
 pub enum EngineError {
     Storage(StorageError),
     MissingTrack(MediaId),
+    InvalidListen,
 }
 
 impl fmt::Display for EngineError {
@@ -82,6 +89,7 @@ impl fmt::Display for EngineError {
                 "missing metadata for {} track {}",
                 id.provider, id.provider_id
             ),
+            Self::InvalidListen => formatter.write_str("invalid listening-history event"),
         }
     }
 }
@@ -160,6 +168,10 @@ impl Engine {
 
     pub fn downloads(&self) -> EngineResult<Vec<DownloadJob>> {
         Ok(self.storage.downloads()?)
+    }
+
+    pub fn listen_stats(&self) -> EngineResult<ListenStats> {
+        Ok(self.storage.listen_stats(None, 5)?)
     }
 
     pub fn dispatch(&mut self, command: EngineCommand) -> EngineResult<Vec<EngineEvent>> {
@@ -347,6 +359,14 @@ impl Engine {
                     events.push(EngineEvent::DownloadRemoved(id));
                 }
             }
+            EngineCommand::RecordListen { track, event } => {
+                if !event.is_valid() || event.media_id != track.id {
+                    return Err(EngineError::InvalidListen);
+                }
+                if self.storage.record_listen(&track, &event)? {
+                    events.push(EngineEvent::HistoryChanged);
+                }
+            }
         }
         if persist_playback {
             self.storage.save_playback(
@@ -511,6 +531,39 @@ mod tests {
                 .unwrap(),
             vec![EngineEvent::DownloadRemoved(job.media_id)]
         );
+    }
+
+    #[test]
+    fn qualified_listens_share_an_idempotent_statistics_boundary() {
+        let mut engine = Engine::open_in_memory().unwrap();
+        let track = track("history");
+        let event = ListenEvent {
+            event_id: "device-a:event-1".into(),
+            device_id: "device-a".into(),
+            media_id: track.id.clone(),
+            started_at_ms: 1,
+            ended_at_ms: 60_001,
+            listened_ms: 60_000,
+            track_duration_ms: track.duration_ms,
+        };
+        assert_eq!(
+            engine
+                .dispatch(EngineCommand::RecordListen {
+                    track: track.clone(),
+                    event: event.clone(),
+                })
+                .unwrap(),
+            vec![EngineEvent::HistoryChanged]
+        );
+        assert!(
+            engine
+                .dispatch(EngineCommand::RecordListen { track, event })
+                .unwrap()
+                .is_empty()
+        );
+        let stats = engine.listen_stats().unwrap();
+        assert_eq!(stats.play_count, 1);
+        assert_eq!(stats.total_listened_ms, 60_000);
     }
 
     #[test]

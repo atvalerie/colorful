@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QDateTime>
 #include <QDBusObjectPath>
 #include <QDir>
 #include <QFileInfo>
@@ -11,8 +12,10 @@
 #include <QNetworkReply>
 #include <QProcessEnvironment>
 #include <QSet>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QUrl>
+#include <QUuid>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -85,6 +88,13 @@ QColor normalizeAlbumAccent(const QColor &sampled)
 Backend::Backend(QObject *parent)
     : QObject(parent)
 {
+    QSettings settings;
+    m_deviceId = settings.value(QStringLiteral("identity/deviceId")).toString();
+    if (m_deviceId.isEmpty()) {
+        m_deviceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        settings.setValue(QStringLiteral("identity/deviceId"), m_deviceId);
+    }
+
     m_accentAnimation.setDuration(720);
     m_accentAnimation.setEasingCurve(QEasingCurve::OutCubic);
     connect(&m_accentAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
@@ -97,6 +107,8 @@ Backend::Backend(QObject *parent)
     m_checkpointTimer.setInterval(10'000);
     connect(&m_checkpointTimer, &QTimer::timeout, this, [this] {
         if (m_currentIndex < 0 || !playing()) return;
+        suspendListeningSession();
+        resumeListeningSession();
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                       {QStringLiteral("position_ms"), position()}});
     });
@@ -119,6 +131,8 @@ Backend::Backend(QObject *parent)
     });
 
     connect(&m_playback, &LinuxPlayback::stateChanged, this, [this] {
+        if (playing()) resumeListeningSession();
+        else suspendListeningSession();
         emit playbackChanged();
         updateDiscordPresence();
     });
@@ -131,6 +145,13 @@ Backend::Backend(QObject *parent)
     connect(&m_playback, &LinuxPlayback::durationChanged, this, &Backend::durationChanged);
     connect(&m_playback, &LinuxPlayback::volumeChanged, this, &Backend::volumeChanged);
     connect(&m_playback, &LinuxPlayback::loadingChanged, this, [this](bool loading) {
+        if (loading) {
+            suspendListeningSession();
+            m_playbackReady = false;
+        } else {
+            m_playbackReady = true;
+            resumeListeningSession();
+        }
         setBusy(loading);
         setStatus(loading ? QStringLiteral("Opening lossless stream…")
                           : QStringLiteral("Playing from TIDAL"));
@@ -140,6 +161,8 @@ Backend::Backend(QObject *parent)
         if (!loading) updateDiscordPresence();
     });
     connect(&m_playback, &LinuxPlayback::errorOccurred, this, [this](const QString &error) {
+        suspendListeningSession();
+        m_playbackReady = false;
         setBusy(false);
         setStatus(QStringLiteral("Playback error: %1").arg(error));
     });
@@ -150,11 +173,13 @@ Backend::Backend(QObject *parent)
                       {QStringLiteral("position_ms"), confirmedPositionMs}});
         emit positionChanged();
         emit seeked(confirmedPositionMs);
+        resumeListeningSession();
     });
     connect(&m_playback, &LinuxPlayback::seekFailed, this, [this](qint64, const QString &reason) {
         m_displayPositionOverride = -1;
         setStatus(QStringLiteral("Seek failed: %1").arg(reason));
         emit positionChanged();
+        resumeListeningSession();
     });
     connect(&m_playback, &LinuxPlayback::endOfMedia, this, &Backend::next);
 
@@ -164,6 +189,7 @@ Backend::Backend(QObject *parent)
 
 Backend::~Backend()
 {
+    finishListeningSession();
     if (m_currentIndex >= 0) {
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                       {QStringLiteral("position_ms"), position()}});
@@ -244,11 +270,14 @@ void Backend::refreshCoreSnapshot()
     const bool queueWasChanged = nextQueue != m_queue || nextEntryIds != m_queueEntryIds;
     const bool currentWasChanged = currentEntryId != m_currentEntryId;
     const bool libraryWasChanged = nextLibrary != m_library;
+    const auto nextListenStats = snapshot.value(QStringLiteral("listenStats")).toObject().toVariantMap();
+    const bool listenStatsWereChanged = nextListenStats != m_listenStats;
     m_queue = std::move(nextQueue);
     m_queueEntryIds = std::move(nextEntryIds);
     m_currentIndex = nextCurrentIndex;
     m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
+    m_listenStats = nextListenStats;
     if (currentWasChanged) {
         m_resumePositionMs = playback.value(QStringLiteral("positionMs")).toInteger();
         m_displayPositionOverride = m_resumePositionMs;
@@ -257,6 +286,7 @@ void Backend::refreshCoreSnapshot()
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
+    if (listenStatsWereChanged) emit listenStatsChanged();
 }
 
 QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
@@ -567,6 +597,7 @@ void Backend::removeQueueIndex(int index)
     if (index < 0 || index >= m_queueEntryIds.size()) return;
     const bool removingCurrent = index == m_currentIndex;
     const bool wasPlaying = playing();
+    if (removingCurrent) finishListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove")},
                   {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
     if (removingCurrent) {
@@ -605,6 +636,7 @@ void Backend::removeLibraryIndex(int index)
 void Backend::playTrackAt(int index)
 {
     if (index < 0 || index >= m_queueEntryIds.size()) return;
+    finishListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("select")},
                   {QStringLiteral("entry_id"), m_queueEntryIds.at(index)}});
     resolveCurrentSource();
@@ -616,6 +648,8 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     if (track.isEmpty()) return;
     const auto requestedTrackId = track.value(QStringLiteral("id")).toString();
     const auto sourceGeneration = ++m_sourceGeneration;
+    suspendListeningSession();
+    m_playbackReady = false;
     setBusy(true);
     setStatus(QStringLiteral("Getting playback source for %1…").arg(track.value(QStringLiteral("title")).toString()));
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());
@@ -662,6 +696,7 @@ void Backend::play()
 }
 void Backend::pause()
 {
+    suspendListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                   {QStringLiteral("position_ms"), position()}});
     dispatchCore({{QStringLiteral("command"), QStringLiteral("pause")}});
@@ -669,6 +704,7 @@ void Backend::pause()
 }
 void Backend::stop()
 {
+    finishListeningSession();
     ++m_sourceGeneration;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("stop")}});
     m_resumePositionMs = 0;
@@ -678,6 +714,7 @@ void Backend::stop()
 
 void Backend::next()
 {
+    finishListeningSession();
     if (!canGoNext()) {
         if (m_autoplayEnabled && m_currentIndex >= 0) requestRelatedAndContinue();
         else stop();
@@ -731,6 +768,7 @@ void Backend::previous()
 {
     if (position() > 3000 || m_currentIndex <= 0) seek(0);
     else {
+        finishListeningSession();
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                       {QStringLiteral("position_ms"), position()}});
         dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_previous")}});
@@ -740,10 +778,13 @@ void Backend::previous()
 
 void Backend::seek(qint64 positionMs)
 {
+    suspendListeningSession();
     const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, duration()));
     if (m_playback.seek(target)) {
         m_displayPositionOverride = target;
         emit positionChanged();
+    } else {
+        resumeListeningSession();
     }
 }
 
@@ -776,6 +817,77 @@ void Backend::updateDiscordPresence()
         m_playback.position(),
         duration(),
         playing());
+}
+
+QString Backend::trackKey(const QVariantMap &track) const
+{
+    return track.value(QStringLiteral("provider")).toString()
+        + QLatin1Char(':') + track.value(QStringLiteral("id")).toString();
+}
+
+void Backend::resumeListeningSession()
+{
+    if (!playing() || !m_playbackReady) return;
+    const auto track = currentTrack();
+    if (track.isEmpty()) return;
+    const auto key = trackKey(track);
+    if (key.isEmpty()) return;
+    if (!m_listenTrackKey.isEmpty() && m_listenTrackKey != key) finishListeningSession();
+    if (m_listenTrackKey.isEmpty()) {
+        m_listenTrack = track;
+        m_listenTrackKey = key;
+        m_listenStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+        m_listenedMs = 0;
+    }
+    if (!m_listenClock.isValid()) m_listenClock.start();
+}
+
+void Backend::suspendListeningSession()
+{
+    if (!m_listenClock.isValid()) return;
+    // The ten-second checkpoint normally bounds this delta. The cap prevents
+    // a suspended machine or blocked event loop from manufacturing hours of
+    // listening time when it wakes up.
+    m_listenedMs += std::min<qint64>(m_listenClock.elapsed(), 15'000);
+    m_listenClock.invalidate();
+}
+
+void Backend::finishListeningSession()
+{
+    suspendListeningSession();
+    if (m_listenTrackKey.isEmpty()) return;
+
+    const auto durationMs = m_listenTrack.value(QStringLiteral("durationMs")).toLongLong();
+    const auto thresholdMs = durationMs > 0
+        ? std::min<qint64>(durationMs / 2, 4 * 60 * 1000)
+        : 4 * 60 * 1000;
+    if (m_listenedMs >= thresholdMs && thresholdMs > 0) {
+        const auto endedAtMs = QDateTime::currentMSecsSinceEpoch();
+        const auto eventId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        dispatchCore({
+            {QStringLiteral("command"), QStringLiteral("record_listen")},
+            {QStringLiteral("track"), variantTrackToCore(m_listenTrack)},
+            {QStringLiteral("event"), QJsonObject{
+                {QStringLiteral("eventId"), eventId},
+                {QStringLiteral("deviceId"), m_deviceId},
+                {QStringLiteral("mediaId"), QJsonObject{
+                    {QStringLiteral("provider"), m_listenTrack.value(QStringLiteral("provider")).toString()},
+                    {QStringLiteral("providerId"), m_listenTrack.value(QStringLiteral("id")).toString()},
+                }},
+                {QStringLiteral("startedAtMs"), m_listenStartedAtMs},
+                {QStringLiteral("endedAtMs"), endedAtMs},
+                {QStringLiteral("listenedMs"), m_listenedMs},
+                {QStringLiteral("trackDurationMs"), durationMs > 0
+                    ? QJsonValue(durationMs) : QJsonValue(QJsonValue::Null)},
+            }},
+        });
+    }
+
+    m_listenClock.invalidate();
+    m_listenTrack.clear();
+    m_listenTrackKey.clear();
+    m_listenStartedAtMs = 0;
+    m_listenedMs = 0;
 }
 
 void Backend::loadAccent(const QString &artworkUrl)

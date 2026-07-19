@@ -5,6 +5,7 @@
 #include "linuxplayback.h"
 
 #include <QColor>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -38,6 +39,7 @@ class Backend final : public QObject
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(QColor accent READ accent NOTIFY accentChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
+    Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
 
 public:
     explicit Backend(QObject *parent = nullptr);
@@ -63,6 +65,7 @@ public:
     double volume() const { return m_playback.volume(); }
     QColor accent() const { return m_accent; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
+    QVariantMap listenStats() const { return m_listenStats; }
 
     QString playbackStatus() const;
     QVariantMap mprisMetadata() const;
@@ -111,6 +114,7 @@ signals:
     void volumeChanged();
     void accentChanged();
     void autoplayEnabledChanged();
+    void listenStatsChanged();
     void seeked(qint64 positionMs);
     void quitRequested();
     void raiseRequested();
@@ -138,6 +142,10 @@ private:
     static QVariantMap coreTrackToVariant(const QJsonObject &track);
     void loadAccent(const QString &artworkUrl);
     void updateDiscordPresence();
+    void resumeListeningSession();
+    void suspendListeningSession();
+    void finishListeningSession();
+    QString trackKey(const QVariantMap &track) const;
     QColor paletteColor(const QImage &image) const;
     static QVariantMap jsonTrackToVariant(const QJsonObject &track);
 
@@ -157,6 +165,7 @@ private:
     QVariantList m_searchResults;
     QVariantList m_queue;
     QVariantList m_library;
+    QVariantMap m_listenStats;
     QList<qint64> m_queueEntryIds;
     int m_currentIndex = -1;
     qint64 m_currentEntryId = -1;
@@ -174,4 +183,11 @@ private:
     QString m_pendingArtworkUrl;
     bool m_autoplayEnabled = true;
     bool m_relatedPending = false;
+    QElapsedTimer m_listenClock;
+    QVariantMap m_listenTrack;
+    QString m_listenTrackKey;
+    QString m_deviceId;
+    qint64 m_listenStartedAtMs = 0;
+    qint64 m_listenedMs = 0;
+    bool m_playbackReady = false;
 };
