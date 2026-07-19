@@ -122,7 +122,11 @@ Item {
                         Layout.fillWidth: true; Layout.preferredHeight: 76
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         RowLayout {
-                            anchors.fill: parent; anchors.margins: 15
+                            anchors.fill: parent
+                            anchors.leftMargin: 15
+                            anchors.topMargin: 15
+                            anchors.bottomMargin: 15
+                            anchors.rightMargin: 0
                             ColumnLayout { Layout.fillWidth: true; spacing: 3
                                 Text { text: "Autoplay"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
                                 Text { text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11 }
