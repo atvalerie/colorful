@@ -291,7 +291,7 @@ bool LinuxPlayback::performSeek(qint64 positionMs, AsyncOperation operation)
     const auto accepted = gst_element_seek_simple(
         m_playbin,
         GST_FORMAT_TIME,
-        static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT),
+        static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE),
         positionMs * GST_MSECOND);
     if (!accepted) {
         if (operation == AsyncOperation::UserSeek || operation == AsyncOperation::SourceRestoreSeek)
