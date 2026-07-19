@@ -6,6 +6,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QWindow>
+#include <clocale>
 
 int main(int argc, char *argv[])
 {
@@ -14,6 +15,10 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(QStringLiteral("colorful"));
     QGuiApplication::setOrganizationName(QStringLiteral("colorful"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+    // Qt adopts the user's locale during application construction. libmpv's
+    // client API requires the process-wide numeric locale to remain C so
+    // option and property values always use a decimal point.
+    std::setlocale(LC_NUMERIC, "C");
 
     Backend backend;
     MprisService mpris(&backend);
