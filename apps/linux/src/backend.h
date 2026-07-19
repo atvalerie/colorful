@@ -230,6 +230,7 @@ private:
     int nextQueueIndex() const;
     void beginNextDownload();
     void startDownloadTransfer(const QUrl &source);
+    void startDownloadFinalization();
     void finishDownloadTransfer(bool succeeded, const QString &error = {});
     void saveDownloadState(const QVariantMap &track, const QString &state,
                            const QString &localPath = {}, qint64 bytesDownloaded = 0,
@@ -237,6 +238,12 @@ private:
                            const QString &errorCode = {});
     QVariantMap downloadForTrack(const QString &provider, const QString &trackId) const;
     QString downloadPath(const QVariantMap &track, bool partial) const;
+    QString downloadPartsDirectory(const QVariantMap &track) const;
+    QString downloadAssemblyPath(const QVariantMap &track) const;
+    QStringList downloadPartFiles(const QVariantMap &track) const;
+    qint64 downloadWorkingBytes(const QVariantMap &track) const;
+    qint64 mediaDurationMs(const QString &path) const;
+    void removeDownloadWorkingFiles(const QVariantMap &track);
     QString downloadArtworkPath(const QVariantMap &track) const;
     void downloadArtwork(const QVariantMap &track);
     QString downloadsDirectory() const;
@@ -292,6 +299,9 @@ private:
     QVariantMap m_activeDownloadTrack;
     QProcess m_downloadProcess;
     QTimer m_downloadProgressTimer;
+    enum class DownloadProcessStage { Idle, Transfer, Finalize };
+    DownloadProcessStage m_downloadProcessStage = DownloadProcessStage::Idle;
+    QString m_activeDownloadPartPath;
     quint64 m_downloadGeneration = 0;
     bool m_cancelActiveDownload = false;
     bool m_removeActiveDownload = false;

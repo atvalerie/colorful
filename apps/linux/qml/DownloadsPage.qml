@@ -105,7 +105,8 @@ Item {
                     }
                     ColorButton {
                         text: modelData.downloadState === "complete" ? "Play"
-                              : modelData.downloadState === "paused" || modelData.downloadState === "failed" ? "Retry" : "Pause"
+                              : modelData.downloadState === "paused" ? "Resume"
+                              : modelData.downloadState === "failed" ? "Retry" : "Pause"
                         quiet: modelData.downloadState !== "complete"
                         onClicked: {
                             if (modelData.downloadState === "complete") colorful.playCatalogTrack(modelData)

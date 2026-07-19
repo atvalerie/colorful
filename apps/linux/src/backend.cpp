@@ -160,13 +160,19 @@ Backend::Backend(QObject *parent)
     m_downloadProgressTimer.setInterval(1000);
     connect(&m_downloadProgressTimer, &QTimer::timeout, this, [this] {
         if (m_activeDownloadTrack.isEmpty() || m_downloadProcess.state() == QProcess::NotRunning) return;
-        const auto size = QFileInfo(downloadPath(m_activeDownloadTrack, true)).size();
+        const auto size = downloadWorkingBytes(m_activeDownloadTrack);
         saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {}, std::max<qint64>(0, size));
     });
     connect(&m_downloadProcess, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this](int exitCode, QProcess::ExitStatus status) {
         const auto detail = QString::fromUtf8(m_downloadProcess.readAllStandardError()).trimmed();
-        finishDownloadTransfer(status == QProcess::NormalExit && exitCode == 0,
+        const bool succeeded = status == QProcess::NormalExit && exitCode == 0;
+        if (m_downloadProcessStage == DownloadProcessStage::Transfer && succeeded
+            && !m_cancelActiveDownload && !m_removeActiveDownload) {
+            startDownloadFinalization();
+            return;
+        }
+        finishDownloadTransfer(succeeded,
                                detail.isEmpty() ? QString{} : QStringLiteral("ffmpeg could not assemble the source"));
     });
     connect(&m_downloadProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
@@ -273,8 +279,11 @@ Backend::~Backend()
     }
     if (m_downloadProcess.state() != QProcess::NotRunning) {
         m_cancelActiveDownload = true;
-        m_downloadProcess.kill();
-        m_downloadProcess.waitForFinished(1200);
+        m_downloadProcess.terminate();
+        if (!m_downloadProcess.waitForFinished(1200)) {
+            m_downloadProcess.kill();
+            m_downloadProcess.waitForFinished(1200);
+        }
     }
 }
 
@@ -1158,6 +1167,65 @@ QString Backend::downloadPath(const QVariantMap &track, bool partial) const
         + (partial ? QStringLiteral(".part.mka") : QStringLiteral(".mka")));
 }
 
+QString Backend::downloadPartsDirectory(const QVariantMap &track) const
+{
+    const auto identity = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+        + QLatin1Char(':') + track.value(QStringLiteral("id")).toString();
+    const auto digest = QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex();
+    return QDir(downloadsDirectory()).filePath(QString::fromLatin1(digest) + QStringLiteral(".parts"));
+}
+
+QString Backend::downloadAssemblyPath(const QVariantMap &track) const
+{
+    const auto identity = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+        + QLatin1Char(':') + track.value(QStringLiteral("id")).toString();
+    const auto digest = QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex();
+    return QDir(downloadsDirectory()).filePath(QString::fromLatin1(digest) + QStringLiteral(".assembling.mka"));
+}
+
+QStringList Backend::downloadPartFiles(const QVariantMap &track) const
+{
+    const QDir directory(downloadPartsDirectory(track));
+    QStringList files;
+    for (const auto &name : directory.entryList({QStringLiteral("*.mka")}, QDir::Files, QDir::Name))
+        files.append(directory.filePath(name));
+    return files;
+}
+
+qint64 Backend::downloadWorkingBytes(const QVariantMap &track) const
+{
+    qint64 total = 0;
+    for (const auto &path : downloadPartFiles(track)) total += std::max<qint64>(0, QFileInfo(path).size());
+    return total;
+}
+
+qint64 Backend::mediaDurationMs(const QString &path) const
+{
+    const auto ffprobe = QStandardPaths::findExecutable(QStringLiteral("ffprobe"));
+    if (ffprobe.isEmpty() || path.isEmpty() || !QFileInfo::exists(path)) return 0;
+    QProcess probe;
+    probe.setProgram(ffprobe);
+    probe.setArguments({
+        QStringLiteral("-v"), QStringLiteral("error"),
+        QStringLiteral("-show_entries"), QStringLiteral("format=duration"),
+        QStringLiteral("-of"), QStringLiteral("default=noprint_wrappers=1:nokey=1"),
+        path,
+    });
+    probe.start();
+    if (!probe.waitForStarted(2000) || !probe.waitForFinished(10'000)
+        || probe.exitStatus() != QProcess::NormalExit || probe.exitCode() != 0) return 0;
+    bool valid = false;
+    const auto seconds = QString::fromUtf8(probe.readAllStandardOutput()).trimmed().toDouble(&valid);
+    return valid && seconds > 0 ? qRound64(seconds * 1000.0) : 0;
+}
+
+void Backend::removeDownloadWorkingFiles(const QVariantMap &track)
+{
+    QFile::remove(downloadPath(track, true));
+    QFile::remove(downloadAssemblyPath(track));
+    QDir(downloadPartsDirectory(track)).removeRecursively();
+}
+
 QString Backend::downloadArtworkPath(const QVariantMap &track) const
 {
     const auto identity = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
@@ -1252,7 +1320,6 @@ void Backend::downloadTrack(const QVariantMap &track)
     for (const auto &queued : m_downloadQueue) {
         if (queued.value(QStringLiteral("id")).toString() == trackId) return;
     }
-    QFile::remove(downloadPath(track, true));
     saveDownloadState(track, QStringLiteral("queued"));
     m_downloadQueue.append(track);
     notify(QStringLiteral("Queued %1 for offline download").arg(track.value(QStringLiteral("title")).toString()));
@@ -1309,20 +1376,132 @@ void Backend::startDownloadTransfer(const QUrl &source)
         finishDownloadTransfer(false, QStringLiteral("ffmpeg is required to assemble offline audio"));
         return;
     }
-    const auto partialPath = downloadPath(m_activeDownloadTrack, true);
-    QFile::remove(partialPath);
-    saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"));
+    if (QStandardPaths::findExecutable(QStringLiteral("ffprobe")).isEmpty()) {
+        finishDownloadTransfer(false, QStringLiteral("ffprobe is required for resumable offline audio"));
+        return;
+    }
+
+    const auto partsDirectory = downloadPartsDirectory(m_activeDownloadTrack);
+    if (!QDir().mkpath(partsDirectory)) {
+        finishDownloadTransfer(false, QStringLiteral("Could not create the download checkpoint directory"));
+        return;
+    }
+    const auto legacyPartial = downloadPath(m_activeDownloadTrack, true);
+    if (QFileInfo::exists(legacyPartial) && downloadPartFiles(m_activeDownloadTrack).isEmpty()) {
+        const auto migratedPath = QDir(partsDirectory).filePath(QStringLiteral("000000.mka"));
+        if (!QFile::rename(legacyPartial, migratedPath)) QFile::remove(legacyPartial);
+    }
+
+    qint64 resumePositionMs = 0;
+    bool discardRemainder = false;
+    const auto existingParts = downloadPartFiles(m_activeDownloadTrack);
+    for (const auto &part : existingParts) {
+        const auto partDurationMs = discardRemainder ? 0 : mediaDurationMs(part);
+        if (partDurationMs <= 0) {
+            discardRemainder = true;
+            QFile::remove(part);
+        } else {
+            resumePositionMs += partDurationMs;
+        }
+    }
+
+    const auto catalogDurationMs = m_activeDownloadTrack.value(QStringLiteral("durationMs")).toLongLong();
+    if (!downloadPartFiles(m_activeDownloadTrack).isEmpty() && catalogDurationMs > 0
+        && resumePositionMs >= catalogDurationMs - 500) {
+        saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
+                          downloadWorkingBytes(m_activeDownloadTrack));
+        startDownloadFinalization();
+        return;
+    }
+
+    const auto partNumber = downloadPartFiles(m_activeDownloadTrack).size();
+    m_activeDownloadPartPath = QDir(partsDirectory).filePath(
+        QStringLiteral("%1.mka").arg(partNumber, 6, 10, QLatin1Char('0')));
+    QFile::remove(m_activeDownloadPartPath);
+    saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
+                      downloadWorkingBytes(m_activeDownloadTrack));
+    m_downloadProcess.setProgram(ffmpeg);
+    QStringList arguments{
+        QStringLiteral("-nostdin"), QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
+        QStringLiteral("-y"),
+    };
+    const auto fastSeekMs = std::max<qint64>(0, resumePositionMs - 8'000);
+    const auto preciseTrimMs = resumePositionMs - fastSeekMs;
+    if (fastSeekMs > 0) {
+        arguments.append({QStringLiteral("-ss"),
+                          QString::number(fastSeekMs / 1000.0, 'f', 3)});
+    }
+    arguments.append({QStringLiteral("-i"), source.toString()});
+    // DASH input seeking lands on a segment boundary. A small output-side
+    // trim removes that overlap exactly while only re-reading a few seconds.
+    if (preciseTrimMs > 0) {
+        arguments.append({QStringLiteral("-ss"),
+                          QString::number(preciseTrimMs / 1000.0, 'f', 3)});
+    }
+    arguments.append({
+        QStringLiteral("-map"), QStringLiteral("0:a:0"), QStringLiteral("-vn"),
+        QStringLiteral("-c:a"), QStringLiteral("copy"), QStringLiteral("-f"), QStringLiteral("matroska"),
+        m_activeDownloadPartPath,
+    });
+    m_downloadProcess.setArguments(arguments);
+    m_downloadProcess.setProcessChannelMode(QProcess::SeparateChannels);
+    m_downloadProcessStage = DownloadProcessStage::Transfer;
+    m_downloadProcess.start();
+    m_downloadProgressTimer.start();
+    setStatus(resumePositionMs > 0
+        ? QStringLiteral("Resuming %1…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString())
+        : QStringLiteral("Downloading %1…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
+}
+
+void Backend::startDownloadFinalization()
+{
+    if (m_activeDownloadTrack.isEmpty()) return;
+    const auto parts = downloadPartFiles(m_activeDownloadTrack);
+    if (parts.isEmpty()) {
+        finishDownloadTransfer(false, QStringLiteral("No completed download chunks were found"));
+        return;
+    }
+    const auto ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    if (ffmpeg.isEmpty()) {
+        finishDownloadTransfer(false, QStringLiteral("ffmpeg is required to finalize offline audio"));
+        return;
+    }
+
+    const auto listPath = QDir(downloadPartsDirectory(m_activeDownloadTrack)).filePath(QStringLiteral("concat.txt"));
+    QSaveFile listFile(listPath);
+    if (!listFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        finishDownloadTransfer(false, QStringLiteral("Could not create the download assembly plan"));
+        return;
+    }
+    for (const auto &part : parts) {
+        auto escaped = part;
+        escaped.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+        const auto line = QStringLiteral("file '%1'\n").arg(escaped).toUtf8();
+        if (listFile.write(line) != line.size()) {
+            listFile.cancelWriting();
+            finishDownloadTransfer(false, QStringLiteral("Could not write the download assembly plan"));
+            return;
+        }
+    }
+    if (!listFile.commit()) {
+        finishDownloadTransfer(false, QStringLiteral("Could not save the download assembly plan"));
+        return;
+    }
+
+    const auto assemblyPath = downloadAssemblyPath(m_activeDownloadTrack);
+    QFile::remove(assemblyPath);
     m_downloadProcess.setProgram(ffmpeg);
     m_downloadProcess.setArguments({
         QStringLiteral("-nostdin"), QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
-        QStringLiteral("-y"), QStringLiteral("-i"), source.toString(),
-        QStringLiteral("-map"), QStringLiteral("0:a:0"), QStringLiteral("-vn"),
-        QStringLiteral("-c:a"), QStringLiteral("copy"), QStringLiteral("-f"), QStringLiteral("matroska"), partialPath,
+        QStringLiteral("-y"), QStringLiteral("-f"), QStringLiteral("concat"), QStringLiteral("-safe"), QStringLiteral("0"),
+        QStringLiteral("-i"), listPath, QStringLiteral("-map"), QStringLiteral("0:a:0"), QStringLiteral("-vn"),
+        QStringLiteral("-c:a"), QStringLiteral("copy"), QStringLiteral("-f"), QStringLiteral("matroska"), assemblyPath,
     });
     m_downloadProcess.setProcessChannelMode(QProcess::SeparateChannels);
+    m_downloadProcessStage = DownloadProcessStage::Finalize;
     m_downloadProcess.start();
     m_downloadProgressTimer.start();
-    setStatus(QStringLiteral("Downloading %1…")
+    setStatus(QStringLiteral("Finalizing %1…")
                   .arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
 }
 
@@ -1331,17 +1510,19 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
     if (m_activeDownloadTrack.isEmpty()) return;
     m_downloadProgressTimer.stop();
     const auto track = m_activeDownloadTrack;
-    const auto partialPath = downloadPath(track, true);
+    const auto assemblyPath = downloadAssemblyPath(track);
     const auto finalPath = downloadPath(track, false);
-    const auto partialSize = std::max<qint64>(0, QFileInfo(partialPath).size());
+    const auto assemblySize = std::max<qint64>(0, QFileInfo(assemblyPath).size());
     const bool remove = m_removeActiveDownload;
     const bool cancel = m_cancelActiveDownload;
     m_activeDownloadTrack.clear();
+    m_activeDownloadPartPath.clear();
+    m_downloadProcessStage = DownloadProcessStage::Idle;
     m_cancelActiveDownload = false;
     m_removeActiveDownload = false;
 
     if (remove) {
-        QFile::remove(partialPath);
+        removeDownloadWorkingFiles(track);
         QFile::remove(finalPath);
         QFile::remove(downloadArtworkPath(track));
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
@@ -1349,21 +1530,26 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
                                                          {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
         notify(QStringLiteral("Removed offline copy of %1").arg(track.value(QStringLiteral("title")).toString()));
     } else if (cancel) {
-        saveDownloadState(track, QStringLiteral("paused"), {}, partialSize);
+        QFile::remove(assemblyPath);
+        saveDownloadState(track, QStringLiteral("paused"), {}, downloadWorkingBytes(track));
         notify(QStringLiteral("Paused offline download for %1").arg(track.value(QStringLiteral("title")).toString()));
-    } else if (!succeeded || partialSize <= 0) {
-        saveDownloadState(track, QStringLiteral("failed"), {}, partialSize, std::nullopt,
+    } else if (!succeeded || assemblySize <= 0) {
+        QFile::remove(assemblyPath);
+        saveDownloadState(track, QStringLiteral("failed"), {}, downloadWorkingBytes(track), std::nullopt,
                           QStringLiteral("transfer_failed"));
         notify(QStringLiteral("Download failed: %1").arg(error.isEmpty() ? QStringLiteral("empty output") : error),
                QStringLiteral("error"));
     } else {
         QFile::remove(finalPath);
-        if (!QFile::rename(partialPath, finalPath)) {
-            saveDownloadState(track, QStringLiteral("failed"), {}, partialSize, std::nullopt,
+        if (!QFile::rename(assemblyPath, finalPath)) {
+            saveDownloadState(track, QStringLiteral("failed"), {}, downloadWorkingBytes(track), std::nullopt,
                               QStringLiteral("finalize_failed"));
             notify(QStringLiteral("Could not finalize the offline file"), QStringLiteral("error"));
         } else {
-            saveDownloadState(track, QStringLiteral("complete"), finalPath, partialSize, partialSize);
+            const auto finalSize = std::max<qint64>(0, QFileInfo(finalPath).size());
+            QDir(downloadPartsDirectory(track)).removeRecursively();
+            QFile::remove(downloadPath(track, true));
+            saveDownloadState(track, QStringLiteral("complete"), finalPath, finalSize, finalSize);
             downloadArtwork(track);
             notify(QStringLiteral("%1 is ready offline").arg(track.value(QStringLiteral("title")).toString()),
                    QStringLiteral("success"));
@@ -1377,7 +1563,7 @@ void Backend::pauseDownload(const QString &trackId)
     for (qsizetype index = 0; index < m_downloadQueue.size(); ++index) {
         if (m_downloadQueue.at(index).value(QStringLiteral("id")).toString() != trackId) continue;
         const auto track = m_downloadQueue.takeAt(index);
-        saveDownloadState(track, QStringLiteral("paused"));
+        saveDownloadState(track, QStringLiteral("paused"), {}, downloadWorkingBytes(track));
         notify(QStringLiteral("Paused offline download for %1")
                    .arg(track.value(QStringLiteral("title")).toString()));
         return;
@@ -1401,7 +1587,7 @@ void Backend::removeDownload(const QString &trackId)
     for (qsizetype index = 0; index < m_downloadQueue.size(); ++index) {
         if (m_downloadQueue.at(index).value(QStringLiteral("id")).toString() != trackId) continue;
         const auto track = m_downloadQueue.takeAt(index);
-        QFile::remove(downloadPath(track, true));
+        removeDownloadWorkingFiles(track);
         QFile::remove(downloadPath(track, false));
         QFile::remove(downloadArtworkPath(track));
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
@@ -1421,7 +1607,7 @@ void Backend::removeDownload(const QString &trackId)
     const auto existing = downloadForTrack(QStringLiteral("tidal"), trackId);
     if (existing.isEmpty()) return;
     QFile::remove(existing.value(QStringLiteral("localPath")).toString());
-    QFile::remove(downloadPath(existing, true));
+    removeDownloadWorkingFiles(existing);
     QFile::remove(downloadArtworkPath(existing));
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                   {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), existing.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
