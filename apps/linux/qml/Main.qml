@@ -714,7 +714,7 @@ ApplicationWindow {
                                     if (window.now.id) colorful.openTrack(window.now.id)
                                 }
                             }
-                            Row {
+                            RowLayout {
                                 id: playerMetadataLine
                                 Layout.fillWidth: true
                                 height: 16
@@ -722,7 +722,11 @@ ApplicationWindow {
                                 clip: true
                                 Row {
                                     visible: (window.now.artistCredits || []).length > 0
+                                    Layout.preferredWidth: Math.min(implicitWidth,
+                                        playerMetadataLine.width * (window.now.albumId ? 0.52 : 1))
+                                    Layout.maximumWidth: playerMetadataLine.width * (window.now.albumId ? 0.52 : 1)
                                     spacing: 3
+                                    clip: true
                                     Repeater {
                                         model: window.now.artistCredits || []
                                         delegate: Row {
@@ -747,6 +751,8 @@ ApplicationWindow {
                                 }
                                 Text {
                                     visible: !(window.now.artistCredits || []).length
+                                    Layout.preferredWidth: implicitWidth
+                                    Layout.maximumWidth: playerMetadataLine.width * (window.now.albumId ? 0.52 : 1)
                                     text: "Choose a track"
                                     color: window.mutedInk
                                     elide: Text.ElideRight
@@ -760,7 +766,8 @@ ApplicationWindow {
                                 }
                                 MetadataLink {
                                     visible: Boolean(window.now.albumId)
-                                    width: Math.max(0, playerMetadataLine.width - x)
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                     text: window.now.albumTitle || "Open album"
                                     normalColor: window.mutedInk
                                     elide: Text.ElideRight
