@@ -206,7 +206,10 @@ Backend::Backend(QObject *parent)
         // A track-to-track URI swap keeps the logical state Playing, so there
         // is intentionally no stateChanged signal to refresh integrations.
         // Publish the new timeline once its preroll (and restore seek) ends.
-        if (!loading) updateDiscordPresence();
+        if (!loading) {
+            updateDiscordPresence();
+            prepareNextSource();
+        }
     });
     connect(&m_playback, &LinuxPlayback::errorOccurred, this, [this](const QString &error) {
         suspendListeningSession();
@@ -230,6 +233,17 @@ Backend::Backend(QObject *parent)
         resumeListeningSession();
     });
     connect(&m_playback, &LinuxPlayback::endOfMedia, this, &Backend::next);
+    connect(&m_playback, &LinuxPlayback::preparedNextStarted, this, &Backend::advancePreparedTrack);
+    connect(&m_playback, &LinuxPlayback::preparedNextFailed, this, [this](const QString &) {
+        ++m_prepareGeneration;
+        m_preparedEntryId = -1;
+        m_preparedLocalSource = false;
+    });
+    connect(&m_playback, &LinuxPlayback::preparedPlaybackFailed, this, [this](const QString &) {
+        m_playbackReady = false;
+        setStatus(QStringLiteral("Refreshing the next playback source…"));
+        resolveCurrentSource(0, playing());
+    });
 
     openCore();
     const auto restoredDownloads = m_downloads;
@@ -316,11 +330,13 @@ void Backend::refreshCoreSnapshot()
     const auto playback = snapshot.value(QStringLiteral("playback")).toObject();
     const auto queue = snapshot.value(QStringLiteral("queue")).toObject();
     const auto entries = queue.value(QStringLiteral("entries")).toArray();
+    const auto playOrder = queue.value(QStringLiteral("playOrder")).toArray();
     const auto tracks = snapshot.value(QStringLiteral("queueTracks")).toArray();
     const auto currentEntryId = queue.value(QStringLiteral("current")).toInteger(-1);
 
     QVariantList nextQueue;
     QList<qint64> nextEntryIds;
+    QList<qint64> nextPlayOrderEntryIds;
     int nextCurrentIndex = -1;
     const auto count = std::min(entries.size(), tracks.size());
     for (qsizetype index = 0; index < count; ++index) {
@@ -329,6 +345,7 @@ void Backend::refreshCoreSnapshot()
         nextQueue.append(coreTrackToVariant(tracks.at(index).toObject()));
         if (entryId == currentEntryId) nextCurrentIndex = static_cast<int>(index);
     }
+    for (const auto &entryId : playOrder) nextPlayOrderEntryIds.append(entryId.toInteger());
 
     QVariantList nextLibrary;
     for (const auto &track : snapshot.value(QStringLiteral("library")).toArray()) {
@@ -351,7 +368,8 @@ void Backend::refreshCoreSnapshot()
     }
 
     const auto previousArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
-    const bool queueWasChanged = nextQueue != m_queue || nextEntryIds != m_queueEntryIds;
+    const bool queueWasChanged = nextQueue != m_queue || nextEntryIds != m_queueEntryIds
+        || nextPlayOrderEntryIds != m_playOrderEntryIds;
     const bool currentWasChanged = currentEntryId != m_currentEntryId;
     const bool libraryWasChanged = nextLibrary != m_library;
     const bool downloadsWereChanged = nextDownloads != m_downloads;
@@ -359,6 +377,7 @@ void Backend::refreshCoreSnapshot()
     const bool listenStatsWereChanged = nextListenStats != m_listenStats;
     m_queue = std::move(nextQueue);
     m_queueEntryIds = std::move(nextEntryIds);
+    m_playOrderEntryIds = std::move(nextPlayOrderEntryIds);
     m_currentIndex = nextCurrentIndex;
     m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
@@ -511,7 +530,14 @@ QVariantMap Backend::mprisMetadata() const
     return metadata;
 }
 
-bool Backend::canGoNext() const { return m_currentIndex >= 0 && m_currentIndex + 1 < m_queue.size(); }
+int Backend::nextQueueIndex() const
+{
+    const auto playIndex = m_playOrderEntryIds.indexOf(m_currentEntryId);
+    if (playIndex < 0 || playIndex + 1 >= m_playOrderEntryIds.size()) return -1;
+    return m_queueEntryIds.indexOf(m_playOrderEntryIds.at(playIndex + 1));
+}
+
+bool Backend::canGoNext() const { return nextQueueIndex() >= 0; }
 bool Backend::canGoPrevious() const { return m_currentIndex > 0 || (m_currentIndex == 0 && position() > 3000); }
 
 void Backend::startProviderHost()
@@ -977,6 +1003,7 @@ void Backend::enqueueTrack(const QVariantMap &track)
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
                   {QStringLiteral("track"), variantTrackToCore(track)}});
+    prepareNextSource();
 }
 
 void Backend::saveTrack(const QVariantMap &track)
@@ -1071,7 +1098,7 @@ void Backend::removeQueueIndex(int index)
     if (removingCurrent) {
         if (m_currentIndex >= 0) resolveCurrentSource(0, wasPlaying);
         else m_playback.clearSource();
-    }
+    } else prepareNextSource();
     notify(QStringLiteral("Removed %1 from the queue").arg(title));
 }
 
@@ -1414,6 +1441,7 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     if (track.isEmpty()) return;
     const auto requestedTrackId = track.value(QStringLiteral("id")).toString();
     const auto sourceGeneration = ++m_sourceGeneration;
+    invalidatePreparedNext();
     suspendListeningSession();
     m_playbackReady = false;
     const auto offline = downloadForTrack(
@@ -1461,6 +1489,88 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     });
 }
 
+void Backend::invalidatePreparedNext()
+{
+    ++m_prepareGeneration;
+    m_preparedEntryId = -1;
+    m_preparedLocalSource = false;
+    m_playback.clearPreparedNext();
+}
+
+void Backend::prepareNextSource()
+{
+    if (!m_playback.hasSource() || !m_playbackReady || !canGoNext()) {
+        if (m_preparedEntryId >= 0 || m_playback.hasPreparedNext()) invalidatePreparedNext();
+        return;
+    }
+
+    const auto nextIndex = nextQueueIndex();
+    if (nextIndex < 0) return;
+    const auto entryId = m_queueEntryIds.value(nextIndex, -1);
+    if (entryId < 0) return;
+    if (entryId == m_preparedEntryId && m_playback.hasPreparedNext()) return;
+
+    invalidatePreparedNext();
+    const auto generation = m_prepareGeneration;
+    const auto track = m_queue.at(nextIndex).toMap();
+    const auto trackId = track.value(QStringLiteral("id")).toString();
+    const auto offline = downloadForTrack(
+        track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString(), trackId);
+    const auto localPath = offline.value(QStringLiteral("localPath")).toString();
+    if (offline.value(QStringLiteral("downloadState")).toString() == QStringLiteral("complete")
+        && !localPath.isEmpty() && QFileInfo::exists(localPath)) {
+        m_preparedEntryId = entryId;
+        m_preparedLocalSource = true;
+        m_playback.prepareNextSource(QUrl::fromLocalFile(localPath));
+        return;
+    }
+
+    request(QStringLiteral("source"), {
+        {QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+        {QStringLiteral("trackId"), trackId},
+        {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")},
+        {QStringLiteral("quality"), m_streamQuality},
+    }, [this, generation, entryId, trackId](const QJsonObject &message) {
+        const auto nextIndex = nextQueueIndex();
+        if (generation != m_prepareGeneration || nextIndex < 0
+            || m_queueEntryIds.value(nextIndex, -1) != entryId
+            || m_queue.value(nextIndex).toMap().value(QStringLiteral("id")).toString() != trackId)
+            return;
+        if (!message.value(QStringLiteral("ok")).toBool()) return;
+        const auto uri = message.value(QStringLiteral("data")).toObject().value(QStringLiteral("uri")).toString();
+        if (uri.isEmpty()) return;
+        m_preparedEntryId = entryId;
+        m_preparedLocalSource = false;
+        m_playback.prepareNextSource(QUrl(uri));
+    });
+}
+
+void Backend::advancePreparedTrack()
+{
+    if (m_preparedEntryId < 0) {
+        next();
+        return;
+    }
+    const auto expectedEntryId = m_preparedEntryId;
+    const auto localSource = m_preparedLocalSource;
+    m_preparedEntryId = -1;
+    m_preparedLocalSource = false;
+    ++m_prepareGeneration;
+
+    finishListeningSession();
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
+                  {QStringLiteral("position_ms"), duration()}});
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_next")}});
+    if (m_currentEntryId != expectedEntryId) {
+        resolveCurrentSource();
+        return;
+    }
+    m_playingLocalSource = localSource;
+    m_resumePositionMs = 0;
+    m_displayPositionOverride = -1;
+    emit positionChanged();
+}
+
 void Backend::togglePlay() { playing() ? pause() : play(); }
 void Backend::play()
 {
@@ -1499,10 +1609,26 @@ void Backend::next()
         else stop();
         return;
     }
+    const bool autoplay = playing();
+    const auto nextIndex = nextQueueIndex();
+    const auto nextEntryId = m_queueEntryIds.value(nextIndex, -1);
     dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                   {QStringLiteral("position_ms"), position()}});
     dispatchCore({{QStringLiteral("command"), QStringLiteral("skip_next")}});
-    resolveCurrentSource();
+    if (nextEntryId >= 0 && nextEntryId == m_preparedEntryId) {
+        const auto localSource = m_preparedLocalSource;
+        m_preparedEntryId = -1;
+        m_preparedLocalSource = false;
+        ++m_prepareGeneration;
+        if (m_playback.playPreparedNext(autoplay)) {
+            m_playingLocalSource = localSource;
+            m_resumePositionMs = 0;
+            m_displayPositionOverride = -1;
+            emit positionChanged();
+            return;
+        }
+    }
+    resolveCurrentSource(0, autoplay);
 }
 
 void Backend::requestRelatedAndContinue()

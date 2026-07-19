@@ -24,6 +24,10 @@ public:
     bool seekable() const { return m_seekable; }
 
     void setSource(const QUrl &source, qint64 startPositionMs, bool autoplay);
+    void prepareNextSource(const QUrl &source);
+    void clearPreparedNext();
+    bool playPreparedNext(bool autoplay);
+    bool hasPreparedNext() const { return !m_preparedSource.isEmpty(); }
     void clearSource();
     void play();
     void pause();
@@ -41,7 +45,9 @@ signals:
     void seekFailed(qint64 positionMs, const QString &reason);
     void errorOccurred(const QString &message);
     void endOfMedia();
-    void aboutToFinish();
+    void preparedNextStarted();
+    void preparedNextFailed(const QString &reason);
+    void preparedPlaybackFailed(const QString &reason);
 
 private:
     void drainEvents();
@@ -50,12 +56,14 @@ private:
     void setSeekSilence(bool enabled);
     void setPauseProperty(bool paused);
     void setLogicalState(State state);
+    void promotePreparedSource(bool notifyOwner);
     void finishLoading();
     void command(const char *arguments[], quint64 requestId = 0);
     static void handleWakeup(void *userData);
 
     mpv_handle *m_mpv = nullptr;
     QUrl m_source;
+    QUrl m_preparedSource;
     State m_state = State::Stopped;
     State m_desiredState = State::Stopped;
     qint64 m_positionMs = 0;
@@ -65,8 +73,10 @@ private:
     bool m_seekable = false;
     bool m_loading = false;
     bool m_seekSilenceActive = false;
+    bool m_currentWasPrepared = false;
     quint64 m_nextRequestId = 1;
     quint64 m_seekRequestId = 0;
     quint64 m_loadRequestId = 0;
+    quint64 m_prepareRequestId = 0;
     double m_volume = 0.78;
 };

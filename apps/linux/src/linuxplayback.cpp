@@ -33,6 +33,11 @@ LinuxPlayback::LinuxPlayback(QObject *parent)
     mpv_set_option_string(m_mpv, "audio-display", "no");
     mpv_set_option_string(m_mpv, "ytdl", "no");
     mpv_set_option_string(m_mpv, "cache", "yes");
+    // Keep the audio output and decoder transition inside libmpv. With one
+    // upcoming URI in its playlist, libmpv can prefetch network data and
+    // switch tracks without colorful replacing the active file at EOF.
+    mpv_set_option_string(m_mpv, "gapless-audio", "yes");
+    mpv_set_option_string(m_mpv, "prefetch-playlist", "yes");
     const auto initialVolume = QByteArray::number(m_volume * 100.0, 'f', 2);
     mpv_set_option_string(m_mpv, "volume", initialVolume.constData());
 
@@ -63,6 +68,9 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     if (!m_mpv || !source.isValid() || source.isEmpty()) return;
     setSeekSilence(false);
     m_source = source;
+    m_preparedSource = QUrl();
+    m_prepareRequestId = 0;
+    m_currentWasPrepared = false;
     m_positionMs = std::max<qint64>(0, startPositionMs);
     m_durationMs = 0;
     m_seekable = false;
@@ -85,6 +93,39 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     command(arguments, m_loadRequestId);
 }
 
+void LinuxPlayback::prepareNextSource(const QUrl &source)
+{
+    if (!m_mpv || !hasSource() || !source.isValid() || source.isEmpty()) return;
+    if (m_preparedSource == source) return;
+
+    clearPreparedNext();
+    m_preparedSource = source;
+    const auto uri = source.toEncoded();
+    const char *arguments[] = {"loadfile", uri.constData(), "append", nullptr};
+    m_prepareRequestId = m_nextRequestId++;
+    command(arguments, m_prepareRequestId);
+}
+
+void LinuxPlayback::clearPreparedNext()
+{
+    if (!m_mpv || m_preparedSource.isEmpty()) return;
+    m_preparedSource = QUrl();
+    m_prepareRequestId = 0;
+    const char *arguments[] = {"playlist-clear", nullptr};
+    command(arguments);
+}
+
+bool LinuxPlayback::playPreparedNext(bool autoplay)
+{
+    if (!m_mpv || m_preparedSource.isEmpty()) return false;
+    m_desiredState = autoplay ? State::Playing : State::Paused;
+    setLogicalState(m_desiredState);
+    promotePreparedSource(false);
+    const char *arguments[] = {"playlist-next", "force", nullptr};
+    command(arguments);
+    return true;
+}
+
 void LinuxPlayback::clearSource()
 {
     if (!m_mpv) return;
@@ -92,6 +133,9 @@ void LinuxPlayback::clearSource()
     const char *arguments[] = {"stop", nullptr};
     command(arguments);
     m_source = QUrl();
+    m_preparedSource = QUrl();
+    m_prepareRequestId = 0;
+    m_currentWasPrepared = false;
     m_positionMs = 0;
     m_durationMs = 0;
     m_seekable = false;
@@ -222,15 +266,28 @@ void LinuxPlayback::drainEvents()
             } else if (event->reply_userdata == m_loadRequestId) {
                 finishLoading();
                 emit errorOccurred(QStringLiteral("libmpv could not load the stream: %1").arg(mpvError(event->error)));
+            } else if (event->reply_userdata == m_prepareRequestId) {
+                m_preparedSource = QUrl();
+                m_prepareRequestId = 0;
+                emit preparedNextFailed(mpvError(event->error));
             }
             break;
         case MPV_EVENT_END_FILE: {
             setSeekSilence(false);
             const auto *end = static_cast<mpv_event_end_file *>(event->data);
-            if (end && end->reason == MPV_END_FILE_REASON_EOF) emit endOfMedia();
+            if (end && end->reason == MPV_END_FILE_REASON_EOF) {
+                if (!m_preparedSource.isEmpty()) promotePreparedSource(true);
+                else emit endOfMedia();
+            }
             else if (end && end->reason == MPV_END_FILE_REASON_ERROR) {
                 finishLoading();
-                emit errorOccurred(QStringLiteral("libmpv playback failed: %1").arg(mpvError(end->error)));
+                const auto message = mpvError(end->error);
+                if (m_currentWasPrepared) {
+                    m_currentWasPrepared = false;
+                    emit preparedPlaybackFailed(message);
+                } else {
+                    emit errorOccurred(QStringLiteral("libmpv playback failed: %1").arg(message));
+                }
             }
             break;
         }
@@ -280,6 +337,27 @@ void LinuxPlayback::setLogicalState(State state)
     if (m_state == state) return;
     m_state = state;
     emit stateChanged();
+}
+
+void LinuxPlayback::promotePreparedSource(bool notifyOwner)
+{
+    if (m_preparedSource.isEmpty()) return;
+    m_source = m_preparedSource;
+    m_preparedSource = QUrl();
+    m_prepareRequestId = 0;
+    m_currentWasPrepared = true;
+    m_positionMs = 0;
+    m_durationMs = 0;
+    m_seekable = false;
+    m_confirmingSeekMs = -1;
+    m_queuedSeekMs = -1;
+    if (!m_loading) {
+        m_loading = true;
+        emit loadingChanged(true);
+    }
+    emit positionChanged();
+    emit durationChanged();
+    if (notifyOwner) emit preparedNextStarted();
 }
 
 void LinuxPlayback::finishLoading()

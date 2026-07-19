@@ -222,6 +222,10 @@ private:
     void enqueueTrack(const QVariantMap &track);
     void saveTrack(const QVariantMap &track);
     void resolveCurrentSource(qint64 startPositionMs = 0, bool autoplay = true);
+    void prepareNextSource();
+    void advancePreparedTrack();
+    void invalidatePreparedNext();
+    int nextQueueIndex() const;
     void beginNextDownload();
     void startDownloadTransfer(const QUrl &source);
     void finishDownloadTransfer(bool succeeded, const QString &error = {});
@@ -262,6 +266,9 @@ private:
     LinuxPlayback m_playback;
     QTimer m_checkpointTimer;
     quint64 m_sourceGeneration = 0;
+    quint64 m_prepareGeneration = 0;
+    qint64 m_preparedEntryId = -1;
+    bool m_preparedLocalSource = false;
     qint64 m_resumePositionMs = 0;
     qint64 m_displayPositionOverride = -1;
     DiscordPresence m_discordPresence;
@@ -292,6 +299,7 @@ private:
     bool m_tidalMoreLoading = false;
     QVariantMap m_listenStats;
     QList<qint64> m_queueEntryIds;
+    QList<qint64> m_playOrderEntryIds;
     int m_currentIndex = -1;
     qint64 m_currentEntryId = -1;
     CoreBridge m_core;
