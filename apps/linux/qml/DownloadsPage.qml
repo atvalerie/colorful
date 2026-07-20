@@ -31,6 +31,18 @@ Item {
         return colorful.downloads.length - countState("complete")
     }
 
+    function resumableCount() {
+        return countState("paused") + countState("failed")
+    }
+
+    function resumeAll() {
+        for (let index = 0; index < colorful.downloads.length; ++index) {
+            const track = colorful.downloads[index]
+            if (track.downloadState === "paused" || track.downloadState === "failed")
+                colorful.downloadTrack(track)
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 12
@@ -48,6 +60,12 @@ Item {
                 text: "Open folder"
                 quiet: true
                 onClicked: colorful.openDownloadsFolder()
+            }
+            ColorButton {
+                text: "Resume all"
+                quiet: true
+                enabled: root.resumableCount() > 0
+                onClicked: root.resumeAll()
             }
             ColorButton {
                 text: "Remove completed"
@@ -78,6 +96,7 @@ Item {
             Text { text: root.countState("complete") + " available"; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: 11 }
             Text { text: root.countState("downloading") + root.countState("resolving") + root.countState("queued") > 0 ? (root.countState("downloading") + root.countState("resolving") + root.countState("queued")) + " active" : ""; visible: text.length > 0; color: colorful.accent; font.pixelSize: 11 }
             Text { text: root.countState("paused") > 0 ? root.countState("paused") + " paused" : ""; visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
+            Text { text: root.countState("failed") > 0 ? root.countState("failed") + " failed" : ""; visible: text.length > 0; color: "#ff7777"; font.pixelSize: 11 }
             Item { Layout.fillWidth: true }
         }
 
