@@ -230,6 +230,9 @@ Item {
                             popup.background: Rectangle {
                                 color: "#121216"; border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.16)
                             }
+                            popup.height: Math.min(outputPicker.count * 34 + 2, 274)
+                            popup.width: outputPicker.width
+                            popup.contentItem.clip: true
                         }
                         ColorButton {
                             text: "Refresh"; quiet: true

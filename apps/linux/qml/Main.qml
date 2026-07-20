@@ -1032,11 +1032,6 @@ ApplicationWindow {
                             from: 0
                             to: 1
                             onMoved: colorful.setVolume(window.volumePositionToOutput(value))
-                            WheelHandler {
-                                onWheel: function(event) {
-                                    window.adjustVolume(event.angleDelta.y > 0 ? 0.04 : -0.04)
-                                }
-                            }
                             Binding on value {
                                 value: window.outputToVolumePosition(colorful.volume)
                                 when: !volumeSlider.pressed
@@ -1061,6 +1056,15 @@ ApplicationWindow {
                                 implicitHeight: 9
                                 radius: 5
                                 color: "white"
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.NoButton
+                                onWheel: function(wheel) {
+                                    if (wheel.angleDelta.y === 0) return
+                                    window.adjustVolume(wheel.angleDelta.y > 0 ? 0.04 : -0.04)
+                                    wheel.accepted = true
+                                }
                             }
                         }
                         Item {

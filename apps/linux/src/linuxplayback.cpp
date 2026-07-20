@@ -1,8 +1,10 @@
 #include "linuxplayback.h"
 
 #include <QMetaObject>
+#include <QSet>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace {
 constexpr quint64 PositionProperty = 1;
@@ -265,9 +267,7 @@ void LinuxPlayback::refreshAudioDevices()
     mpv_node node{};
     if (mpv_get_property(m_mpv, "audio-device-list", MPV_FORMAT_NODE, &node) < 0) return;
 
-    QVariantList devices;
-    devices.append(QVariantMap{{QStringLiteral("name"), QStringLiteral("auto")},
-                               {QStringLiteral("description"), QStringLiteral("System default")}});
+    QList<QPair<QString, QString>> discovered;
     if (node.format == MPV_FORMAT_NODE_ARRAY && node.u.list) {
         for (int index = 0; index < node.u.list->num; ++index) {
             const auto &item = node.u.list->values[index];
@@ -281,14 +281,38 @@ void LinuxPlayback::refreshAudioDevices()
                 if (key == QStringLiteral("name")) name = QString::fromUtf8(value.u.string);
                 else if (key == QStringLiteral("description")) description = QString::fromUtf8(value.u.string);
             }
-            if (!name.isEmpty()) {
-                if (name == QStringLiteral("auto")) continue;
-                devices.append(QVariantMap{{QStringLiteral("name"), name},
-                                           {QStringLiteral("description"), description.isEmpty() ? name : description}});
-            }
+            if (!name.isEmpty() && name != QStringLiteral("auto"))
+                discovered.append({name, description.isEmpty() ? name : description});
         }
     }
     mpv_free_node_contents(&node);
+
+    // libmpv enumerates the same desktop sinks through PipeWire, PulseAudio,
+    // ALSA, JACK, OSS, and several ALSA plugin layers. Present the native
+    // desktop route only; fall back in preference order on older systems.
+    const auto hasBackend = [&discovered](QStringView prefix) {
+        return std::any_of(discovered.cbegin(), discovered.cend(), [prefix](const auto &device) {
+            return device.first.startsWith(prefix, Qt::CaseInsensitive);
+        });
+    };
+    QString preferredPrefix;
+    if (hasBackend(u"pipewire/")) preferredPrefix = QStringLiteral("pipewire/");
+    else if (hasBackend(u"pulse/")) preferredPrefix = QStringLiteral("pulse/");
+    else if (hasBackend(u"alsa/")) preferredPrefix = QStringLiteral("alsa/");
+
+    QVariantList devices;
+    devices.append(QVariantMap{{QStringLiteral("name"), QStringLiteral("auto")},
+                               {QStringLiteral("description"), QStringLiteral("System default")}});
+    QSet<QString> descriptions;
+    for (const auto &[name, description] : std::as_const(discovered)) {
+        if (!preferredPrefix.isEmpty() && !name.startsWith(preferredPrefix, Qt::CaseInsensitive)) continue;
+        if (description.startsWith(QStringLiteral("Default ("), Qt::CaseInsensitive)) continue;
+        const auto key = description.trimmed().toCaseFolded();
+        if (key.isEmpty() || descriptions.contains(key)) continue;
+        descriptions.insert(key);
+        devices.append(QVariantMap{{QStringLiteral("name"), name},
+                                   {QStringLiteral("description"), description.trimmed()}});
+    }
     if (devices == m_audioDevices) return;
     m_audioDevices = devices;
     emit audioDevicesChanged();

@@ -2362,7 +2362,9 @@ void Backend::updateDiscordPresence()
         track.value(QStringLiteral("title")).toString(),
         track.value(QStringLiteral("artistText")).toString(),
         track.value(QStringLiteral("albumTitle")).toString(),
-        m_lowDataMode ? QString() : track.value(QStringLiteral("coverUrl")).toString(),
+        m_lowDataMode ? QString()
+                      : track.value(QStringLiteral("coverRemoteUrl"),
+                                    track.value(QStringLiteral("coverUrl"))).toString(),
         m_playback.position(),
         duration(),
         playing());
