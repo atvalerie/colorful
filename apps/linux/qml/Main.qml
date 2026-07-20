@@ -18,7 +18,14 @@ ApplicationWindow {
     readonly property var now: colorful.currentTrack
     property bool queueOpen: false
     property string submittedQuery: ""
+    property string searchProvider: "all"
     property string currentSection: "search"
+    readonly property var visibleSearchTracks: searchProvider === "all" ? colorful.searchResults
+        : colorful.searchResults.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
+    readonly property var visibleSearchAlbums: searchProvider === "all" ? colorful.searchAlbums
+        : colorful.searchAlbums.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
+    readonly property var visibleSearchArtists: searchProvider === "all" ? colorful.searchArtists
+        : colorful.searchArtists.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
     onCurrentSectionChanged: Qt.callLater(function() { resultsList.positionViewAtBeginning() })
 
     Connections {
@@ -50,6 +57,14 @@ ApplicationWindow {
         settingsPage.tab = tab
         currentSection = "settings"
         colorful.closeCatalog()
+    }
+
+    TapHandler {
+        acceptedButtons: Qt.BackButton | Qt.ForwardButton
+        onTapped: function(eventPoint, button) {
+            if (button === Qt.BackButton) colorful.previous()
+            else if (button === Qt.ForwardButton) colorful.next()
+        }
     }
 
     Rectangle {
@@ -416,6 +431,28 @@ ApplicationWindow {
                                 font.weight: Font.Bold
                                 font.pixelSize: 24
                             }
+                            Row {
+                                visible: window.currentSection === "search" && window.submittedQuery.length > 0
+                                spacing: 0
+                                Repeater {
+                                    model: [
+                                        { id: "all", label: "All", width: 48 },
+                                        { id: "tidal", label: "TIDAL", width: 62 },
+                                        { id: "youtube", label: "YouTube", width: 76 }
+                                    ]
+                                    delegate: ColorButton {
+                                        required property var modelData
+                                        text: modelData.label
+                                        implicitWidth: modelData.width
+                                        implicitHeight: 30
+                                        quiet: window.searchProvider !== modelData.id
+                                        onClicked: {
+                                            window.searchProvider = modelData.id
+                                            resultsList.positionViewAtBeginning()
+                                        }
+                                    }
+                                }
+                            }
                             Item { Layout.fillWidth: true }
                         }
 
@@ -423,7 +460,7 @@ ApplicationWindow {
                             id: resultsList
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            model: window.currentSection === "library" ? colorful.library : colorful.searchResults
+                            model: window.currentSection === "library" ? colorful.library : window.visibleSearchTracks
                             visible: (window.currentSection === "search" || window.currentSection === "library")
                                      && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                             spacing: 0
@@ -438,15 +475,15 @@ ApplicationWindow {
                                 track: modelData
                                 libraryMode: window.currentSection === "library"
                                 showSaveAction: window.currentSection === "search"
-                                showDownloadAction: (modelData.provider || "tidal") === "tidal"
+                                showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
                                 onPlayRequested: window.currentSection === "library"
                                                  ? colorful.playLibraryIndex(index)
-                                                 : colorful.playSearchResult(index)
+                                                 : colorful.playCatalogTrack(modelData)
                                 onAddRequested: window.currentSection === "library"
                                                 ? colorful.enqueueCatalogTrack(modelData)
-                                                : colorful.enqueueSearchResult(index)
+                                                : colorful.enqueueCatalogTrack(modelData)
                                 onRemoveRequested: colorful.removeLibraryIndex(index)
-                                onSaveRequested: colorful.addSearchResultToLibrary(index)
+                                onSaveRequested: colorful.saveCatalogTrack(modelData)
                                 onDownloadRequested: colorful.downloadTrack(modelData)
                                 onDetailsRequested: colorful.openTrackItem(modelData)
                                 onStartRadioRequested: colorful.startRadio(modelData)
@@ -456,11 +493,11 @@ ApplicationWindow {
                                 width: resultsList.width
                                 spacing: 16
                                 visible: window.currentSection === "search"
-                                         && (colorful.searchAlbums.length > 0 || colorful.searchArtists.length > 0)
+                                         && (window.visibleSearchAlbums.length > 0 || window.visibleSearchArtists.length > 0)
                                 height: visible ? implicitHeight + 18 : 0
 
                                 Text {
-                                    visible: colorful.searchArtists.length > 0
+                                    visible: window.visibleSearchArtists.length > 0
                                     text: "Artists"
                                     color: window.ink
                                     font.bold: true
@@ -469,12 +506,12 @@ ApplicationWindow {
                                 ListView {
                                     width: parent.width
                                     height: visible ? 190 : 0
-                                    visible: colorful.searchArtists.length > 0
+                                    visible: window.visibleSearchArtists.length > 0
                                     orientation: ListView.Horizontal
                                     spacing: 8
                                     clip: true
                                     pixelAligned: true
-                                    model: colorful.searchArtists
+                                    model: window.visibleSearchArtists
                                     delegate: CatalogCard {
                                         required property var modelData
                                         entry: modelData
@@ -483,7 +520,7 @@ ApplicationWindow {
                                     }
                                 }
                                 Text {
-                                    visible: colorful.searchAlbums.length > 0
+                                    visible: window.visibleSearchAlbums.length > 0
                                     text: "Albums"
                                     color: window.ink
                                     font.bold: true
@@ -492,12 +529,12 @@ ApplicationWindow {
                                 ListView {
                                     width: parent.width
                                     height: visible ? 190 : 0
-                                    visible: colorful.searchAlbums.length > 0
+                                    visible: window.visibleSearchAlbums.length > 0
                                     orientation: ListView.Horizontal
                                     spacing: 8
                                     clip: true
                                     pixelAligned: true
-                                    model: colorful.searchAlbums
+                                    model: window.visibleSearchAlbums
                                     delegate: CatalogCard {
                                         required property var modelData
                                         entry: modelData
@@ -505,7 +542,7 @@ ApplicationWindow {
                                     }
                                 }
                                 Text {
-                                    visible: colorful.searchResults.length > 0
+                                    visible: window.visibleSearchTracks.length > 0
                                     text: "Tracks"
                                     color: window.ink
                                     font.bold: true
@@ -518,7 +555,7 @@ ApplicationWindow {
                                 width: Math.min(400, parent.width - 48)
                                 spacing: 12
                                 visible: window.currentSection === "library" ? resultsList.count === 0
-                                         : colorful.searchResults.length + colorful.searchAlbums.length + colorful.searchArtists.length === 0
+                                         : window.visibleSearchTracks.length + window.visibleSearchAlbums.length + window.visibleSearchArtists.length === 0
 
                                 AppIcon {
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -534,10 +571,11 @@ ApplicationWindow {
                                     text: window.currentSection === "library"
                                           ? "Tracks you save will live here on this device"
                                           : window.submittedQuery.length > 0
-                                          ? "No tracks found for “" + window.submittedQuery + "”"
+                                          ? "No " + (window.searchProvider === "all" ? "results" : window.searchProvider + " results")
+                                            + " found for “" + window.submittedQuery + "”"
                                           : colorful.linked
-                                            ? "Search TIDAL to start listening"
-                                            : "Connect TIDAL, then search for something to play"
+                                            ? "Search for something to start listening"
+                                            : "Search YouTube Music, or connect TIDAL too"
                                     color: Qt.rgba(1, 1, 1, 0.48)
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
@@ -619,7 +657,7 @@ ApplicationWindow {
                                     required property var modelData
                                     track: modelData
                                     queueMode: true
-                                    showDownloadAction: (modelData.provider || "tidal") === "tidal"
+                                    showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
                                     active: index === colorful.currentQueueIndex
                                     onPlayRequested: colorful.playQueueIndex(index)
                                     onRemoveRequested: colorful.removeQueueIndex(index)

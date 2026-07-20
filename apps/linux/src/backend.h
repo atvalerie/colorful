@@ -155,8 +155,8 @@ public:
     Q_INVOKABLE void playLibraryIndex(int index);
     Q_INVOKABLE void removeLibraryIndex(int index);
     Q_INVOKABLE void downloadTrack(const QVariantMap &track);
-    Q_INVOKABLE void pauseDownload(const QString &trackId);
-    Q_INVOKABLE void removeDownload(const QString &trackId);
+    Q_INVOKABLE void pauseDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
+    Q_INVOKABLE void removeDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
     Q_INVOKABLE void openDownloadsFolder();
     Q_INVOKABLE void loadTidalHub(bool refresh = false);
     Q_INVOKABLE void loadMoreTidal(const QString &section);
@@ -244,7 +244,7 @@ private:
     void invalidatePreparedNext();
     int nextQueueIndex() const;
     void beginNextDownload();
-    void startDownloadTransfer(const QUrl &source);
+    void startDownloadTransfer(const QJsonObject &source);
     void startDownloadFinalization();
     void finishDownloadTransfer(bool succeeded, const QString &error = {});
     void saveDownloadState(const QVariantMap &track, const QString &state,

@@ -241,7 +241,7 @@ Item {
                         Layout.fillWidth: true
                         track: modelData
                         showSaveAction: true
-                        showDownloadAction: (modelData.provider || "tidal") === "tidal"
+                        showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
                         onPlayRequested: colorful.playCatalogTrack(modelData)
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
                         onSaveRequested: colorful.saveCatalogTrack(modelData)

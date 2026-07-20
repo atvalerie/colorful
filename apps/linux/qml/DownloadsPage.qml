@@ -106,13 +106,13 @@ Item {
                         onClicked: {
                             if (modelData.downloadState === "complete") colorful.playCatalogTrack(modelData)
                             else if (modelData.downloadState === "paused" || modelData.downloadState === "failed") colorful.downloadTrack(modelData)
-                            else colorful.pauseDownload(modelData.id)
+                            else colorful.pauseDownload(modelData.id, modelData.provider || "tidal")
                         }
                     }
                     IconButton {
                         iconSource: "icons/close.svg"
                         tooltipText: "Remove offline copy"
-                        onClicked: colorful.removeDownload(modelData.id)
+                        onClicked: colorful.removeDownload(modelData.id, modelData.provider || "tidal")
                     }
                 }
             }
