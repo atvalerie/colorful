@@ -773,14 +773,14 @@ ApplicationWindow {
                             RowLayout {
                                 id: playerMetadataLine
                                 Layout.fillWidth: true
-                                height: 16
+                                Layout.preferredHeight: 16
                                 spacing: 5
                                 clip: true
                                 Row {
                                     visible: (window.now.artistCredits || []).length > 0
-                                    Layout.preferredWidth: Math.min(implicitWidth,
-                                        playerMetadataLine.width * (window.now.albumId ? 0.52 : 1))
-                                    Layout.maximumWidth: playerMetadataLine.width * (window.now.albumId ? 0.52 : 1)
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
                                     spacing: 4
                                     clip: true
                                     Repeater {
@@ -807,8 +807,9 @@ ApplicationWindow {
                                 }
                                 Text {
                                     visible: !(window.now.artistCredits || []).length
-                                    Layout.preferredWidth: implicitWidth
-                                    Layout.maximumWidth: playerMetadataLine.width * (window.now.albumId ? 0.52 : 1)
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
                                     text: "Choose a track"
                                     color: window.mutedInk
                                     elide: Text.ElideRight
@@ -824,6 +825,7 @@ ApplicationWindow {
                                     visible: Boolean(window.now.albumId)
                                     Layout.fillWidth: true
                                     Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
                                     text: window.now.albumTitle || "Open album"
                                     normalColor: window.mutedInk
                                     elide: Text.ElideRight
