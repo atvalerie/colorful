@@ -14,7 +14,8 @@ for durable queue, library, history, settings, and offline-job state.
   uploader pages, catalog navigation, playback, downloads, and real automix;
 - persistent queue/library/position, queue replacement for play-now, autoplay,
   prepared-next playback, and gapless transitions;
-- seeking, MPRIS, mouse back/forward navigation, and Discord Rich Presence;
+- seeking, perceptual volume control, MPRIS, mouse back/forward track controls,
+  and Discord Rich Presence;
 - resumable TIDAL and YouTube downloads stored as standalone `.mka` files;
 - ten-band EQ, presets, clipping protection, and optional ReplayGain
   normalization;

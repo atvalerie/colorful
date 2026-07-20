@@ -44,6 +44,17 @@ ApplicationWindow {
         return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0")
     }
 
+    // Keep the backend/MPRIS contract as linear output amplitude while giving
+    // the compact player finer control over the quiet end of the slider.
+    function volumePositionToOutput(position) {
+        const bounded = Math.max(0, Math.min(1, position))
+        return bounded * bounded
+    }
+
+    function outputToVolumePosition(output) {
+        return Math.sqrt(Math.max(0, Math.min(1, output)))
+    }
+
     function runSearch() {
         const query = searchField.text.trim()
         if (!query || colorful.busy || !colorful.providerReady) return
@@ -937,8 +948,12 @@ ApplicationWindow {
                             implicitHeight: 28
                             from: 0
                             to: 1
-                            value: colorful.volume
-                            onMoved: colorful.setVolume(value)
+                            onMoved: colorful.setVolume(window.volumePositionToOutput(value))
+                            Binding on value {
+                                value: window.outputToVolumePosition(colorful.volume)
+                                when: !volumeSlider.pressed
+                                restoreMode: Binding.RestoreBindingOrValue
+                            }
                             background: Rectangle {
                                 x: volumeSlider.leftPadding
                                 y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
