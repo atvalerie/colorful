@@ -82,6 +82,7 @@ export function mapYouTubeTrack(entry: YtDlpEntry): YouTubeTrackSummary | null {
     version: null,
     artists: [artist],
     artistCredits: artistId ? [{ id: artistId, name: artist }] : [],
+    uploader: { id: artistId || null, name: artist },
     albumId: null,
     albumTitle: text(entry.album) || null,
     durationMs: Number.isFinite(durationSeconds) && durationSeconds > 0 ? Math.round(durationSeconds * 1000) : null,
@@ -110,7 +111,7 @@ export function youtubeAvailable(): boolean {
   return Boolean(process.env.COLORFUL_YT_DLP?.trim() || Bun.which("yt-dlp"));
 }
 
-export async function searchYouTubeMusic(query: string, limit = 20): Promise<YouTubeTrackSummary[]> {
+export async function searchYouTubeVideos(query: string, limit = 20): Promise<YouTubeTrackSummary[]> {
   const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
   const document = await runYtDlp([
     "--no-warnings", "--ignore-errors", "--flat-playlist", "--dump-single-json",

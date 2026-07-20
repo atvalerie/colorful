@@ -479,7 +479,7 @@ ApplicationWindow {
                                         required property var modelData
                                         entry: modelData
                                         artistMode: true
-                                        onOpenRequested: colorful.openArtist(modelData.id)
+                                        onOpenRequested: colorful.openArtistItem(modelData)
                                     }
                                 }
                                 Text {
@@ -501,7 +501,7 @@ ApplicationWindow {
                                     delegate: CatalogCard {
                                         required property var modelData
                                         entry: modelData
-                                        onOpenRequested: colorful.openAlbum(modelData.id)
+                                        onOpenRequested: colorful.openAlbumItem(modelData)
                                     }
                                 }
                                 Text {
@@ -780,7 +780,7 @@ ApplicationWindow {
                                     elide: Text.ElideRight
                                     font.pixelSize: 11
                                     font.weight: Font.Normal
-                                    onActivated: colorful.openAlbum(window.now.albumId)
+                                    onActivated: colorful.openAlbumItem({ id: window.now.albumId, provider: window.now.provider || "tidal" })
                                 }
                             }
                         }

@@ -133,7 +133,9 @@ public:
     Q_INVOKABLE void openTrack(const QString &id);
     Q_INVOKABLE void openTrackItem(const QVariantMap &track);
     Q_INVOKABLE void openAlbum(const QString &id);
+    Q_INVOKABLE void openAlbumItem(const QVariantMap &album);
     Q_INVOKABLE void openArtist(const QString &id);
+    Q_INVOKABLE void openArtistItem(const QVariantMap &artist);
     Q_INVOKABLE void openPlaylist(const QString &id);
     Q_INVOKABLE void openTrackArtist(const QVariantMap &track, int artistIndex);
     Q_INVOKABLE void navigateCatalogBack();

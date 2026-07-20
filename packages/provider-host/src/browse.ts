@@ -7,6 +7,7 @@ export type TrackSummary = {
   version: string | null;
   artists: string[];
   artistCredits: ArtistCredit[];
+  uploader?: { id: string | null; name: string };
   albumId: string | null;
   albumTitle: string | null;
   durationMs: number | null;

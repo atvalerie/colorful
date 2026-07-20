@@ -81,7 +81,7 @@ Item {
                 }
                 Item { Layout.fillWidth: true }
                 Text {
-                    text: "TIDAL"
+                    text: (root.page.provider || "tidal").toUpperCase()
                     color: Qt.rgba(1, 1, 1, 0.42)
                     font.bold: true
                     font.pixelSize: 10
@@ -139,7 +139,7 @@ Item {
                                 spacing: 4
                                 MetadataLink {
                                     text: modelData.name
-                                    onActivated: colorful.openArtist(modelData.id)
+                                    onActivated: colorful.openArtistItem({ id: modelData.id, provider: root.page.provider || "tidal" })
                                 }
                                 Text {
                                     visible: index + 1 < (root.primary.artistCredits || []).length
@@ -170,7 +170,25 @@ Item {
                         text: root.primary.albumTitle || "Open album"
                         normalColor: Qt.rgba(1, 1, 1, 0.5)
                         font.pixelSize: 12
-                        onActivated: colorful.openAlbum(root.primary.albumId)
+                        onActivated: colorful.openAlbumItem({ id: root.primary.albumId, provider: root.primary.provider || root.page.provider || "tidal" })
+                    }
+                    Row {
+                        spacing: 5
+                        visible: root.kind === "track" && Boolean(root.primary.uploader && root.primary.uploader.name)
+                        Text {
+                            text: "Uploaded by"
+                            color: Qt.rgba(1, 1, 1, 0.42)
+                            font.pixelSize: 11
+                        }
+                        MetadataLink {
+                            text: root.primary.uploader ? root.primary.uploader.name : ""
+                            normalColor: Qt.rgba(1, 1, 1, 0.58)
+                            font.pixelSize: 11
+                            onActivated: {
+                                if (root.primary.uploader && root.primary.uploader.id)
+                                    colorful.openArtistItem({ id: root.primary.uploader.id, provider: "youtube" })
+                            }
+                        }
                     }
                     RowLayout {
                         Layout.topMargin: 8
@@ -259,7 +277,7 @@ Item {
                     delegate: CatalogCard {
                         required property var modelData
                         entry: modelData
-                        onOpenRequested: colorful.openAlbum(modelData.id)
+                        onOpenRequested: colorful.openAlbumItem(modelData)
                     }
                 }
             }

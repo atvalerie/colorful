@@ -21,6 +21,7 @@ describe("YouTube Music mapping", () => {
       version: null,
       artists: ["An Artist - Topic"],
       artistCredits: [{ id: "channel-one", name: "An Artist - Topic" }],
+      uploader: { id: "channel-one", name: "An Artist - Topic" },
       albumId: null,
       albumTitle: "A Record",
       durationMs: 123_456,
