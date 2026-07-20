@@ -4,7 +4,7 @@ import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
-import { youtubeAutomix, youtubeAvailable, youtubeSource, youtubeTrack } from "./youtube";
+import { youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
 import { searchYouTubeMusicCatalog, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicTrackMetadata } from "./youtube-music";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
@@ -202,12 +202,25 @@ async function handle(request: RequestMessage): Promise<void> {
     }
     case "detail.more": {
       const provider = String(request.payload?.provider ?? "tidal");
-      if (provider !== "tidal") throw new Error(`Catalog pagination is not implemented for ${provider}`);
       const kind = String(request.payload?.kind ?? "");
       const resourceId = String(request.payload?.id ?? "").trim();
       const section = String(request.payload?.section ?? "");
       const cursor = String(request.payload?.cursor ?? "").trim();
       if (!resourceId || !cursor) throw new Error("Catalog pagination state is incomplete");
+      if (provider === "youtube") {
+        if (kind !== "artist" || section !== "tracks" || !cursor.startsWith("youtube-channel:"))
+          throw new Error("That YouTube catalog section cannot be expanded");
+        const start = Number(cursor.slice("youtube-channel:".length));
+        if (!Number.isSafeInteger(start) || start < 1) throw new Error("Invalid YouTube channel cursor");
+        const tracks = await youtubeChannelVideos(resourceId, start, 20);
+        send({ id: request.id, ok: true, data: {
+          section: "tracks",
+          tracks,
+          cursor: tracks.length === 20 ? `youtube-channel:${start + tracks.length}` : "",
+        } });
+        return;
+      }
+      if (provider !== "tidal") throw new Error(`Catalog pagination is not implemented for ${provider}`);
       if (kind === "playlist") {
         await accountStatus();
         if (!userBrowse) throw new Error("TIDAL account catalog is not ready");

@@ -394,6 +394,7 @@ export async function youtubeMusicArtist(artistId: string): Promise<ArtistPage> 
     artist,
     topTracks: [...new Map(topTracks.map((track) => [track.id, track])).values()],
     albums: [...new Map(albums.map((album) => [album.id, album])).values()],
+    ...(artist.isChannel && topTracks.length >= 10 ? { trackCursor: "youtube-channel:11" } : {}),
   };
 }
 

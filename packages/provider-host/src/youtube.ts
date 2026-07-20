@@ -130,6 +130,24 @@ export async function youtubeAutomix(videoId: string, limit = 20): Promise<YouTu
   return mappedEntries(document).filter((track) => track.id !== videoId).slice(0, safeLimit);
 }
 
+export async function youtubeChannelVideos(channelId: string, start = 1, limit = 20): Promise<YouTubeTrackSummary[]> {
+  if (!/^UC[A-Za-z0-9_-]{20,}$/.test(channelId)) throw new Error("Invalid YouTube channel ID");
+  const safeStart = Math.max(1, Math.floor(start));
+  const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+  const document = await runYtDlp([
+    "--no-warnings", "--ignore-errors", "--flat-playlist", "--dump-single-json",
+    "--playlist-start", String(safeStart), "--playlist-end", String(safeStart + safeLimit - 1),
+    `https://www.youtube.com/channel/${channelId}/videos`,
+  ]);
+  const channelName = text(document.channel) || text(document.uploader);
+  return mappedEntries(document).slice(0, safeLimit).map((track) => channelName ? {
+    ...track,
+    artists: [channelName],
+    artistCredits: [{ id: channelId, name: channelName }],
+    uploader: { id: channelId, name: channelName },
+  } : track);
+}
+
 export async function youtubeTrack(videoId: string): Promise<YouTubeTrackSummary> {
   const document = await runYtDlp([
     "--no-warnings", "--no-playlist", "--dump-single-json", "--skip-download",

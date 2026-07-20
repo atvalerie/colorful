@@ -1039,13 +1039,18 @@ void Backend::loadMoreCatalog(const QString &section)
             }
             m_catalogPage.insert(QStringLiteral("albums"), albums);
         } else {
+            const auto pageProvider = m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
             const auto listKey = m_catalogPage.value(QStringLiteral("kind")).toString() == QStringLiteral("artist")
                 ? QStringLiteral("topTracks") : QStringLiteral("tracks");
             auto tracks = m_catalogPage.value(listKey).toList();
             QSet<QString> ids;
             for (const auto &value : tracks) ids.insert(value.toMap().value(QStringLiteral("id")).toString());
             for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
-                const auto track = jsonTrackToVariant(value.toObject());
+                auto document = value.toObject();
+                if (!document.contains(QStringLiteral("provider"))) {
+                    document.insert(QStringLiteral("provider"), pageProvider);
+                }
+                const auto track = jsonTrackToVariant(document);
                 const auto id = track.value(QStringLiteral("id")).toString();
                 if (!ids.contains(id)) {
                     ids.insert(id);

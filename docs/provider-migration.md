@@ -92,6 +92,8 @@ videos, releases, credited artists, uploader channels, and their pages into the
 same catalog contracts using the Music web API directly. Uploader/channel
 identity stays separate from musical artist credits. The host asks the system
 `yt-dlp` only for ephemeral media URLs and as a fallback for the genuine
-`RDAMVM<videoId>` radio queue. This intentionally avoids permanent Python or
-third-party Rust client dependencies. Android and iOS will use native resolvers
-rather than shipping `yt-dlp`.
+`RDAMVM<videoId>` radio queue. It also expands ordinary uploader channels beyond
+YouTube Music's ten-item preview through their regular YouTube uploads feed.
+This intentionally avoids permanent Python or third-party Rust client
+dependencies. Android and iOS will use native resolvers rather than shipping
+`yt-dlp`.
