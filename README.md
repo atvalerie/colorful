@@ -34,7 +34,7 @@ colorful is a local-first personal streaming and music-library client. TIDAL is
 the primary provider; an early public YouTube Music desktop path is also working.
 
 - Platform-native playback, media sessions, credentials, and interfaces
-- A shared Rust core for queues, storage, downloads, history, and sync
+- A shared Rust core for queues, storage, offline-job state, and listening history
 - Device-local data with no required colorful account or central library server
 
 Future parties and device sync may use encrypted relays, but provider
@@ -47,7 +47,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 | Target | Status | Current implementation |
 | --- | --- | --- |
 | Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL and public YouTube playback, persistent queue/library |
-| Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking and playback, Rust/SQLite persistence |
+| Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking/search/playback, and Rust/SQLite queue persistence |
 | Windows | Planned | WinUI, Media Foundation/WASAPI, System Media Transport Controls |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
 | macOS | Not targeted | No first-party target is planned |
@@ -57,7 +57,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - TIDAL device linking and subscription-aware full-track playback
 - account-country discovery with a cached fallback
 - TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
-- public YouTube Music song, video, release, artist, and uploader-channel search; catalog pages, playback, and genuine radio/automix on Linux
+- public YouTube Music song, video, release, artist, and uploader-channel search; paginated channel uploads, catalog pages, playback, downloads, and genuine radio/automix on Linux
 - lossless/adaptive playback with accurate duration and seeking
 - prepared-next, gapless Linux playback with prefetched autoplay
 - persistent queue, library, playback position, autoplay, and related tracks
@@ -70,13 +70,14 @@ colorful is an early personal alpha, not a packaged consumer release.
 - a persistent low-data mode that avoids loading remote artwork and profile images
 - qualified local listening history and top-track/top-artist/top-album statistics
 - opt-in Discord profile statistics publishing with Secret Service token storage
-- desktop settings for accounts, playback behavior, Discord integrations, and appearance status
+- desktop settings for accounts, stream quality, autoplay, EQ/normalization, Discord integrations, appearance, low-data behavior, storage, and build information
 - sync-ready, idempotent history event identities
 
 ### On the roadmap
 
 - broader TIDAL home/recommendation surfaces
 - Android EQ and normalization using the shared audio-processing contract
+- Android offline downloads and YouTube Music support
 - SoundCloud public accounts, catalog, and playback
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback
@@ -88,16 +89,16 @@ colorful is an early personal alpha, not a packaged consumer release.
 Native UI
   │
   ├── native playback + media session + credential store
-  │
+  ├── platform/provider source resolution
   └── versioned C/JSON commands and events
                     │
              colorful-core (Rust)
                     │
        SQLite · queue · library · history
-       downloads · sync journal · party state
-                    │
-             provider adapters
-        TIDAL · SoundCloud · local · optional YouTube
+       settings · offline-job records
+
+Linux provider host (transitional Bun process)
+  └── TIDAL + public YouTube Music catalog/source adapters
 ```
 
 Playback is intentionally platform-owned. The portable engine does not decode
@@ -143,8 +144,9 @@ owners.
 Required development tools currently include Rust, Bun, CMake 3.25+, Ninja,
 Qt 6.8+ (`Core`, `Gui`, `Quick`, `QuickControls2`, `Network`, and `DBus`),
 `pkg-config`, libmpv development files, SQLite's CLI for schema tests,
-`secret-tool` for secure login persistence, and `yt-dlp` for optional YouTube
-search/playback.
+`secret-tool` for secure login persistence, `yt-dlp` for YouTube playback,
+radio, and downloads, and `ffmpeg` for offline download assembly. Public
+YouTube Music browsing/search itself does not require `yt-dlp`.
 
 With the provider environment exported:
 
@@ -168,10 +170,23 @@ above. Then run:
 ./scripts/build-android.sh
 ```
 
+If needed, install the Rust targets first:
+
+```bash
+rustup target add aarch64-linux-android x86_64-linux-android
+```
+
 The Android application ID is `sh.valerie.colorful`. See
 [the Android client guide](apps/android/README.md) for its current scope.
 
 ## Checks
+
+On a fresh checkout, install the provider-kit TypeScript development
+dependencies once:
+
+```bash
+(cd packages/provider-kit && bun install)
+```
 
 Run the complete Linux-oriented suite:
 
@@ -193,7 +208,8 @@ Run only the raw SQLite migration/constraint checks:
   credentials.
 - Listening history and library data remain local unless encrypted sync is
   explicitly enabled in a future build.
-- Party peers exchange provider references and commands, not account tokens.
+- Planned party peers exchange provider references and commands, not account
+  tokens.
 - Relays must not receive plaintext libraries, queues, credentials, or audio.
 
 Read [the sync design](docs/sync.md), [party connectivity model](docs/connectivity.md),

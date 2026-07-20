@@ -1,6 +1,9 @@
 # Multi-device sync
 
-**Status:** Proposed architecture; not implemented yet.
+**Status:** Transport, pairing, merge journal, handoff, and remote presence are
+not implemented. Linux already creates a stable local device ID, and the shared
+database stores globally identified, idempotent listening events. That is
+groundwork rather than usable sync.
 
 ## Product goal
 

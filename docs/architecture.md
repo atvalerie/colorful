@@ -10,16 +10,25 @@ not for the local library, queue, downloaded playback, or settings.
 
 ```text
 Native UI
-  |  typed commands/events
-Native playback adapter ---- OS audio + media session
-  |
-colorful engine (Rust) ------ SQLite, cache, downloads, party state
-  |
-Provider adapter ------------ TIDAL / SoundCloud / optional YouTube
+  ├── native playback adapter ─── OS audio + media session
+  ├── secure credential store
+  ├── provider/source adapter
+  └── versioned C/JSON commands and events
+                         │
+                  colorful-core (Rust)
+                         │
+        SQLite · queue · library · settings
+        download records · listening history
 ```
 
+Today Linux obtains TIDAL and public YouTube Music data through the
+transitional Bun provider host, then plays through libmpv. Android implements
+its TIDAL authorization, account, search, and source resolution natively and
+plays through Media3. Neither shell sends provider credentials into the Rust
+database.
+
 The playback adapter is deliberately native. It must expose prepared-next-item
-and transition callbacks so the engine can arrange gapless playback without a
+and transition callbacks so each shell can arrange gapless playback without a
 network request or decoder startup on the track boundary.
 
 ## Why the previous TypeScript core is not discarded
@@ -35,7 +44,8 @@ crypto, secure storage, cancellation, and background-lifecycle bridges twice.
 Therefore:
 
 1. Keep pure provider contracts and fixture tests in TypeScript.
-2. Use a Bun provider sidecar only during the first desktop milestone.
+2. Keep the Bun provider sidecar for the Linux alpha while native adapters are
+   brought to parity.
 3. Port adapters into the Rust engine provider-by-provider.
 4. Run the TypeScript and Rust adapters against identical sanitized fixtures
    until their normalized results match.
@@ -47,12 +57,15 @@ This is a migration, not a rewrite performed all at once.
 ### Portable engine
 
 - normalized media identities and provider references
-- queue, repeat, shuffle, autoplay, and transition planning
+- queue, repeat, shuffle, current selection, and playback directives
 - SQLite repositories and migrations
-- download jobs, resumable cache, quotas, and eviction
-- provider orchestration and token refresh state
-- party queue operations and synchronized clock model
-- artwork palette output and accessible color derivation
+- durable offline-job records and downloaded-file paths
+- idempotent listening events and aggregate statistics
+- provider-neutral settings
+
+The sync journal, party transport, cache quotas/eviction, and portable provider
+orchestration remain planned. Linux currently owns the resumable transfer
+worker; the engine persists its provider-neutral job state.
 
 ### Native shell
 
@@ -62,6 +75,8 @@ This is a migration, not a rewrite performed all at once.
 - secure credential storage
 - filesystem pickers and platform permissions
 - notifications and download foreground services
+- provider authorization, token refresh, and source resolution until each
+  adapter has a suitable portable home
 - native UI and accessibility
 
 On Android the `MediaSessionService` is the long-lived native playback owner.
@@ -94,14 +109,17 @@ adapters map the same contract onto their platform audio graphs.
 | Windows | C# + WinUI | Media Foundation/WASAPI adapter |
 | iOS | Swift + SwiftUI | AVAudioEngine/AVFoundation + MPNowPlayingInfoCenter |
 
-The exact playback backend stays replaceable until gapless, lossless formats,
-EQ, background behavior, and device switching pass acceptance tests.
+Linux's libmpv backend already covers lossless playback, seeking, prepared-next
+gapless transitions, EQ, and normalization. Android's Media3 service covers
+background playback and system media controls; its DSP and offline features
+remain incomplete.
 
-## Delivery order
+## Current delivery state
 
-1. Domain contracts, queue state machine, SQLite schema, and provider fixtures.
-2. Linux shell plus Bun provider spike and real TIDAL device linking.
-3. Rust TIDAL adapter, download manager, and gapless Linux playback.
-4. Android shell using the same Rust adapter and local database model.
-5. SoundCloud adapter, party sessions, and relay deployment.
-6. Windows shell, then iOS shell and cloud build/signing workflow.
+- Complete: domain contracts, queue state machine, SQLite schema, stable ABI,
+  provider fixtures, Linux TIDAL/public-YouTube alpha, Linux downloads/gapless
+  playback/DSP, and the Android TIDAL playback vertical slice.
+- Next: deepen desktop library/provider behavior, add Android feature parity,
+  and migrate more provider behavior away from the Bun host.
+- Later: SoundCloud, encrypted device sync and active-device presence, parties,
+  Windows, then iOS and its cloud build/signing workflow.

@@ -1,8 +1,39 @@
 # colorful for Linux
 
-The first native client uses Qt 6 Quick/QML for a deeply customizable interface,
-libmpv for playback, adaptive-stream caching, and Linux audio output, Linux
-Secret Service for the TIDAL refresh token, and QtDBus for MPRIS controls.
+The Linux client is the primary usable alpha. It uses Qt 6 Quick/QML for the
+interface, embedded libmpv for playback and adaptive-stream caching, QtDBus for
+MPRIS, Linux Secret Service for credentials, and the shared Rust/SQLite engine
+for durable queue, library, history, settings, and offline-job state.
+
+## What works
+
+- TIDAL device linking, cached account country, subscription checks, search,
+  collection, playlists, mixes, catalog pages, full-track playback, related
+  tracks/radio, and selectable stream quality;
+- public YouTube Music song/video/release/artist/channel search, paginated
+  uploader pages, catalog navigation, playback, downloads, and real automix;
+- persistent queue/library/position, queue replacement for play-now, autoplay,
+  prepared-next playback, and gapless transitions;
+- seeking, MPRIS, mouse back/forward navigation, and Discord Rich Presence;
+- resumable TIDAL and YouTube downloads stored as standalone `.mka` files;
+- ten-band EQ, presets, clipping protection, and optional ReplayGain
+  normalization;
+- album-derived or fixed contrast-safe accents, plus a no-artwork low-data
+  mode;
+- action toasts, settings/storage/account views, qualified listening history,
+  and the optional owner-only Discord statistics widget.
+
+SoundCloud, encrypted device sync, parties, and packaged releases are not
+implemented yet.
+
+## Requirements and launch
+
+Install Rust, Bun, CMake 3.25+, Ninja, Qt 6.8+ (`Core`, `Gui`, `Quick`,
+`QuickControls2`, `Network`, and `DBus`), `pkg-config`, libmpv development
+files, `secret-tool`, and `ffmpeg`. The full test script also uses `sqlite3`,
+`qmllint`, `qdbus6`, and `dbus-run-session`. `yt-dlp` is required only for
+YouTube media resolution, radio fallback, and downloads; public YouTube Music
+catalog search uses the provider host directly.
 
 From the repository root:
 
@@ -10,37 +41,45 @@ From the repository root:
 ./scripts/run-linux.sh
 ```
 
-The launcher builds the app when necessary and loads the existing TIDAL client
-configuration from `../mocha/.env`. It does not copy or print those credentials.
-You can instead provide the same `TIDAL_*` variables in your environment.
+The launcher imports provider configuration from `../mocha/.env` when present.
+It does not copy or print those credentials; the same `TIDAL_*` values can be
+exported directly. Use the root `.env.example` as the field reference.
 
-Public YouTube Music catalog browsing has no extra runtime dependency. Playback
-and automix require `yt-dlp` on `PATH`; set `COLORFUL_YT_DLP` to use a different
-executable. No Python `ytmusicapi` package or extra Rust YouTube client is
-required.
+For an immediate relaunch of an already-built binary:
 
-Offline downloads require the `ffmpeg` executable. colorful resolves a fresh
-TIDAL or YouTube source for the transfer, remuxes the selected audio without
-re-encoding, and stores the standalone `.mka` file plus artwork under its
-private application-data directory. TIDAL downloads retain available ReplayGain
-metadata. Completed playback does not use a manifest or require the provider
-host to be online.
+```bash
+./scripts/run-linux.sh --no-build
+```
 
-Appearance settings include a persistent low-data mode. Audio behavior stays
-unchanged while remote artwork/profile requests are suppressed in the UI,
-album-color extraction, MPRIS, Discord presence, and new offline downloads.
+Set `COLORFUL_YT_DLP` to select a different `yt-dlp` executable, or
+`COLORFUL_DISABLE_DISCORD_RPC=1` to disable local Rich Presence IPC.
 
-When a Discord-compatible desktop client is running, colorful publishes the
-current track through local Rich Presence IPC. Set
-`COLORFUL_DISABLE_DISCORD_RPC=1` before launching to disable it.
+## Offline files and low-data mode
 
-## Test flow
+The download worker resolves a fresh provider source, writes independently
+resumable media chunks, and remuxes them without re-encoding into one `.mka`
+file. A completed track no longer needs its provider manifest or a network
+connection. TIDAL ReplayGain values are retained as standard tags when
+available.
 
-1. Click **Connect**, then **Open TIDAL to approve**.
-2. Finish linking in the browser. The dialog closes when approval completes.
-3. Search for an artist or track.
-4. Double-click a result to play immediately, or click **+** to queue it.
-5. Use the bottom controls, headset keys, desktop media controls, or MPRIS.
+**Settings → Appearance → Low data mode** keeps playback unchanged while
+suppressing remote artwork/profile requests in QML, album-color extraction,
+MPRIS, Discord presence, and artwork for new downloads. Existing cached covers
+are not deleted.
+
+## Checks
+
+Run the complete Rust, TypeScript, storage, Linux build, QML, and headless MPRIS
+suite from the repository root:
+
+```bash
+(cd packages/provider-kit && bun install) # first checkout only
+./scripts/test-linux.sh
+```
+
+A shorter manual playback pass should cover both providers, seeking, next-track
+transition, a paused/resumed download, offline playback, MPRIS controls, and
+restoration after restarting the app.
 
 Useful MPRIS checks:
 
@@ -52,6 +91,6 @@ qdbus6 org.mpris.MediaPlayer2.colorful /org/mpris/MediaPlayer2 \
   org.mpris.MediaPlayer2.Player.PlayPause
 ```
 
-If playback fails, the bottom status line reports the libmpv error. Building
-requires the libmpv development package; the packaged application must ship a
-compatible libmpv runtime.
+If playback fails, colorful reports the libmpv error in the UI. A packaged
+application must ship a compatible libmpv runtime and comply with the licenses
+of the exact Qt, libmpv, FFmpeg, and other dependency builds it distributes.

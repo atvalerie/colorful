@@ -18,13 +18,13 @@ without reading it first.
 
 ## What colorful's widget is—and is not
 
-Rich Presence describes the track playing right now. The proposed profile
-widget instead presents durable statistics such as:
+Rich Presence describes the track playing right now. The profile widget
+instead presents durable all-time statistics such as:
 
-- top artist and track for a chosen period;
+- top artist, track, and album;
 - qualified play count and listening time;
 - top album artwork;
-- an optional streak or another explicitly selected statistic.
+- a compact mini-profile and activity summary.
 
 All aggregation happens on the user's devices:
 
@@ -255,7 +255,7 @@ or bypass the ownership restriction.
 
 ## 7. Configure colorful
 
-1. Open **Accounts and integrations** from the person icon in the Linux client.
+1. Open **Settings → Integrations** in the Linux client.
 2. Enter the Application ID of the Discord application that owns your widget
    configuration and select **Save application ID**. This ID is also used for
    Rich Presence.
@@ -314,8 +314,10 @@ Discord failures never affect playback or listening-history persistence.
 
 - Bot tokens and provider credentials never enter SQLite or sync.
 - The user ID learned from Discord IPC is a device-local, non-secret setting.
-- Listening events sync with globally unique IDs and merge idempotently.
-- A trusted desktop computes the combined statistics and publishes them.
+- Listening events already use globally unique IDs and merge idempotently; the
+  transport that will exchange them is still planned.
+- Once sync exists, a trusted desktop computes the combined statistics and
+  publishes them.
 - Revoking the Discord credential disables publishing without deleting history.
 - The widget adapter remains optional and feature-flagged.
 

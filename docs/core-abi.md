@@ -49,7 +49,8 @@ queue database.
 Qualified listens enter through `record_listen`. The shell supplies a globally
 unique event ID and originating device ID, while the core validates the event,
 stores its track metadata transactionally, and ignores duplicate IDs. Snapshots
-expose `listenStats` with total audible time, play count, and top tracks/artists.
+expose `listenStats` with total audible time, play count, and top tracks,
+artists, and albums.
 Platform shells decide what counts as audible time; forward seeks, buffering,
 and pauses must not inflate the supplied duration.
 

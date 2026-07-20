@@ -2,7 +2,8 @@
 
 A disposable React prototype for working out colorful's visual language before
 porting approved UI and interactions into the native QML client. Nothing here
-connects to TIDAL or production state.
+connects to TIDAL or production state, and the prototype is not expected to
+stay pixel-identical to the newer native client.
 
 From the repository root:
 
@@ -24,4 +25,3 @@ bun run build
 ```
 
 The generated `dist/` directory can be served by any static host.
-

@@ -1,10 +1,13 @@
 # Party connectivity
 
+**Status:** Design only. Party discovery, signaling, direct transports, and
+relays are not implemented.
+
 Manual port forwarding is not part of the normal party flow.
 
 ## Connection ladder
 
-colorful tries transports in this order:
+The planned connection ladder tries transports in this order:
 
 1. **Same LAN:** discover peers with mDNS and connect directly.
 2. **Internet direct:** exchange ICE candidates through a small signaling
@@ -24,8 +27,9 @@ timing, and byte counts, but not credentials, queue contents, or audio payloads.
 - one or more STUN/TURN endpoints (coturn is a viable self-hosted baseline)
 - optional short-lived invite records with no music library storage
 
-These services coordinate or relay a party; the music application still runs
-on each device. Self-hosting is supported, and server URLs are configuration.
+These services would coordinate or relay a party; the music application would
+still run on each device. The design requires self-hostable endpoints and
+configurable server URLs.
 
 ## What a party synchronizes
 
@@ -56,4 +60,3 @@ version, while queue edits use idempotent operations so reconnects are safe.
 - replay protection and monotonically increasing operation sequence
 - host can revoke a peer and rotate the session key
 - relay allocations and invite records expire automatically
-
