@@ -58,6 +58,9 @@ For an immediate relaunch of an already-built binary:
 
 Set `COLORFUL_YT_DLP` to select a different `yt-dlp` executable, or
 `COLORFUL_DISABLE_DISCORD_RPC=1` to disable local Rich Presence IPC.
+Set `COLORFUL_YT_DLP_ARGS` when the local YouTube session needs additional
+extractor arguments such as `--cookies-from-browser firefox`; the value is
+parsed as a command-line fragment and is used only for bulk downloads.
 
 ## Desktop controls
 
@@ -73,11 +76,12 @@ not intercept typing in text fields.
 
 ## Offline files and low-data mode
 
-The download worker resolves a fresh provider source, writes independently
-resumable media chunks, and remuxes them without re-encoding into one `.mka`
-file. A completed track no longer needs its provider manifest or a network
-connection. TIDAL ReplayGain values are retained as standard tags when
-available.
+TIDAL downloads resolve a fresh stable representation and write resumable media
+chunks. YouTube downloads deliberately use yt-dlp's native bulk-transfer and
+`.part` resume path instead of the latency-oriented playback URL. Both paths
+are remuxed without re-encoding into one `.mka` file. A completed track no
+longer needs its provider manifest or a network connection. TIDAL ReplayGain
+values are retained as standard tags when available.
 
 **Settings → Appearance → Low data mode** keeps playback unchanged while
 suppressing remote artwork/profile requests in QML, album-color extraction,

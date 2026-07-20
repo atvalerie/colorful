@@ -193,7 +193,8 @@ Backend::Backend(QObject *parent)
             m_activeDownloadTrack.value(QStringLiteral("id")).toString())
                                   .value(QStringLiteral("bytesDownloaded")).toLongLong();
         const auto projectedUsage = std::max<qint64>(0, offlineStorageUsed() - previousSize) + size;
-        if (m_downloadProcessStage == DownloadProcessStage::Transfer
+        if ((m_downloadProcessStage == DownloadProcessStage::Transfer
+             || m_downloadProcessStage == DownloadProcessStage::YouTubeTransfer)
             && m_offlineStorageLimitBytes > 0 && projectedUsage >= m_offlineStorageLimitBytes) {
             m_pauseDownloadForQuota = true;
             m_cancelActiveDownload = true;
@@ -206,13 +207,16 @@ Backend::Backend(QObject *parent)
             [this](int exitCode, QProcess::ExitStatus status) {
         const auto detail = QString::fromUtf8(m_downloadProcess.readAllStandardError()).trimmed();
         const bool succeeded = status == QProcess::NormalExit && exitCode == 0;
-        if (m_downloadProcessStage == DownloadProcessStage::Transfer && succeeded
+        if ((m_downloadProcessStage == DownloadProcessStage::Transfer
+             || m_downloadProcessStage == DownloadProcessStage::YouTubeTransfer) && succeeded
             && !m_cancelActiveDownload && !m_removeActiveDownload) {
             startDownloadFinalization();
             return;
         }
+        const auto downloader = m_downloadProcessStage == DownloadProcessStage::YouTubeTransfer
+            ? QStringLiteral("yt-dlp") : QStringLiteral("ffmpeg");
         finishDownloadTransfer(succeeded,
-                               detail.isEmpty() ? QString{} : QStringLiteral("ffmpeg could not assemble the source"));
+                               detail.isEmpty() ? QString{} : QStringLiteral("%1 could not download the source").arg(downloader));
     });
     connect(&m_downloadProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
@@ -1337,7 +1341,11 @@ QStringList Backend::downloadPartFiles(const QVariantMap &track) const
 qint64 Backend::downloadWorkingBytes(const QVariantMap &track) const
 {
     qint64 total = 0;
-    for (const auto &path : downloadPartFiles(track)) total += std::max<qint64>(0, QFileInfo(path).size());
+    const QDir directory(downloadPartsDirectory(track));
+    for (const auto &name : directory.entryList(QDir::Files | QDir::NoDotAndDotDot)) {
+        if (name == QStringLiteral("concat.txt")) continue;
+        total += std::max<qint64>(0, QFileInfo(directory.filePath(name)).size());
+    }
     return total;
 }
 
@@ -1494,6 +1502,10 @@ void Backend::beginNextDownload()
             : QStringLiteral("The provider host is not ready"));
         return;
     }
+    if (provider == QStringLiteral("youtube")) {
+        startYouTubeDownload();
+        return;
+    }
     setStatus(QStringLiteral("Preparing offline download for %1…")
                   .arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
     const auto requestId = request(QStringLiteral("source"), {
@@ -1526,6 +1538,55 @@ void Backend::beginNextDownload()
         startDownloadTransfer(source);
     });
     if (requestId < 0) finishDownloadTransfer(false, QStringLiteral("Provider host is not running"));
+}
+
+void Backend::startYouTubeDownload()
+{
+    if (m_activeDownloadTrack.isEmpty()) return;
+    const auto configured = qEnvironmentVariable("COLORFUL_YT_DLP").trimmed();
+    const auto executable = configured.isEmpty()
+        ? QStandardPaths::findExecutable(QStringLiteral("yt-dlp")) : configured;
+    if (executable.isEmpty()) {
+        finishDownloadTransfer(false, QStringLiteral("yt-dlp is required for YouTube downloads"));
+        return;
+    }
+    const auto partsDirectory = downloadPartsDirectory(m_activeDownloadTrack);
+    if (!QDir().mkpath(partsDirectory)) {
+        finishDownloadTransfer(false, QStringLiteral("Could not create the download checkpoint directory"));
+        return;
+    }
+    m_activeDownloadPartPath = QDir(partsDirectory).filePath(QStringLiteral("000000.mka"));
+    if (QFileInfo::exists(m_activeDownloadPartPath)) {
+        saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
+                          downloadWorkingBytes(m_activeDownloadTrack));
+        startDownloadFinalization();
+        return;
+    }
+
+    QStringList arguments{
+        QStringLiteral("--no-warnings"), QStringLiteral("--no-playlist"),
+        QStringLiteral("--continue"), QStringLiteral("--part"), QStringLiteral("--no-mtime"),
+        QStringLiteral("--newline"), QStringLiteral("--progress-delta"), QStringLiteral("1"),
+    };
+    const auto extraArguments = qEnvironmentVariable("COLORFUL_YT_DLP_ARGS").trimmed();
+    if (!extraArguments.isEmpty()) arguments.append(QProcess::splitCommand(extraArguments));
+    arguments.append({QStringLiteral("--format"), QStringLiteral("bestaudio/best"),
+                      QStringLiteral("--output"), m_activeDownloadPartPath});
+    arguments.append(QStringLiteral("--"));
+    arguments.append(QStringLiteral("https://music.youtube.com/watch?v=%1")
+                         .arg(m_activeDownloadTrack.value(QStringLiteral("id")).toString()));
+
+    saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
+                      downloadWorkingBytes(m_activeDownloadTrack));
+    m_downloadProcess.setProgram(executable);
+    m_downloadProcess.setArguments(arguments);
+    m_downloadProcess.setProcessChannelMode(QProcess::SeparateChannels);
+    m_downloadProcessStage = DownloadProcessStage::YouTubeTransfer;
+    m_downloadProcess.start();
+    m_downloadProgressTimer.start();
+    setStatus(QFileInfo::exists(m_activeDownloadPartPath + QStringLiteral(".part"))
+        ? QStringLiteral("Resuming %1 with yt-dlp…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString())
+        : QStringLiteral("Downloading %1 with yt-dlp…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
 }
 
 void Backend::startDownloadTransfer(const QJsonObject &source)

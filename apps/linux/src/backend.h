@@ -288,6 +288,7 @@ private:
     int nextQueueIndex() const;
     void beginNextDownload();
     void startDownloadTransfer(const QJsonObject &source);
+    void startYouTubeDownload();
     void startDownloadFinalization();
     void finishDownloadTransfer(bool succeeded, const QString &error = {});
     void saveDownloadState(const QVariantMap &track, const QString &state,
@@ -357,7 +358,7 @@ private:
     QVariantMap m_activeDownloadTrack;
     QProcess m_downloadProcess;
     QTimer m_downloadProgressTimer;
-    enum class DownloadProcessStage { Idle, Transfer, Finalize };
+    enum class DownloadProcessStage { Idle, Transfer, YouTubeTransfer, Finalize };
     DownloadProcessStage m_downloadProcessStage = DownloadProcessStage::Idle;
     QString m_activeDownloadPartPath;
     quint64 m_downloadGeneration = 0;
