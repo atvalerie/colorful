@@ -57,7 +57,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - TIDAL device linking and subscription-aware full-track playback
 - account-country discovery with a cached fallback
 - TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
-- public YouTube Music song, release, and artist search; catalog pages, playback, and genuine radio/automix on Linux
+- public YouTube Music song, video, release, artist, and uploader-channel search; catalog pages, playback, and genuine radio/automix on Linux
 - lossless/adaptive playback with accurate duration and seeking
 - prepared-next, gapless Linux playback with prefetched autoplay
 - persistent queue, library, playback position, autoplay, and related tracks

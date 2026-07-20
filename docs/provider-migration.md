@@ -87,10 +87,11 @@ track-radio relationships are interleaved behind the provider-neutral related-
 tracks contract and feed the desktop autoplay tail without displacing manually
 queued tracks.
 
-The Linux provider host maps public YouTube Music songs, releases, credited
-artists, and artist pages into the same catalog contracts using the Music web
-API directly. Uploader/channel identity stays separate from musical artist
-credits. The host asks the system `yt-dlp` only for ephemeral media URLs and the
-genuine `RDAMVM<videoId>` radio queue. This intentionally avoids permanent
-Python or third-party Rust client dependencies. Android and iOS will use native
-resolvers rather than shipping `yt-dlp`.
+The Linux provider host maps public YouTube Music songs, long-form and UGC
+videos, releases, credited artists, uploader channels, and their pages into the
+same catalog contracts using the Music web API directly. Uploader/channel
+identity stays separate from musical artist credits. The host asks the system
+`yt-dlp` only for ephemeral media URLs and as a fallback for the genuine
+`RDAMVM<videoId>` radio queue. This intentionally avoids permanent Python or
+third-party Rust client dependencies. Android and iOS will use native resolvers
+rather than shipping `yt-dlp`.

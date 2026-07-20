@@ -8,6 +8,7 @@ export type TrackSummary = {
   artists: string[];
   artistCredits: ArtistCredit[];
   uploader?: { id: string | null; name: string };
+  mediaKind?: "song" | "video";
   albumId: string | null;
   albumTitle: string | null;
   durationMs: number | null;
@@ -38,6 +39,7 @@ export type ArtistSummary = {
   id: string;
   name: string;
   pictureUrl: string | null;
+  isChannel?: boolean;
 };
 
 export type PlaylistSummary = {

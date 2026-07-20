@@ -6,6 +6,7 @@ type Run = { text?: unknown; navigationEndpoint?: unknown };
 const MUSIC_ORIGIN = "https://music.youtube.com";
 const SEARCH_FILTERS = {
   songs: "EgWKAQIIAWoMEA4QChADEAQQCRAF",
+  videos: "EgWKAQIQAWoMEA4QChADEAQQCRAF",
   albums: "EgWKAQIYAWoMEA4QChADEAQQCRAF",
   artists: "EgWKAQIgAWoMEA4QChADEAQQCRAF",
 } as const;
@@ -44,6 +45,12 @@ function runText(value: unknown): string {
 
 function browseId(run: Run): string {
   return string(object(object(run.navigationEndpoint).browseEndpoint).browseId);
+}
+
+function browsePageType(run: Run): string {
+  const endpoint = object(object(run.navigationEndpoint).browseEndpoint);
+  const configs = object(endpoint.browseEndpointContextSupportedConfigs);
+  return string(object(configs.browseEndpointContextMusicConfig).pageType);
 }
 
 function videoId(run: Run): string {
@@ -128,6 +135,37 @@ function mapTrack(renderer: JsonObject): TrackSummary | null {
     isrc: null,
     coverUrl: thumbnail(renderer),
     explicit: explicit(renderer),
+    mediaKind: "song",
+  };
+}
+
+function mapVideo(renderer: JsonObject): TrackSummary | null {
+  const titleRuns = columnRuns(renderer, 0);
+  const metadataRuns = columnRuns(renderer, 1);
+  const id = titleRuns.map(videoId).find(Boolean)
+    || children(renderer, "watchEndpoint").map((endpoint) => string(endpoint.videoId)).find(Boolean) || "";
+  const title = titleRuns.map((run) => string(run.text)).join("").trim();
+  if (!id || !title) return null;
+  const uploaderRun = metadataRuns.find((run) => browseId(run).startsWith("UC"));
+  const uploaderId = uploaderRun ? browseId(uploaderRun) : null;
+  const uploaderName = uploaderRun ? string(uploaderRun.text) : "YouTube Music";
+  const length = [...metadataRuns].reverse().map((run) => string(run.text))
+    .find((value) => /^\d+(?::\d+){1,2}$/.test(value)) || "";
+  const uploader = { id: uploaderId, name: uploaderName };
+  return {
+    id,
+    title,
+    version: null,
+    artists: [uploaderName],
+    artistCredits: uploaderId ? [{ id: uploaderId, name: uploaderName }] : [],
+    uploader,
+    albumId: null,
+    albumTitle: null,
+    durationMs: durationMs(length),
+    isrc: null,
+    coverUrl: thumbnail(renderer),
+    explicit: false,
+    mediaKind: "video",
   };
 }
 
@@ -165,7 +203,13 @@ function mapArtist(renderer: JsonObject): ArtistSummary | null {
   const fallbackId = rendererBrowseId(renderer);
   const id = artistRun ? browseId(artistRun) : (isArtistId(fallbackId) ? fallbackId : "");
   const name = artistRun ? string(artistRun.text) : string(allRuns[0]?.text);
-  return id && name ? { id, name, pictureUrl: thumbnail(renderer) } : null;
+  const endpointRun = artistRun || allRuns.find((run) => browseId(run) === id);
+  return id && name ? {
+    id,
+    name,
+    pictureUrl: thumbnail(renderer),
+    isChannel: endpointRun ? browsePageType(endpointRun) === "MUSIC_PAGE_TYPE_USER_CHANNEL" : false,
+  } : null;
 }
 
 function clientVersion(): string {
@@ -197,15 +241,33 @@ function responsiveItems(document: JsonObject): JsonObject[] {
 }
 
 export async function searchYouTubeMusicCatalog(query: string): Promise<CatalogSearch> {
-  const [songDocument, albumDocument, artistDocument] = await Promise.all([
+  const [songDocument, videoDocument, albumDocument, artistDocument] = await Promise.all([
     youtubei("search", { query, params: SEARCH_FILTERS.songs }),
+    youtubei("search", { query, params: SEARCH_FILTERS.videos }),
     youtubei("search", { query, params: SEARCH_FILTERS.albums }),
     youtubei("search", { query, params: SEARCH_FILTERS.artists }),
   ]);
+  const songs = responsiveItems(songDocument).map(mapTrack).filter((item): item is TrackSummary => Boolean(item));
+  const videos = responsiveItems(videoDocument).map(mapVideo).filter((item): item is TrackSummary => Boolean(item));
+  const tracks: TrackSummary[] = [];
+  for (let index = 0; index < Math.max(songs.length, videos.length); index += 1) {
+    const song = songs[index];
+    const video = videos[index];
+    if (song) tracks.push(song);
+    if (video) tracks.push(video);
+  }
+  const videoChannels: ArtistSummary[] = tracks.flatMap((track) =>
+    track.mediaKind === "video" && track.uploader?.id
+      ? [{ id: track.uploader.id, name: track.uploader.name, pictureUrl: null, isChannel: true }]
+      : []);
+  const artists = [
+    ...responsiveItems(artistDocument).map(mapArtist),
+    ...videoChannels,
+  ].filter((item): item is ArtistSummary => Boolean(item));
   return {
-    tracks: responsiveItems(songDocument).map(mapTrack).filter((item): item is TrackSummary => Boolean(item)),
+    tracks: [...new Map(tracks.map((track) => [track.id, track])).values()],
     albums: responsiveItems(albumDocument).map(mapAlbum).filter((item): item is AlbumSummary => Boolean(item)),
-    artists: responsiveItems(artistDocument).map(mapArtist).filter((item): item is ArtistSummary => Boolean(item)),
+    artists: [...new Map(artists.map((artist) => [artist.id, artist])).values()],
   };
 }
 
@@ -229,6 +291,32 @@ function mapPlaylistTrack(renderer: JsonObject): TrackSummary | null {
     isrc: null,
     coverUrl: thumbnail(renderer),
     explicit: explicit(renderer),
+  };
+}
+
+function mapTwoRowVideo(renderer: JsonObject): TrackSummary | null {
+  const id = string(object(object(renderer.navigationEndpoint).watchEndpoint).videoId)
+    || children(renderer, "watchEndpoint").map((endpoint) => string(endpoint.videoId)).find(Boolean) || "";
+  const title = runText(renderer.title);
+  if (!id || !title) return null;
+  const metadataRuns = runs(renderer.subtitle);
+  const uploaderRun = metadataRuns.find((run) => browseId(run).startsWith("UC"));
+  const uploaderId = uploaderRun ? browseId(uploaderRun) : null;
+  const uploaderName = uploaderRun ? string(uploaderRun.text) : "YouTube Music";
+  return {
+    id,
+    title,
+    version: null,
+    artists: [uploaderName],
+    artistCredits: uploaderId ? [{ id: uploaderId, name: uploaderName }] : [],
+    uploader: { id: uploaderId, name: uploaderName },
+    albumId: null,
+    albumTitle: null,
+    durationMs: null,
+    isrc: null,
+    coverUrl: thumbnail(renderer),
+    explicit: false,
+    mediaKind: "video",
   };
 }
 
@@ -259,13 +347,16 @@ function titleOfCarousel(carousel: JsonObject): string {
 
 export async function youtubeMusicArtist(artistId: string): Promise<ArtistPage> {
   const document = await youtubei("browse", { browseId: artistId.replace(/^MPLA/, "") });
-  const header = children(document, "musicImmersiveHeaderRenderer")[0]
-    || children(document, "musicVisualHeaderRenderer")[0]
+  const immersiveHeader = children(document, "musicImmersiveHeaderRenderer")[0];
+  const visualHeader = children(document, "musicVisualHeaderRenderer")[0];
+  const header = immersiveHeader
+    || visualHeader
     || children(document, "musicDetailHeaderRenderer")[0] || {};
   const artist: ArtistSummary = {
     id: artistId,
     name: runText(header.title) || "YouTube Music artist",
     pictureUrl: thumbnail(header),
+    isChannel: Boolean(visualHeader && !immersiveHeader),
   };
   const topTracks: TrackSummary[] = [];
   const albums: AlbumSummary[] = [];
@@ -277,6 +368,12 @@ export async function youtubeMusicArtist(artistId: string): Promise<ArtistPage> 
   }
   for (const carousel of children(document, "musicCarouselShelfRenderer")) {
     const heading = titleOfCarousel(carousel).toLocaleLowerCase();
+    if (heading.includes("video")) {
+      for (const renderer of children(carousel, "musicTwoRowItemRenderer")) {
+        const track = mapTwoRowVideo(renderer);
+        if (track) topTracks.push(track);
+      }
+    }
     if (!heading.includes("album") && !heading.includes("single") && !heading.includes("release")) continue;
     for (const renderer of children(carousel, "musicTwoRowItemRenderer")) {
       const titleRuns = runs(renderer.title);

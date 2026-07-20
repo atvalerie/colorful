@@ -498,7 +498,7 @@ ApplicationWindow {
 
                                 Text {
                                     visible: window.visibleSearchArtists.length > 0
-                                    text: "Artists"
+                                    text: "Artists & channels"
                                     color: window.ink
                                     font.bold: true
                                     font.pixelSize: 16

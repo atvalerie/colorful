@@ -73,7 +73,8 @@ Item {
                     onClicked: colorful.canNavigateCatalogBack ? colorful.navigateCatalogBack() : colorful.closeCatalog()
                 }
                 Text {
-                    text: root.kind === "track" ? "Track" : root.kind === "album" ? "Album" : root.kind === "playlist" ? "Playlist" : "Artist"
+                    text: root.kind === "track" ? "Track" : root.kind === "album" ? "Album" : root.kind === "playlist" ? "Playlist"
+                          : root.primary.isChannel ? "Channel" : "Artist"
                     color: Qt.rgba(1, 1, 1, 0.46)
                     font.pixelSize: 11
                     font.capitalization: Font.AllUppercase
@@ -226,7 +227,8 @@ Item {
 
             Text {
                 visible: root.tracks.length > 0
-                text: root.kind === "track" ? "Related tracks" : (root.kind === "album" || root.kind === "playlist") ? "Tracks" : "Popular tracks"
+                text: root.kind === "track" ? "Related tracks" : (root.kind === "album" || root.kind === "playlist") ? "Tracks"
+                      : root.primary.isChannel ? "Videos" : "Popular tracks"
                 color: "#f5f5f5"
                 font.bold: true
                 font.pixelSize: 18

@@ -2487,6 +2487,7 @@ QVariantMap Backend::jsonArtistToVariant(const QJsonObject &artist)
         {QStringLiteral("id"), artist.value(QStringLiteral("id")).toString()},
         {QStringLiteral("name"), artist.value(QStringLiteral("name")).toString()},
         {QStringLiteral("pictureUrl"), artist.value(QStringLiteral("pictureUrl")).toString()},
+        {QStringLiteral("isChannel"), artist.value(QStringLiteral("isChannel")).toBool()},
     };
 }
 
