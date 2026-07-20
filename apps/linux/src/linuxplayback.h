@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QList>
 #include <QStringList>
+#include <QVariantList>
 #include <optional>
 #include <mpv/client.h>
 
@@ -24,6 +25,12 @@ public:
     qint64 position() const { return m_positionMs; }
     qint64 duration() const { return m_durationMs; }
     double volume() const { return m_volume; }
+    bool muted() const { return m_muted; }
+    bool loading() const { return m_loading; }
+    bool buffering() const { return m_buffering; }
+    int bufferingPercent() const { return m_bufferingPercent; }
+    QVariantList audioDevices() const { return m_audioDevices; }
+    QString audioDevice() const { return m_audioDevice; }
     bool seekable() const { return m_seekable; }
 
     void setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
@@ -43,6 +50,9 @@ public:
     void stop();
     bool seek(qint64 positionMs);
     void setVolume(double volume);
+    void setMuted(bool muted);
+    void refreshAudioDevices();
+    void setAudioDevice(const QString &device);
     void setReplayGain(bool enabled);
     void setEqualizer(const QList<double> &gainsDb);
 
@@ -51,6 +61,10 @@ signals:
     void positionChanged();
     void durationChanged();
     void volumeChanged();
+    void mutedChanged();
+    void bufferingChanged();
+    void audioDevicesChanged();
+    void audioDeviceChanged();
     void loadingChanged(bool loading);
     void seekCompleted(qint64 positionMs);
     void seekFailed(qint64 positionMs, const QString &reason);
@@ -95,6 +109,11 @@ private:
     quint64 m_loadRequestId = 0;
     quint64 m_prepareRequestId = 0;
     double m_volume = 0.78;
+    bool m_muted = false;
+    bool m_buffering = false;
+    int m_bufferingPercent = 100;
+    QVariantList m_audioDevices;
+    QString m_audioDevice = QStringLiteral("auto");
     bool m_replayGainEnabled = false;
     std::optional<double> m_replayGainDb;
     std::optional<double> m_peakAmplitude;

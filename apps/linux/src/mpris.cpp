@@ -29,6 +29,20 @@ QString MprisPlayerAdaptor::playbackStatus() const { return m_backend->playbackS
 QVariantMap MprisPlayerAdaptor::metadata() const { return m_backend->mprisMetadata(); }
 double MprisPlayerAdaptor::volume() const { return m_backend->volume(); }
 void MprisPlayerAdaptor::setVolume(double value) { m_backend->setVolume(value); }
+QString MprisPlayerAdaptor::loopStatus() const
+{
+    if (m_backend->repeatMode() == QStringLiteral("one")) return QStringLiteral("Track");
+    if (m_backend->repeatMode() == QStringLiteral("all")) return QStringLiteral("Playlist");
+    return QStringLiteral("None");
+}
+void MprisPlayerAdaptor::setLoopStatus(const QString &value)
+{
+    m_backend->setRepeatMode(value == QStringLiteral("Track") ? QStringLiteral("one")
+                             : value == QStringLiteral("Playlist") ? QStringLiteral("all")
+                                                                    : QStringLiteral("off"));
+}
+bool MprisPlayerAdaptor::shuffle() const { return m_backend->shuffleEnabled(); }
+void MprisPlayerAdaptor::setShuffle(bool value) { m_backend->setShuffleEnabled(value); }
 qlonglong MprisPlayerAdaptor::position() const { return m_backend->position() * 1000; }
 bool MprisPlayerAdaptor::canGoNext() const { return m_backend->canGoNext(); }
 bool MprisPlayerAdaptor::canGoPrevious() const { return m_backend->canGoPrevious(); }
@@ -69,6 +83,15 @@ MprisService::MprisService(Backend *backend, QObject *parent)
     });
     connect(backend, &Backend::volumeChanged, this, [this] {
         propertiesChanged(QStringLiteral("org.mpris.MediaPlayer2.Player"), {{QStringLiteral("Volume"), m_backend->volume()}});
+    });
+    connect(backend, &Backend::playbackOptionsChanged, this, [this] {
+        const auto loop = m_backend->repeatMode() == QStringLiteral("one") ? QStringLiteral("Track")
+            : m_backend->repeatMode() == QStringLiteral("all") ? QStringLiteral("Playlist")
+                                                                : QStringLiteral("None");
+        propertiesChanged(QStringLiteral("org.mpris.MediaPlayer2.Player"), {
+            {QStringLiteral("LoopStatus"), loop},
+            {QStringLiteral("Shuffle"), m_backend->shuffleEnabled()},
+        });
     });
 }
 

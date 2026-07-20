@@ -8,6 +8,8 @@ namespace {
 constexpr quint64 PositionProperty = 1;
 constexpr quint64 DurationProperty = 2;
 constexpr quint64 SeekableProperty = 3;
+constexpr quint64 BufferingProperty = 4;
+constexpr quint64 PausedForCacheProperty = 5;
 
 QString mpvError(int error)
 {
@@ -53,6 +55,8 @@ LinuxPlayback::LinuxPlayback(QObject *parent)
     mpv_observe_property(m_mpv, PositionProperty, "time-pos", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_mpv, DurationProperty, "duration", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_mpv, SeekableProperty, "seekable", MPV_FORMAT_FLAG);
+    mpv_observe_property(m_mpv, BufferingProperty, "cache-buffering-state", MPV_FORMAT_INT64);
+    mpv_observe_property(m_mpv, PausedForCacheProperty, "paused-for-cache", MPV_FORMAT_FLAG);
     mpv_set_wakeup_callback(m_mpv, handleWakeup, this);
 }
 
@@ -244,6 +248,68 @@ void LinuxPlayback::setVolume(double volume)
     emit volumeChanged();
 }
 
+void LinuxPlayback::setMuted(bool muted)
+{
+    if (m_muted == muted) return;
+    m_muted = muted;
+    if (m_mpv) {
+        int value = muted ? 1 : 0;
+        mpv_set_property_async(m_mpv, 0, "mute", MPV_FORMAT_FLAG, &value);
+    }
+    emit mutedChanged();
+}
+
+void LinuxPlayback::refreshAudioDevices()
+{
+    if (!m_mpv) return;
+    mpv_node node{};
+    if (mpv_get_property(m_mpv, "audio-device-list", MPV_FORMAT_NODE, &node) < 0) return;
+
+    QVariantList devices;
+    devices.append(QVariantMap{{QStringLiteral("name"), QStringLiteral("auto")},
+                               {QStringLiteral("description"), QStringLiteral("System default")}});
+    if (node.format == MPV_FORMAT_NODE_ARRAY && node.u.list) {
+        for (int index = 0; index < node.u.list->num; ++index) {
+            const auto &item = node.u.list->values[index];
+            if (item.format != MPV_FORMAT_NODE_MAP || !item.u.list) continue;
+            QString name;
+            QString description;
+            for (int field = 0; field < item.u.list->num; ++field) {
+                const auto key = QString::fromUtf8(item.u.list->keys[field]);
+                const auto &value = item.u.list->values[field];
+                if (value.format != MPV_FORMAT_STRING || !value.u.string) continue;
+                if (key == QStringLiteral("name")) name = QString::fromUtf8(value.u.string);
+                else if (key == QStringLiteral("description")) description = QString::fromUtf8(value.u.string);
+            }
+            if (!name.isEmpty()) {
+                if (name == QStringLiteral("auto")) continue;
+                devices.append(QVariantMap{{QStringLiteral("name"), name},
+                                           {QStringLiteral("description"), description.isEmpty() ? name : description}});
+            }
+        }
+    }
+    mpv_free_node_contents(&node);
+    if (devices == m_audioDevices) return;
+    m_audioDevices = devices;
+    emit audioDevicesChanged();
+}
+
+void LinuxPlayback::setAudioDevice(const QString &device)
+{
+    const auto next = device.trimmed().isEmpty() ? QStringLiteral("auto") : device.trimmed();
+    if (m_audioDevice == next) return;
+    if (m_mpv) {
+        const auto encoded = next.toUtf8();
+        const auto result = mpv_set_property_string(m_mpv, "audio-device", encoded.constData());
+        if (result < 0) {
+            emit errorOccurred(QStringLiteral("Could not select audio output: %1").arg(mpvError(result)));
+            return;
+        }
+    }
+    m_audioDevice = next;
+    emit audioDeviceChanged();
+}
+
 void LinuxPlayback::setReplayGain(bool enabled)
 {
     if (m_replayGainEnabled == enabled) return;
@@ -423,6 +489,18 @@ void LinuxPlayback::handleProperty(quint64 propertyId, const mpv_event_property 
         }
     } else if (propertyId == SeekableProperty && property.format == MPV_FORMAT_FLAG) {
         m_seekable = *static_cast<int *>(property.data) != 0;
+    } else if (propertyId == BufferingProperty && property.format == MPV_FORMAT_INT64) {
+        const auto next = std::clamp<int>(static_cast<int>(*static_cast<int64_t *>(property.data)), 0, 100);
+        if (next != m_bufferingPercent) {
+            m_bufferingPercent = next;
+            emit bufferingChanged();
+        }
+    } else if (propertyId == PausedForCacheProperty && property.format == MPV_FORMAT_FLAG) {
+        const bool next = *static_cast<int *>(property.data) != 0;
+        if (next != m_buffering) {
+            m_buffering = next;
+            emit bufferingChanged();
+        }
     }
 }
 

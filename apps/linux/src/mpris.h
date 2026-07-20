@@ -43,6 +43,8 @@ class MprisPlayerAdaptor final : public QDBusAbstractAdaptor
     Q_PROPERTY(double Rate READ rate CONSTANT)
     Q_PROPERTY(QVariantMap Metadata READ metadata)
     Q_PROPERTY(double Volume READ volume WRITE setVolume)
+    Q_PROPERTY(QString LoopStatus READ loopStatus WRITE setLoopStatus)
+    Q_PROPERTY(bool Shuffle READ shuffle WRITE setShuffle)
     Q_PROPERTY(qlonglong Position READ position)
     Q_PROPERTY(double MinimumRate READ minimumRate CONSTANT)
     Q_PROPERTY(double MaximumRate READ maximumRate CONSTANT)
@@ -59,6 +61,10 @@ public:
     QVariantMap metadata() const;
     double volume() const;
     void setVolume(double value);
+    QString loopStatus() const;
+    void setLoopStatus(const QString &value);
+    bool shuffle() const;
+    void setShuffle(bool value);
     qlonglong position() const;
     double minimumRate() const { return 1.0; }
     double maximumRate() const { return 1.0; }

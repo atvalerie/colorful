@@ -181,6 +181,62 @@ Item {
                             }
                         }
                     }
+                    Text { text: "Audio output"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 8 }
+                    Text { text: "Choose the Linux output used by libmpv. System default follows PipeWire routing changes."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        ComboBox {
+                            id: outputPicker
+                            Layout.fillWidth: true; implicitHeight: 38
+                            model: colorful.audioDevices
+                            textRole: "description"
+                            valueRole: "name"
+                            currentIndex: {
+                                for (let index = 0; index < colorful.audioDevices.length; ++index) {
+                                    if (colorful.audioDevices[index].name === colorful.audioDevice) return index
+                                }
+                                return 0
+                            }
+                            onActivated: colorful.audioDevice = currentValue
+                            contentItem: Text {
+                                leftPadding: 12; rightPadding: 28
+                                text: outputPicker.displayText
+                                color: "#f5f5f5"; font.pixelSize: 12
+                                verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+                            }
+                            background: Rectangle {
+                                color: outputPicker.hovered ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(1, 1, 1, 0.035)
+                                border.width: 1; border.color: outputPicker.activeFocus ? colorful.accent : Qt.rgba(1, 1, 1, 0.14)
+                            }
+                            indicator: Item {
+                                x: outputPicker.width - width - 12
+                                y: (outputPicker.height - height) / 2
+                                width: 12; height: 8
+                                Rectangle { width: 7; height: 1; color: Qt.rgba(1, 1, 1, 0.55); rotation: 35; x: 0; y: 3 }
+                                Rectangle { width: 7; height: 1; color: Qt.rgba(1, 1, 1, 0.55); rotation: -35; x: 5; y: 3 }
+                            }
+                            delegate: ItemDelegate {
+                                required property var modelData
+                                width: outputPicker.width; height: 34
+                                contentItem: Text {
+                                    text: modelData.description || modelData.name
+                                    color: "#f5f5f5"; font.pixelSize: 11
+                                    verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+                                }
+                                background: Rectangle {
+                                    color: parent.highlighted ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.2) : "#121216"
+                                }
+                            }
+                            popup.background: Rectangle {
+                                color: "#121216"; border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.16)
+                            }
+                        }
+                        ColorButton {
+                            text: "Refresh"; quiet: true
+                            implicitWidth: 72; implicitHeight: 38
+                            onClicked: colorful.refreshAudioDevices()
+                        }
+                    }
                     Text { text: "Volume normalization"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 8 }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 76

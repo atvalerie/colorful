@@ -105,6 +105,10 @@ qt_add_qml_module(colorful-linux
         qml/icons/youtube.svg
         qml/icons/user.svg
         qml/icons/volume.svg
+        qml/icons/volume-muted.svg
+        qml/icons/shuffle.svg
+        qml/icons/repeat.svg
+        qml/icons/repeat-one.svg
 )
 
 set_source_files_properties(

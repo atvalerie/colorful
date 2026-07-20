@@ -246,6 +246,7 @@ Item {
                         showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
                         onPlayRequested: colorful.playCatalogTrack(modelData)
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
+                        onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                         onSaveRequested: colorful.saveCatalogTrack(modelData)
                         onDownloadRequested: colorful.downloadTrack(modelData)
                         onDetailsRequested: colorful.openTrackItem(modelData)

@@ -119,6 +119,9 @@ Backend::Backend(QObject *parent)
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
+    m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
+    m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
+    m_playback.setAudioDevice(settings.value(QStringLiteral("playback/audioDevice"), QStringLiteral("auto")).toString());
     const auto storedEq = settings.value(QStringLiteral("playback/equalizerBands")).toList();
     if (storedEq.size() == 10) {
         for (const auto &gain : storedEq)
@@ -219,7 +222,15 @@ Backend::Backend(QObject *parent)
     connect(&m_playback, &LinuxPlayback::positionChanged, this, [this] { emit positionChanged(); });
     connect(&m_playback, &LinuxPlayback::durationChanged, this, &Backend::durationChanged);
     connect(&m_playback, &LinuxPlayback::volumeChanged, this, &Backend::volumeChanged);
+    connect(&m_playback, &LinuxPlayback::mutedChanged, this, &Backend::mutedChanged);
+    connect(&m_playback, &LinuxPlayback::bufferingChanged, this, &Backend::playbackConditionChanged);
+    connect(&m_playback, &LinuxPlayback::audioDevicesChanged, this, &Backend::audioDevicesChanged);
+    connect(&m_playback, &LinuxPlayback::audioDeviceChanged, this, &Backend::audioDeviceChanged);
     connect(&m_playback, &LinuxPlayback::loadingChanged, this, [this](bool loading) {
+        if (loading && !m_playbackError.isEmpty()) {
+            m_playbackError.clear();
+            emit playbackConditionChanged();
+        }
         if (loading) {
             suspendListeningSession();
             m_playbackReady = false;
@@ -239,12 +250,16 @@ Backend::Backend(QObject *parent)
             updateDiscordPresence();
             prepareNextSource();
         }
+        emit playbackConditionChanged();
     });
     connect(&m_playback, &LinuxPlayback::errorOccurred, this, [this](const QString &error) {
         suspendListeningSession();
         m_playbackReady = false;
         setBusy(false);
         setStatus(QStringLiteral("Playback error: %1").arg(error));
+        m_playbackError = error;
+        emit playbackConditionChanged();
+        notify(error, QStringLiteral("error"));
     });
     connect(&m_playback, &LinuxPlayback::seekCompleted, this, [this](qint64 confirmedPositionMs) {
         m_resumePositionMs = confirmedPositionMs;
@@ -275,6 +290,7 @@ Backend::Backend(QObject *parent)
     });
 
     openCore();
+    m_playback.refreshAudioDevices();
     const auto restoredDownloads = m_downloads;
     for (const auto &value : restoredDownloads) {
         const auto entry = value.toMap();
@@ -365,6 +381,8 @@ void Backend::refreshCoreSnapshot()
     const auto playOrder = queue.value(QStringLiteral("playOrder")).toArray();
     const auto tracks = snapshot.value(QStringLiteral("queueTracks")).toArray();
     const auto currentEntryId = queue.value(QStringLiteral("current")).toInteger(-1);
+    const auto nextRepeatMode = playback.value(QStringLiteral("repeat")).toString(QStringLiteral("off"));
+    const bool nextShuffleEnabled = playback.value(QStringLiteral("shuffle")).toBool(false);
 
     QVariantList nextQueue;
     QList<qint64> nextEntryIds;
@@ -407,6 +425,8 @@ void Backend::refreshCoreSnapshot()
     const bool downloadsWereChanged = nextDownloads != m_downloads;
     const auto nextListenStats = snapshot.value(QStringLiteral("listenStats")).toObject().toVariantMap();
     const bool listenStatsWereChanged = nextListenStats != m_listenStats;
+    const bool playbackOptionsWereChanged = nextRepeatMode != m_repeatMode
+        || nextShuffleEnabled != m_shuffleEnabled;
     m_queue = std::move(nextQueue);
     m_queueEntryIds = std::move(nextEntryIds);
     m_playOrderEntryIds = std::move(nextPlayOrderEntryIds);
@@ -415,6 +435,8 @@ void Backend::refreshCoreSnapshot()
     m_library = std::move(nextLibrary);
     m_downloads = std::move(nextDownloads);
     m_listenStats = nextListenStats;
+    m_repeatMode = nextRepeatMode;
+    m_shuffleEnabled = nextShuffleEnabled;
     const auto currentArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
     if (!currentArtworkUrl.isEmpty() && currentArtworkUrl != previousArtworkUrl) loadAccent(currentArtworkUrl);
     if (currentWasChanged) {
@@ -427,6 +449,7 @@ void Backend::refreshCoreSnapshot()
     if (libraryWasChanged) emit libraryChanged();
     if (downloadsWereChanged) emit downloadsChanged();
     if (listenStatsWereChanged) emit listenStatsChanged();
+    if (playbackOptionsWereChanged) emit playbackOptionsChanged();
 }
 
 QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
@@ -566,12 +589,22 @@ QVariantMap Backend::mprisMetadata() const
 int Backend::nextQueueIndex() const
 {
     const auto playIndex = m_playOrderEntryIds.indexOf(m_currentEntryId);
-    if (playIndex < 0 || playIndex + 1 >= m_playOrderEntryIds.size()) return -1;
+    if (playIndex < 0 || m_playOrderEntryIds.isEmpty()) return -1;
+    if (m_repeatMode == QStringLiteral("one")) return m_currentIndex;
+    if (playIndex + 1 >= m_playOrderEntryIds.size()) {
+        return m_repeatMode == QStringLiteral("all")
+            ? m_queueEntryIds.indexOf(m_playOrderEntryIds.first()) : -1;
+    }
     return m_queueEntryIds.indexOf(m_playOrderEntryIds.at(playIndex + 1));
 }
 
 bool Backend::canGoNext() const { return nextQueueIndex() >= 0; }
-bool Backend::canGoPrevious() const { return m_currentIndex > 0 || (m_currentIndex == 0 && position() > 3000); }
+bool Backend::canGoPrevious() const
+{
+    if (position() > 3000) return m_currentIndex >= 0;
+    const auto playIndex = m_playOrderEntryIds.indexOf(m_currentEntryId);
+    return playIndex > 0 || (playIndex == 0 && m_repeatMode == QStringLiteral("all"));
+}
 
 void Backend::startProviderHost()
 {
@@ -1089,6 +1122,15 @@ void Backend::enqueueCatalogTrack(const QVariantMap &track)
     notify(QStringLiteral("Added %1 to the queue").arg(track.value(QStringLiteral("title")).toString()));
 }
 
+void Backend::playNextCatalogTrack(const QVariantMap &track)
+{
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("play_next")},
+                  {QStringLiteral("track"), variantTrackToCore(track)}});
+    prepareNextSource();
+    notify(QStringLiteral("%1 will play next").arg(track.value(QStringLiteral("title")).toString()));
+}
+
 void Backend::playCatalogTrack(const QVariantMap &track)
 {
     playSingleTrack(track);
@@ -1177,6 +1219,16 @@ void Backend::removeQueueIndex(int index)
         else m_playback.clearSource();
     } else prepareNextSource();
     notify(QStringLiteral("Removed %1 from the queue").arg(title));
+}
+
+void Backend::moveQueueIndex(int fromIndex, int toIndex)
+{
+    if (fromIndex < 0 || fromIndex >= m_queueEntryIds.size() || toIndex < 0
+        || toIndex >= m_queueEntryIds.size() || fromIndex == toIndex) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("move")},
+                  {QStringLiteral("entry_id"), m_queueEntryIds.at(fromIndex)},
+                  {QStringLiteral("target_index"), toIndex}});
+    prepareNextSource();
 }
 
 void Backend::clearQueue()
@@ -1808,6 +1860,8 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
             setBusy(false);
             const auto error = message.value(QStringLiteral("error")).toString();
             setStatus(error);
+            m_playbackError = error.isEmpty() ? QStringLiteral("Could not resolve a playback source") : error;
+            emit playbackConditionChanged();
             if (error.contains(QStringLiteral("only returned a preview"), Qt::CaseInsensitive)) {
                 setEntitlementWarning(
                     true,
@@ -1820,6 +1874,8 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         if (uri.isEmpty()) {
             setBusy(false);
             setStatus(QStringLiteral("The provider returned an empty playback source"));
+            m_playbackError = QStringLiteral("The provider returned an empty playback source");
+            emit playbackConditionChanged();
             return;
         }
         m_displayPositionOverride = startPositionMs > 0 ? startPositionMs : -1;
@@ -2065,7 +2121,7 @@ void Backend::requestRelated(bool continueWhenReady)
 
 void Backend::previous()
 {
-    if (position() > 3000 || m_currentIndex <= 0) seek(0);
+    if (position() > 3000 || !canGoPrevious()) seek(0);
     else {
         finishListeningSession();
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
@@ -2092,6 +2148,49 @@ void Backend::seekBy(qint64 offsetMs) { seek(position() + offsetMs); }
 void Backend::setVolume(double volume)
 {
     m_playback.setVolume(volume);
+    QSettings().setValue(QStringLiteral("playback/volume"), m_playback.volume());
+}
+
+void Backend::setMuted(bool muted)
+{
+    m_playback.setMuted(muted);
+    QSettings().setValue(QStringLiteral("playback/muted"), m_playback.muted());
+}
+
+void Backend::setRepeatMode(const QString &mode)
+{
+    const auto next = mode == QStringLiteral("all") || mode == QStringLiteral("one")
+        ? mode : QStringLiteral("off");
+    if (next == m_repeatMode) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("set_repeat")},
+                  {QStringLiteral("repeat"), next}});
+    prepareNextSource();
+}
+
+void Backend::setShuffleEnabled(bool enabled)
+{
+    if (enabled == m_shuffleEnabled) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("set_shuffle")},
+                  {QStringLiteral("enabled"), enabled},
+                  {QStringLiteral("seed"), QDateTime::currentMSecsSinceEpoch()}});
+    prepareNextSource();
+}
+
+void Backend::setAudioDevice(const QString &device)
+{
+    m_playback.setAudioDevice(device);
+    QSettings().setValue(QStringLiteral("playback/audioDevice"), m_playback.audioDevice());
+}
+
+void Backend::refreshAudioDevices() { m_playback.refreshAudioDevices(); }
+
+void Backend::retryPlayback()
+{
+    if (currentTrack().isEmpty()) return;
+    const auto retryPosition = position();
+    m_playbackError.clear();
+    emit playbackConditionChanged();
+    resolveCurrentSource(retryPosition, playing());
 }
 
 void Backend::setAutoplayEnabled(bool enabled)

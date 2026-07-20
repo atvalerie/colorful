@@ -59,9 +59,10 @@ colorful is an early personal alpha, not a packaged consumer release.
 - TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
 - public YouTube Music song, video, release, artist, and uploader-channel search; paginated channel uploads, catalog pages, playback, downloads, and genuine radio/automix on Linux
 - lossless/adaptive playback with accurate duration and seeking
-- perceptual desktop volume control with a finer quiet range
+- persisted perceptual desktop volume, real mute, and selectable Linux output
 - prepared-next, gapless Linux playback with prefetched autoplay
-- persistent queue, library, playback position, autoplay, and related tracks
+- persistent reorderable queue, play-next insertion, repeat/shuffle, playback
+  position, autoplay, and related tracks
 - Linux MPRIS and Discord Rich Presence
 - Android system media session and background playback ownership
 - album-art-derived, contrast-safe accent colors

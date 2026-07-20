@@ -140,6 +140,7 @@ Item {
                     showSaveAction: false
                     onPlayRequested: colorful.playCatalogTrack(modelData)
                     onAddRequested: colorful.enqueueCatalogTrack(modelData)
+                    onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                     onDetailsRequested: colorful.openTrackItem(modelData)
                     onStartRadioRequested: colorful.startRadio(modelData)
                 }

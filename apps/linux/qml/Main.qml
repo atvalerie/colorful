@@ -55,6 +55,26 @@ ApplicationWindow {
         return Math.sqrt(Math.max(0, Math.min(1, output)))
     }
 
+    function textEntryFocused() {
+        const item = window.activeFocusItem
+        return item && item.hasOwnProperty("cursorPosition")
+    }
+
+    function adjustVolume(delta) {
+        const next = Math.max(0, Math.min(1, outputToVolumePosition(colorful.volume) + delta))
+        if (colorful.muted && delta > 0) colorful.muted = false
+        colorful.setVolume(volumePositionToOutput(next))
+    }
+
+    Shortcut { sequence: "Space"; enabled: !window.textEntryFocused(); onActivated: colorful.togglePlay() }
+    Shortcut { sequence: "M"; enabled: !window.textEntryFocused(); onActivated: colorful.muted = !colorful.muted }
+    Shortcut { sequence: "Left"; enabled: !window.textEntryFocused(); onActivated: colorful.seekBy(-5000) }
+    Shortcut { sequence: "Right"; enabled: !window.textEntryFocused(); onActivated: colorful.seekBy(5000) }
+    Shortcut { sequence: "Ctrl+Left"; enabled: !window.textEntryFocused(); onActivated: colorful.previous() }
+    Shortcut { sequence: "Ctrl+Right"; enabled: !window.textEntryFocused(); onActivated: colorful.next() }
+    Shortcut { sequence: "Up"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(0.04) }
+    Shortcut { sequence: "Down"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(-0.04) }
+
     function runSearch() {
         const query = searchField.text.trim()
         if (!query || colorful.busy || !colorful.providerReady) return
@@ -493,6 +513,7 @@ ApplicationWindow {
                                 onAddRequested: window.currentSection === "library"
                                                 ? colorful.enqueueCatalogTrack(modelData)
                                                 : colorful.enqueueCatalogTrack(modelData)
+                                onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                                 onRemoveRequested: colorful.removeLibraryIndex(index)
                                 onSaveRequested: colorful.saveCatalogTrack(modelData)
                                 onDownloadRequested: colorful.downloadTrack(modelData)
@@ -668,6 +689,8 @@ ApplicationWindow {
                                     required property var modelData
                                     track: modelData
                                     queueMode: true
+                                    queueIndex: index
+                                    queueCount: queueList.count
                                     showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
                                     active: index === colorful.currentQueueIndex
                                     onPlayRequested: colorful.playQueueIndex(index)
@@ -675,6 +698,10 @@ ApplicationWindow {
                                     onDownloadRequested: colorful.downloadTrack(modelData)
                                     onDetailsRequested: colorful.openTrackItem(modelData)
                                     onStartRadioRequested: colorful.startRadio(modelData)
+                                    onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
+                                    onMoveRequested: function(targetIndex) { colorful.moveQueueIndex(index, targetIndex) }
+                                    onMoveUpRequested: colorful.moveQueueIndex(index, index - 1)
+                                    onMoveDownRequested: colorful.moveQueueIndex(index, index + 1)
                                 }
 
                                 Column {
@@ -868,6 +895,15 @@ ApplicationWindow {
                         spacing: 7
 
                         IconButton {
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            iconSource: "icons/shuffle.svg"
+                            selected: colorful.shuffleEnabled
+                            tooltipText: colorful.shuffleEnabled ? "Shuffle on" : "Shuffle off"
+                            onClicked: colorful.shuffleEnabled = !colorful.shuffleEnabled
+                        }
+
+                        IconButton {
                             implicitWidth: 36
                             implicitHeight: 36
                             iconSource: "icons/previous.svg"
@@ -891,6 +927,24 @@ ApplicationWindow {
                             tooltipText: "Next"
                             enabled: colorful.queue.length > 0
                             onClicked: colorful.next()
+                        }
+                        IconButton {
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            iconSource: colorful.repeatMode === "one" ? "icons/repeat-one.svg" : "icons/repeat.svg"
+                            selected: colorful.repeatMode !== "off"
+                            tooltipText: colorful.repeatMode === "one" ? "Repeat track"
+                                         : colorful.repeatMode === "all" ? "Repeat queue" : "Repeat off"
+                            onClicked: colorful.repeatMode = colorful.repeatMode === "off" ? "all"
+                                                               : colorful.repeatMode === "all" ? "one" : "off"
+                        }
+                        ColorButton {
+                            visible: colorful.playbackError.length > 0
+                            implicitWidth: visible ? 52 : 0
+                            implicitHeight: 28
+                            text: "Retry"
+                            quiet: true
+                            onClicked: colorful.retryPlayback()
                         }
                     }
 
@@ -927,6 +981,13 @@ ApplicationWindow {
                                     height: parent.height
                                     color: colorful.accent
                                 }
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: colorful.buffering || colorful.playbackLoading
+                                    text: colorful.buffering ? "Buffering " + colorful.bufferingPercent + "%" : "Opening…"
+                                    color: window.mutedInk
+                                    font.pixelSize: 9
+                                }
                             }
                             handle: Rectangle {
                                 x: progress.leftPadding + progress.visualPosition * (progress.availableWidth - width)
@@ -956,11 +1017,13 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 5
 
-                        AppIcon {
-                            Layout.preferredWidth: 18
-                            Layout.preferredHeight: 18
-                            iconSource: "icons/volume.svg"
-                            opacity: 0.58
+                        IconButton {
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            iconSource: colorful.muted ? "icons/volume-muted.svg" : "icons/volume.svg"
+                            selected: colorful.muted
+                            tooltipText: colorful.muted ? "Unmute" : "Mute"
+                            onClicked: colorful.muted = !colorful.muted
                         }
                         Slider {
                             id: volumeSlider
@@ -969,6 +1032,11 @@ ApplicationWindow {
                             from: 0
                             to: 1
                             onMoved: colorful.setVolume(window.volumePositionToOutput(value))
+                            WheelHandler {
+                                onWheel: function(event) {
+                                    window.adjustVolume(event.angleDelta.y > 0 ? 0.04 : -0.04)
+                                }
+                            }
                             Binding on value {
                                 value: window.outputToVolumePosition(colorful.volume)
                                 when: !volumeSlider.pressed

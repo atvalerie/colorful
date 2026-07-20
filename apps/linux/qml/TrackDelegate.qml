@@ -43,6 +43,8 @@ ItemDelegate {
     property bool libraryMode: false
     property bool showSaveAction: false
     property bool showDownloadAction: false
+    property int queueIndex: -1
+    property int queueCount: 0
     signal playRequested()
     signal addRequested()
     signal removeRequested()
@@ -50,6 +52,10 @@ ItemDelegate {
     signal downloadRequested()
     signal detailsRequested()
     signal startRadioRequested()
+    signal playNextRequested()
+    signal moveRequested(int targetIndex)
+    signal moveUpRequested()
+    signal moveDownRequested()
 
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 500)
     height: 54
@@ -76,11 +82,28 @@ ItemDelegate {
         }
 
         CompactMenuItem { text: "Play"; onTriggered: root.playRequested() }
+        CompactMenuItem {
+            visible: !root.queueMode
+            text: "Play next"
+            onTriggered: root.playNextRequested()
+        }
         CompactMenuItem { text: "Start radio"; onTriggered: root.startRadioRequested() }
         CompactSeparator {}
         CompactMenuItem {
             text: root.queueMode ? "Remove from queue" : "Add to queue"
             onTriggered: root.queueMode ? root.removeRequested() : root.addRequested()
+        }
+        CompactMenuItem {
+            visible: root.queueMode
+            enabled: root.queueIndex > 0
+            text: "Move up"
+            onTriggered: root.moveUpRequested()
+        }
+        CompactMenuItem {
+            visible: root.queueMode
+            enabled: root.queueIndex + 1 < root.queueCount
+            text: "Move down"
+            onTriggered: root.moveDownRequested()
         }
         CompactMenuItem {
             visible: root.libraryMode
@@ -99,6 +122,30 @@ ItemDelegate {
         }
         CompactSeparator {}
         CompactMenuItem { text: "Open details"; onTriggered: root.detailsRequested() }
+    }
+
+    Drag.active: queueDrag.active
+    Drag.source: root
+    Drag.hotSpot.x: width / 2
+    Drag.hotSpot.y: height / 2
+
+    DragHandler {
+        id: queueDrag
+        enabled: root.queueMode
+        target: null
+        acceptedButtons: Qt.LeftButton
+    }
+
+    DropArea {
+        anchors.fill: parent
+        enabled: root.queueMode
+        onDropped: function(drop) {
+            if (drop.source && drop.source.queueIndex >= 0
+                    && drop.source.queueIndex !== root.queueIndex) {
+                drop.source.moveRequested(root.queueIndex)
+                drop.acceptProposedAction()
+            }
+        }
     }
 
     background: Rectangle {

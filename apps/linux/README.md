@@ -12,10 +12,12 @@ for durable queue, library, history, settings, and offline-job state.
   tracks/radio, and selectable stream quality;
 - public YouTube Music song/video/release/artist/channel search, paginated
   uploader pages, catalog navigation, playback, downloads, and real automix;
-- persistent queue/library/position, queue replacement for play-now, autoplay,
-  prepared-next playback, and gapless transitions;
-- seeking, perceptual volume control, MPRIS, mouse back/forward track controls,
-  and Discord Rich Presence;
+- persistent queue/library/position, drag reordering, play-next insertion,
+  shuffle, three-state repeat, autoplay, prepared-next playback, and gapless
+  transitions;
+- seeking, persisted perceptual volume and mute, selectable Linux audio output,
+  buffering/error feedback with retry, MPRIS, keyboard and mouse controls, and
+  Discord Rich Presence;
 - resumable TIDAL and YouTube downloads stored as standalone `.mka` files;
 - ten-band EQ, presets, clipping protection, and optional ReplayGain
   normalization;
@@ -55,6 +57,18 @@ For an immediate relaunch of an already-built binary:
 Set `COLORFUL_YT_DLP` to select a different `yt-dlp` executable, or
 `COLORFUL_DISABLE_DISCORD_RPC=1` to disable local Rich Presence IPC.
 
+## Desktop controls
+
+The compact player exposes shuffle, repeat-off/queue/track, mute, output volume,
+queue, and retry state directly. Queue rows can be dragged to reorder them, and
+track context menus include **Play next**. Playback settings contain the libmpv
+audio-output selector; **System default** continues to follow PipeWire routing.
+
+Keyboard controls are `Space` for play/pause, `M` for mute, left/right to seek
+five seconds, Ctrl+left/right for previous/next, and up/down for perceptual
+volume steps. Mouse buttons 4 and 5 retain previous/next behavior. Shortcuts do
+not intercept typing in text fields.
+
 ## Offline files and low-data mode
 
 The download worker resolves a fresh provider source, writes independently
@@ -79,7 +93,8 @@ suite from the repository root:
 ```
 
 A shorter manual playback pass should cover both providers, seeking, next-track
-transition, a paused/resumed download, offline playback, MPRIS controls, and
+transition, repeat/shuffle, queue reordering, mute/volume restoration, output
+switching, a paused/resumed download, offline playback, MPRIS controls, and
 restoration after restarting the app.
 
 Useful MPRIS checks:

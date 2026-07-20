@@ -50,6 +50,15 @@ class Backend final : public QObject
     Q_PROPERTY(qint64 position READ position NOTIFY positionChanged)
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
+    Q_PROPERTY(QString repeatMode READ repeatMode WRITE setRepeatMode NOTIFY playbackOptionsChanged)
+    Q_PROPERTY(bool shuffleEnabled READ shuffleEnabled WRITE setShuffleEnabled NOTIFY playbackOptionsChanged)
+    Q_PROPERTY(bool playbackLoading READ playbackLoading NOTIFY playbackConditionChanged)
+    Q_PROPERTY(bool buffering READ buffering NOTIFY playbackConditionChanged)
+    Q_PROPERTY(int bufferingPercent READ bufferingPercent NOTIFY playbackConditionChanged)
+    Q_PROPERTY(QString playbackError READ playbackError NOTIFY playbackConditionChanged)
+    Q_PROPERTY(QVariantList audioDevices READ audioDevices NOTIFY audioDevicesChanged)
+    Q_PROPERTY(QString audioDevice READ audioDevice WRITE setAudioDevice NOTIFY audioDeviceChanged)
     Q_PROPERTY(QColor accent READ accent NOTIFY accentChanged)
     Q_PROPERTY(QString accentMode READ accentMode WRITE setAccentMode NOTIFY appearanceChanged)
     Q_PROPERTY(QColor fixedAccent READ fixedAccent WRITE setFixedAccent NOTIFY appearanceChanged)
@@ -102,6 +111,15 @@ public:
     qint64 position() const;
     qint64 duration() const;
     double volume() const { return m_playback.volume(); }
+    bool muted() const { return m_playback.muted(); }
+    QString repeatMode() const { return m_repeatMode; }
+    bool shuffleEnabled() const { return m_shuffleEnabled; }
+    bool playbackLoading() const { return m_playback.loading(); }
+    bool buffering() const { return m_playback.buffering(); }
+    int bufferingPercent() const { return m_playback.bufferingPercent(); }
+    QString playbackError() const { return m_playbackError; }
+    QVariantList audioDevices() const { return m_playback.audioDevices(); }
+    QString audioDevice() const { return m_playback.audioDevice(); }
     QColor accent() const { return m_accent; }
     QString accentMode() const { return m_accentMode; }
     QColor fixedAccent() const { return m_fixedAccent; }
@@ -145,6 +163,7 @@ public:
     Q_INVOKABLE void closeCatalog();
     Q_INVOKABLE void loadMoreCatalog(const QString &section);
     Q_INVOKABLE void enqueueCatalogTrack(const QVariantMap &track);
+    Q_INVOKABLE void playNextCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void playCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void startRadio(const QVariantMap &track);
     Q_INVOKABLE void saveCatalogTrack(const QVariantMap &track);
@@ -153,6 +172,7 @@ public:
     Q_INVOKABLE void playSearchResult(int index);
     Q_INVOKABLE void playQueueIndex(int index);
     Q_INVOKABLE void removeQueueIndex(int index);
+    Q_INVOKABLE void moveQueueIndex(int fromIndex, int toIndex);
     Q_INVOKABLE void clearQueue();
     Q_INVOKABLE void addSearchResultToLibrary(int index);
     Q_INVOKABLE void playLibraryIndex(int index);
@@ -172,6 +192,12 @@ public:
     Q_INVOKABLE void seek(qint64 positionMs);
     Q_INVOKABLE void seekBy(qint64 offsetMs);
     Q_INVOKABLE void setVolume(double volume);
+    Q_INVOKABLE void setMuted(bool muted);
+    Q_INVOKABLE void setRepeatMode(const QString &mode);
+    Q_INVOKABLE void setShuffleEnabled(bool enabled);
+    Q_INVOKABLE void setAudioDevice(const QString &device);
+    Q_INVOKABLE void refreshAudioDevices();
+    Q_INVOKABLE void retryPlayback();
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
@@ -209,6 +235,11 @@ signals:
     void positionChanged();
     void durationChanged();
     void volumeChanged();
+    void mutedChanged();
+    void playbackOptionsChanged();
+    void playbackConditionChanged();
+    void audioDevicesChanged();
+    void audioDeviceChanged();
     void accentChanged();
     void appearanceChanged();
     void autoplayEnabledChanged();
@@ -351,6 +382,9 @@ private:
     QPointer<QNetworkReply> m_accentReply;
     bool m_autoplayEnabled = true;
     QString m_streamQuality = QStringLiteral("best");
+    QString m_repeatMode = QStringLiteral("off");
+    bool m_shuffleEnabled = false;
+    QString m_playbackError;
     bool m_normalizationEnabled = false;
     QVariantList m_equalizerBands;
     QString m_equalizerPreset = QStringLiteral("Flat");
