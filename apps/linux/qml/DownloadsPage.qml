@@ -27,6 +27,10 @@ Item {
         return total
     }
 
+    function unfinishedCount() {
+        return colorful.downloads.length - countState("complete")
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 12
@@ -51,6 +55,12 @@ Item {
                 enabled: root.countState("complete") > 0
                 onClicked: removeCompletedDialog.open()
             }
+            ColorButton {
+                text: "Remove unfinished"
+                quiet: true
+                enabled: root.unfinishedCount() > 0
+                onClicked: removeUnfinishedDialog.open()
+            }
         }
 
         Text {
@@ -69,6 +79,18 @@ Item {
             Text { text: root.countState("downloading") + root.countState("resolving") + root.countState("queued") > 0 ? (root.countState("downloading") + root.countState("resolving") + root.countState("queued")) + " active" : ""; visible: text.length > 0; color: colorful.accent; font.pixelSize: 11 }
             Text { text: root.countState("paused") > 0 ? root.countState("paused") + " paused" : ""; visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
             Item { Layout.fillWidth: true }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: colorful.offlineStorageLimitBytes > 0 ? 5 : 0
+            visible: colorful.offlineStorageLimitBytes > 0
+            color: Qt.rgba(1, 1, 1, 0.1)
+            Rectangle {
+                width: parent.width * Math.min(1, colorful.offlineStorageUsed / colorful.offlineStorageLimitBytes)
+                height: parent.height
+                color: colorful.offlineStorageUsed >= colorful.offlineStorageLimitBytes ? "#ff7777" : colorful.accent
+            }
         }
 
         ListView {
@@ -171,6 +193,28 @@ Item {
         contentItem: Text {
             text: "This deletes " + root.countState("complete") + " offline audio "
                   + (root.countState("complete") === 1 ? "file" : "files") + " from this device."
+            color: Qt.rgba(1, 1, 1, 0.65)
+            font.pixelSize: 12
+            wrapMode: Text.WordWrap
+        }
+        background: Rectangle {
+            color: "#121216"
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.2)
+        }
+    }
+
+
+    Dialog {
+        id: removeUnfinishedDialog
+        anchors.centerIn: parent
+        modal: true
+        title: "Remove unfinished downloads?"
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: colorful.removeUnfinishedDownloads()
+        contentItem: Text {
+            text: "This removes " + root.unfinishedCount() + " queued, partial, paused, or failed "
+                  + (root.unfinishedCount() === 1 ? "download" : "downloads") + "."
             color: Qt.rgba(1, 1, 1, 0.65)
             font.pixelSize: 12
             wrapMode: Text.WordWrap

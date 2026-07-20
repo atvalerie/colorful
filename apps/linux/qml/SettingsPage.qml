@@ -20,14 +20,6 @@ Item {
         return field.activeFocus ? colorful.accent : Qt.rgba(1, 1, 1, 0.13)
     }
 
-    function downloadedBytes() {
-        let total = 0
-        for (let index = 0; index < colorful.downloads.length; ++index)
-            if (colorful.downloads[index].downloadState === "complete")
-                total += colorful.downloads[index].bytesDownloaded || 0
-        return total
-    }
-
     function formatStorage(bytes) {
         if (!bytes) return "0 MB"
         if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB"
@@ -501,20 +493,50 @@ Item {
                     Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
                     Text { Layout.fillWidth: true; text: "Offline files are private application data. They contain playable audio and do not depend on an expiring manifest after completion."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 105
+                        Layout.fillWidth: true; Layout.preferredHeight: 126
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         RowLayout {
                             anchors.fill: parent; anchors.margins: 16; spacing: 18
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 3
-                                Text { text: root.formatStorage(root.downloadedBytes()); color: "#f5f5f5"; font.bold: true; font.pixelSize: 22 }
+                                Text { text: root.formatStorage(colorful.offlineStorageUsed); color: "#f5f5f5"; font.bold: true; font.pixelSize: 22 }
                                 Text { text: colorful.downloads.length + " offline " + (colorful.downloads.length === 1 ? "entry" : "entries"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
+                                Text { text: colorful.offlineStorageLimitBytes > 0 ? "Limit: " + root.formatStorage(colorful.offlineStorageLimitBytes) : "No storage limit"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
                             }
                             ColorButton { text: "Open folder"; quiet: true; onClicked: colorful.openDownloadsFolder() }
                         }
                     }
+                    Text { text: "Offline storage limit"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
+                    Text { Layout.fillWidth: true; text: "Downloads pause at the limit. colorful never removes completed music automatically."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Row {
+                        Layout.fillWidth: true; spacing: 0
+                        Repeater {
+                            model: [["Unlimited", 0], ["2 GB", 2], ["5 GB", 5], ["10 GB", 10], ["25 GB", 25], ["50 GB", 50]]
+                            delegate: Rectangle {
+                                required property var modelData
+                                readonly property real bytes: modelData[1] * 1024 * 1024 * 1024
+                                width: 108; height: 42
+                                color: colorful.offlineStorageLimitBytes === bytes ? Qt.rgba(1, 1, 1, 0.075) : quotaHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                border.width: 1
+                                border.color: colorful.offlineStorageLimitBytes === bytes ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                Text { anchors.centerIn: parent; text: modelData[0]; color: "#f5f5f5"; font.bold: true; font.pixelSize: 11 }
+                                HoverHandler { id: quotaHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: colorful.offlineStorageLimitBytes = parent.bytes }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 6
+                        visible: colorful.offlineStorageLimitBytes > 0
+                        color: Qt.rgba(1, 1, 1, 0.1)
+                        Rectangle {
+                            width: parent.width * Math.min(1, colorful.offlineStorageUsed / colorful.offlineStorageLimitBytes)
+                            height: parent.height
+                            color: colorful.offlineStorageUsed >= colorful.offlineStorageLimitBytes ? "#ff7777" : colorful.accent
+                        }
+                    }
                     Text { text: "Download quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
-                    Text { Layout.fillWidth: true; text: "New downloads currently follow the TIDAL stream-quality choice in Playback settings. Per-download quality and automatic cache limits can be added without changing the stored-file format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { Layout.fillWidth: true; text: "New downloads follow the stream-quality choice in Playback settings. Per-download quality can be added without changing the stored-file format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
                 }
             }
 

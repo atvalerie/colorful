@@ -119,6 +119,7 @@ Backend::Backend(QObject *parent)
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
+    m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
     m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
     m_playback.setAudioDevice(settings.value(QStringLiteral("playback/audioDevice"), QStringLiteral("auto")).toString());
@@ -187,6 +188,18 @@ Backend::Backend(QObject *parent)
     connect(&m_downloadProgressTimer, &QTimer::timeout, this, [this] {
         if (m_activeDownloadTrack.isEmpty() || m_downloadProcess.state() == QProcess::NotRunning) return;
         const auto size = downloadWorkingBytes(m_activeDownloadTrack);
+        const auto previousSize = downloadForTrack(
+            m_activeDownloadTrack.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString(),
+            m_activeDownloadTrack.value(QStringLiteral("id")).toString())
+                                  .value(QStringLiteral("bytesDownloaded")).toLongLong();
+        const auto projectedUsage = std::max<qint64>(0, offlineStorageUsed() - previousSize) + size;
+        if (m_downloadProcessStage == DownloadProcessStage::Transfer
+            && m_offlineStorageLimitBytes > 0 && projectedUsage >= m_offlineStorageLimitBytes) {
+            m_pauseDownloadForQuota = true;
+            m_cancelActiveDownload = true;
+            m_downloadProcess.terminate();
+            return;
+        }
         saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {}, std::max<qint64>(0, size));
     });
     connect(&m_downloadProcess, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
@@ -331,6 +344,14 @@ QVariantMap Backend::currentTrack() const
     return m_currentIndex >= 0 && m_currentIndex < m_queue.size()
         ? m_queue.at(m_currentIndex).toMap()
         : QVariantMap{};
+}
+
+qint64 Backend::offlineStorageUsed() const
+{
+    qint64 total = 0;
+    for (const auto &value : m_downloads)
+        total += std::max<qint64>(0, value.toMap().value(QStringLiteral("bytesDownloaded")).toLongLong());
+    return total;
 }
 
 QVariantMap Backend::buildInfo() const
@@ -1426,6 +1447,11 @@ void Backend::downloadTrack(const QVariantMap &track)
     const auto trackId = track.value(QStringLiteral("id")).toString();
     const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
     if (trackId.isEmpty()) return;
+    if (m_offlineStorageLimitBytes > 0 && offlineStorageUsed() >= m_offlineStorageLimitBytes) {
+        notify(QStringLiteral("Offline storage limit reached. Remove downloads or raise the limit in Settings."),
+               QStringLiteral("warning"));
+        return;
+    }
     if (provider != QStringLiteral("tidal") && provider != QStringLiteral("youtube")) {
         notify(QStringLiteral("Offline downloads are not implemented for %1 yet").arg(provider),
                QStringLiteral("warning"));
@@ -1457,6 +1483,7 @@ void Backend::beginNextDownload()
     m_activeDownloadTrack = m_downloadQueue.takeFirst();
     m_cancelActiveDownload = false;
     m_removeActiveDownload = false;
+    m_pauseDownloadForQuota = false;
     const auto generation = ++m_downloadGeneration;
     const auto trackId = m_activeDownloadTrack.value(QStringLiteral("id")).toString();
     const auto provider = m_activeDownloadTrack.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
@@ -1686,11 +1713,13 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
     const auto assemblySize = std::max<qint64>(0, QFileInfo(assemblyPath).size());
     const bool remove = m_removeActiveDownload;
     const bool cancel = m_cancelActiveDownload;
+    const bool quotaPause = m_pauseDownloadForQuota;
     m_activeDownloadTrack.clear();
     m_activeDownloadPartPath.clear();
     m_downloadProcessStage = DownloadProcessStage::Idle;
     m_cancelActiveDownload = false;
     m_removeActiveDownload = false;
+    m_pauseDownloadForQuota = false;
 
     if (remove) {
         removeDownloadWorkingFiles(track);
@@ -1703,7 +1732,12 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
     } else if (cancel) {
         QFile::remove(assemblyPath);
         saveDownloadState(track, QStringLiteral("paused"), {}, downloadWorkingBytes(track));
-        notify(QStringLiteral("Paused offline download for %1").arg(track.value(QStringLiteral("title")).toString()));
+        notify(quotaPause
+                   ? QStringLiteral("Paused %1 because the offline storage limit was reached")
+                         .arg(track.value(QStringLiteral("title")).toString())
+                   : QStringLiteral("Paused offline download for %1")
+                         .arg(track.value(QStringLiteral("title")).toString()),
+               quotaPause ? QStringLiteral("warning") : QStringLiteral("info"));
     } else if (!succeeded || assemblySize <= 0) {
         QFile::remove(assemblyPath);
         saveDownloadState(track, QStringLiteral("failed"), {}, downloadWorkingBytes(track), std::nullopt,
@@ -1811,6 +1845,51 @@ void Backend::removeCompletedDownloads()
         notify(QStringLiteral("Removed %1 completed offline %2")
                    .arg(removed)
                    .arg(removed == 1 ? QStringLiteral("track") : QStringLiteral("tracks")));
+}
+
+void Backend::removeUnfinishedDownloads()
+{
+    const auto downloads = m_downloads;
+    int removed = 0;
+    for (const auto &value : downloads) {
+        const auto track = value.toMap();
+        if (track.value(QStringLiteral("downloadState")).toString() == QStringLiteral("complete")) continue;
+        const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+        const auto id = track.value(QStringLiteral("id")).toString();
+        for (qsizetype index = m_downloadQueue.size() - 1; index >= 0; --index) {
+            if (m_downloadQueue.at(index).value(QStringLiteral("provider"), QStringLiteral("tidal")).toString() == provider
+                && m_downloadQueue.at(index).value(QStringLiteral("id")).toString() == id)
+                m_downloadQueue.removeAt(index);
+        }
+        if (!m_activeDownloadTrack.isEmpty()
+            && m_activeDownloadTrack.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString() == provider
+            && m_activeDownloadTrack.value(QStringLiteral("id")).toString() == id) {
+            ++m_downloadGeneration;
+            m_removeActiveDownload = true;
+            if (m_downloadProcess.state() == QProcess::NotRunning) finishDownloadTransfer(false);
+            else m_downloadProcess.kill();
+            ++removed;
+            continue;
+        }
+        removeDownloadWorkingFiles(track);
+        QFile::remove(downloadArtworkPath(track));
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
+                      {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), provider},
+                                                         {QStringLiteral("providerId"), id}}}});
+        ++removed;
+    }
+    if (removed > 0)
+        notify(QStringLiteral("Removed %1 unfinished download %2")
+                   .arg(removed).arg(removed == 1 ? QStringLiteral("entry") : QStringLiteral("entries")));
+}
+
+void Backend::setOfflineStorageLimitBytes(qint64 bytes)
+{
+    const auto next = std::max<qint64>(0, bytes);
+    if (next == m_offlineStorageLimitBytes) return;
+    m_offlineStorageLimitBytes = next;
+    QSettings().setValue(QStringLiteral("storage/offlineLimitBytes"), next);
+    emit offlineStorageLimitChanged();
 }
 
 void Backend::openDownloadsFolder()

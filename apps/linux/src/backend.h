@@ -41,6 +41,8 @@ class Backend final : public QObject
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
     Q_PROPERTY(QVariantList library READ library NOTIFY libraryChanged)
     Q_PROPERTY(QVariantList downloads READ downloads NOTIFY downloadsChanged)
+    Q_PROPERTY(qint64 offlineStorageUsed READ offlineStorageUsed NOTIFY downloadsChanged)
+    Q_PROPERTY(qint64 offlineStorageLimitBytes READ offlineStorageLimitBytes WRITE setOfflineStorageLimitBytes NOTIFY offlineStorageLimitChanged)
     Q_PROPERTY(QVariantMap tidalHub READ tidalHub NOTIFY tidalHubChanged)
     Q_PROPERTY(bool tidalHubLoading READ tidalHubLoading NOTIFY tidalHubChanged)
     Q_PROPERTY(bool tidalMoreLoading READ tidalMoreLoading NOTIFY tidalHubChanged)
@@ -102,6 +104,8 @@ public:
     QVariantList queue() const { return m_queue; }
     QVariantList library() const { return m_library; }
     QVariantList downloads() const { return m_downloads; }
+    qint64 offlineStorageUsed() const;
+    qint64 offlineStorageLimitBytes() const { return m_offlineStorageLimitBytes; }
     QVariantMap tidalHub() const { return m_tidalHub; }
     bool tidalHubLoading() const { return m_tidalHubLoading; }
     bool tidalMoreLoading() const { return m_tidalMoreLoading; }
@@ -181,6 +185,8 @@ public:
     Q_INVOKABLE void pauseDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
     Q_INVOKABLE void removeDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
     Q_INVOKABLE void removeCompletedDownloads();
+    Q_INVOKABLE void removeUnfinishedDownloads();
+    Q_INVOKABLE void setOfflineStorageLimitBytes(qint64 bytes);
     Q_INVOKABLE void openDownloadsFolder();
     Q_INVOKABLE void loadTidalHub(bool refresh = false);
     Q_INVOKABLE void loadMoreTidal(const QString &section);
@@ -230,6 +236,7 @@ signals:
     void queueChanged();
     void libraryChanged();
     void downloadsChanged();
+    void offlineStorageLimitChanged();
     void tidalHubChanged();
     void currentTrackChanged();
     void playbackChanged();
@@ -356,6 +363,8 @@ private:
     quint64 m_downloadGeneration = 0;
     bool m_cancelActiveDownload = false;
     bool m_removeActiveDownload = false;
+    bool m_pauseDownloadForQuota = false;
+    qint64 m_offlineStorageLimitBytes = 0;
     bool m_playingLocalSource = false;
     QVariantMap m_tidalHub;
     bool m_tidalHubLoading = false;
