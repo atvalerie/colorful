@@ -67,6 +67,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - selectable TIDAL stream quality and album-derived or fixed accent modes
 - persistent 10-band Linux equalizer with presets, clipping protection, and ReplayGain normalization
 - resumable desktop TIDAL and YouTube downloads with durable checkpoints, artwork, and local-file playback
+- a persistent low-data mode that avoids loading remote artwork and profile images
 - qualified local listening history and top-track/top-artist/top-album statistics
 - opt-in Discord profile statistics publishing with Secret Service token storage
 - desktop settings for accounts, playback behavior, Discord integrations, and appearance status

@@ -12,6 +12,7 @@
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QProcess>
+#include <QPointer>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantAnimation>
@@ -52,6 +53,7 @@ class Backend final : public QObject
     Q_PROPERTY(QColor accent READ accent NOTIFY accentChanged)
     Q_PROPERTY(QString accentMode READ accentMode WRITE setAccentMode NOTIFY appearanceChanged)
     Q_PROPERTY(QColor fixedAccent READ fixedAccent WRITE setFixedAccent NOTIFY appearanceChanged)
+    Q_PROPERTY(bool lowDataMode READ lowDataMode WRITE setLowDataMode NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
@@ -103,6 +105,7 @@ public:
     QColor accent() const { return m_accent; }
     QString accentMode() const { return m_accentMode; }
     QColor fixedAccent() const { return m_fixedAccent; }
+    bool lowDataMode() const { return m_lowDataMode; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
     QString streamQuality() const { return m_streamQuality; }
     bool normalizationEnabled() const { return m_normalizationEnabled; }
@@ -176,6 +179,7 @@ public:
     Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
     Q_INVOKABLE void setAccentMode(const QString &mode);
     Q_INVOKABLE void setFixedAccent(const QColor &color);
+    Q_INVOKABLE void setLowDataMode(bool enabled);
     Q_INVOKABLE void setDiscordWidgetEnabled(bool enabled);
     Q_INVOKABLE void setDiscordApplicationId(const QString &applicationId);
     Q_INVOKABLE void setDiscordRedirectUri(const QString &redirectUri);
@@ -342,7 +346,9 @@ private:
     QColor m_accent = QColor(QStringLiteral("#ff4f91"));
     QString m_accentMode = QStringLiteral("album");
     QColor m_fixedAccent = QColor(QStringLiteral("#a970ff"));
+    bool m_lowDataMode = false;
     QString m_pendingArtworkUrl;
+    QPointer<QNetworkReply> m_accentReply;
     bool m_autoplayEnabled = true;
     QString m_streamQuality = QStringLiteral("best");
     bool m_normalizationEnabled = false;

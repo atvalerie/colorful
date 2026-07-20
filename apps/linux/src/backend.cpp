@@ -112,6 +112,7 @@ Backend::Backend(QObject *parent)
     if (m_accentMode != QStringLiteral("album") && m_accentMode != QStringLiteral("fixed")) m_accentMode = QStringLiteral("album");
     const QColor restoredFixedAccent(settings.value(QStringLiteral("appearance/fixedAccent"), QStringLiteral("#a970ff")).toString());
     if (restoredFixedAccent.isValid()) m_fixedAccent = normalizeAlbumAccent(restoredFixedAccent);
+    m_lowDataMode = settings.value(QStringLiteral("appearance/lowDataMode"), false).toBool();
     if (m_accentMode == QStringLiteral("fixed")) m_accent = m_fixedAccent;
     m_autoplayEnabled = settings.value(QStringLiteral("playback/autoplay"), true).toBool();
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
@@ -556,7 +557,8 @@ QVariantMap Backend::mprisMetadata() const
     metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")));
     metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")));
     metadata.insert(QStringLiteral("xesam:album"), track.value(QStringLiteral("albumTitle")));
-    metadata.insert(QStringLiteral("mpris:artUrl"), track.value(QStringLiteral("coverUrl")));
+    if (!m_lowDataMode)
+        metadata.insert(QStringLiteral("mpris:artUrl"), track.value(QStringLiteral("coverUrl")));
     metadata.insert(QStringLiteral("mpris:length"), track.value(QStringLiteral("durationMs")).toLongLong() * 1000);
     return metadata;
 }
@@ -1303,6 +1305,7 @@ QString Backend::downloadArtworkPath(const QVariantMap &track) const
 
 void Backend::downloadArtwork(const QVariantMap &track)
 {
+    if (m_lowDataMode) return;
     const auto remoteUrl = track.value(QStringLiteral("coverRemoteUrl"),
                                        track.value(QStringLiteral("coverUrl"))).toString();
     if (remoteUrl.isEmpty() || !QUrl(remoteUrl).isValid()) return;
@@ -2184,6 +2187,25 @@ void Backend::setFixedAccent(const QColor &color)
     if (m_accentMode == QStringLiteral("fixed")) animateAccent(normalized);
 }
 
+void Backend::setLowDataMode(bool enabled)
+{
+    if (m_lowDataMode == enabled) return;
+    m_lowDataMode = enabled;
+    QSettings().setValue(QStringLiteral("appearance/lowDataMode"), enabled);
+    if (enabled) {
+        m_pendingArtworkUrl.clear();
+        if (m_accentReply) {
+            auto *reply = m_accentReply.data();
+            m_accentReply.clear();
+            reply->abort();
+        }
+    } else if (m_accentMode == QStringLiteral("album")) {
+        loadAccent(currentTrack().value(QStringLiteral("coverUrl")).toString());
+    }
+    emit appearanceChanged();
+    emit currentTrackChanged();
+}
+
 void Backend::setDiscordWidgetEnabled(bool enabled)
 {
     m_discordWidget.setEnabled(enabled);
@@ -2241,7 +2263,7 @@ void Backend::updateDiscordPresence()
         track.value(QStringLiteral("title")).toString(),
         track.value(QStringLiteral("artistText")).toString(),
         track.value(QStringLiteral("albumTitle")).toString(),
-        track.value(QStringLiteral("coverUrl")).toString(),
+        m_lowDataMode ? QString() : track.value(QStringLiteral("coverUrl")).toString(),
         m_playback.position(),
         duration(),
         playing());
@@ -2324,11 +2346,17 @@ void Backend::loadAccent(const QString &artworkUrl)
         animateAccent(m_fixedAccent);
         return;
     }
-    if (artworkUrl.isEmpty()) return;
+    if (m_lowDataMode || artworkUrl.isEmpty()) {
+        m_pendingArtworkUrl.clear();
+        return;
+    }
     m_pendingArtworkUrl = artworkUrl;
+    if (m_accentReply) m_accentReply->abort();
     auto *reply = m_network.get(QNetworkRequest(QUrl(artworkUrl)));
+    m_accentReply = reply;
     connect(reply, &QNetworkReply::finished, this, [this, reply, artworkUrl] {
         const auto bytes = reply->readAll();
+        if (m_accentReply == reply) m_accentReply.clear();
         reply->deleteLater();
         if (artworkUrl != m_pendingArtworkUrl) return;
         QImage image;

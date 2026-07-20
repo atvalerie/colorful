@@ -38,7 +38,7 @@ ItemDelegate {
                 height: 24
                 iconSource: root.artistMode ? "icons/user.svg" : "icons/music.svg"
                 opacity: 0.3
-                visible: root.artistMode ? !root.entry.pictureUrl : !root.entry.coverUrl
+                visible: colorful.lowDataMode || (root.artistMode ? !root.entry.pictureUrl : !root.entry.coverUrl)
             }
         }
         Text {

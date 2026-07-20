@@ -734,7 +734,7 @@ ApplicationWindow {
                                 height: 20
                                 iconSource: "icons/music.svg"
                                 opacity: 0.34
-                                visible: !window.now.coverUrl
+                                visible: colorful.lowDataMode || !window.now.coverUrl
                             }
                             MouseArea {
                                 anchors.fill: parent

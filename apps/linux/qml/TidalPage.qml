@@ -196,6 +196,7 @@ Item {
                     color: rowHover.hovered ? Qt.rgba(1, 1, 1, 0.055) : "transparent"
                     border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
                     ArtworkImage { x: 7; y: 7; width: 48; height: 48; source: modelData.coverUrl || ""; decodeSize: 192 }
+                    AppIcon { x: 22; y: 22; width: 18; height: 18; iconSource: "icons/music.svg"; opacity: 0.3; visible: colorful.lowDataMode || !modelData.coverUrl }
                     Column {
                         x: 67; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 150; spacing: 3
                         Text { width: parent.width; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12; elide: Text.ElideRight }

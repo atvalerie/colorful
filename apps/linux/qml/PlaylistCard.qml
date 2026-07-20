@@ -26,7 +26,7 @@ Item {
         width: 28; height: 28
         iconSource: "icons/music.svg"
         opacity: 0.25
-        visible: !root.entry.coverUrl
+        visible: colorful.lowDataMode || !root.entry.coverUrl
     }
     Text {
         x: 8; y: 151; width: parent.width - 16

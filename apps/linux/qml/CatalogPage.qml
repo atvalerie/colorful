@@ -111,7 +111,7 @@ Item {
                         height: 34
                         iconSource: root.kind === "artist" ? "icons/user.svg" : "icons/music.svg"
                         opacity: 0.28
-                        visible: root.kind === "artist" ? !root.primary.pictureUrl : !root.primary.coverUrl
+                        visible: colorful.lowDataMode || (root.kind === "artist" ? !root.primary.pictureUrl : !root.primary.coverUrl)
                     }
                 }
 

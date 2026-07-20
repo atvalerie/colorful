@@ -340,13 +340,36 @@ Item {
                     Text { text: "Appearance"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
                     Text { text: "Use the active album artwork or keep one accent across the interface."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12 }
                     Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 76
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.left: parent.left; anchors.leftMargin: 15
+                            anchors.right: lowDataSwitch.left; anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 3
+                            Text { text: "Low data mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                            Text { width: parent.width; text: "Do not request or decode artwork and profile images. App icons remain visible."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                        }
+                        Rectangle {
+                            id: lowDataSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 42; height: 22
+                            color: colorful.lowDataMode ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.lowDataMode ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.lowDataMode ? parent.width - width - 3 : 3; color: colorful.lowDataMode && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.lowDataMode = !colorful.lowDataMode }
+                        }
+                    }
+                    Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 88
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         RowLayout { anchors.fill: parent; anchors.margins: 15; spacing: 14
                             Rectangle { width: 46; height: 46; color: colorful.accent; border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.35) }
                             ColumnLayout { Layout.fillWidth: true; spacing: 3
                                 Text { text: colorful.accentMode === "album" ? "Album-derived accent" : "Fixed accent"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                Text { text: colorful.accentMode === "album" ? "Colors animate between tracks and are corrected for dark-background contrast." : "This color remains active when the track changes."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                Text { text: colorful.accentMode === "album" ? (colorful.lowDataMode ? "Album color updates are paused while low data mode is active." : "Colors animate between tracks and are corrected for dark-background contrast.") : "This color remains active when the track changes."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                             }
                         }
                     }

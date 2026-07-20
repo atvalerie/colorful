@@ -68,7 +68,7 @@ Item {
                         color: Qt.rgba(1, 1, 1, 0.06)
                         clip: true
                         ArtworkImage { anchors.fill: parent; source: modelData.coverUrl || ""; decodeSize: 184 }
-                        AppIcon { anchors.centerIn: parent; width: 18; height: 18; iconSource: "icons/music.svg"; opacity: 0.3; visible: !modelData.coverUrl }
+                        AppIcon { anchors.centerIn: parent; width: 18; height: 18; iconSource: "icons/music.svg"; opacity: 0.3; visible: colorful.lowDataMode || !modelData.coverUrl }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true

@@ -131,7 +131,7 @@ ItemDelegate {
                 height: 18
                 iconSource: "icons/music.svg"
                 opacity: 0.34
-                visible: !root.track.coverUrl
+                visible: colorful.lowDataMode || !root.track.coverUrl
             }
         }
 

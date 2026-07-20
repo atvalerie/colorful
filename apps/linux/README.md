@@ -26,6 +26,10 @@ private application-data directory. TIDAL downloads retain available ReplayGain
 metadata. Completed playback does not use a manifest or require the provider
 host to be online.
 
+Appearance settings include a persistent low-data mode. Audio behavior stays
+unchanged while remote artwork/profile requests are suppressed in the UI,
+album-color extraction, MPRIS, Discord presence, and new offline downloads.
+
 When a Discord-compatible desktop client is running, colorful publishes the
 current track through local Rich Presence IPC. Set
 `COLORFUL_DISABLE_DISCORD_RPC=1` before launching to disable it.
