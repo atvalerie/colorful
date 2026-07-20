@@ -770,62 +770,80 @@ ApplicationWindow {
                                     if (window.now.id) colorful.openTrackItem(window.now)
                                 }
                             }
-                            RowLayout {
+                            Item {
                                 id: playerMetadataLine
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 16
-                                spacing: 5
                                 clip: true
-                                Row {
-                                    visible: (window.now.artistCredits || []).length > 0
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    Layout.preferredWidth: 0
-                                    spacing: 4
+
+                                Item {
+                                    id: playerArtistLane
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    implicitWidth: artistCreditLinks.visible
+                                                   ? artistCreditLinks.implicitWidth
+                                                   : missingArtistText.implicitWidth
+                                    width: Math.min(implicitWidth,
+                                        playerMetadataLine.width * (window.now.albumId ? 0.52 : 1))
                                     clip: true
-                                    Repeater {
-                                        model: window.now.artistCredits || []
-                                        delegate: Row {
-                                            required property var modelData
-                                            required property int index
-                                            spacing: 0
-                                            MetadataLink {
-                                                text: modelData.name
-                                                normalColor: window.mutedInk
-                                                font.pixelSize: 11
-                                                font.weight: Font.Normal
-                                                onActivated: colorful.openTrackArtist(window.now, index)
-                                            }
-                                            Text {
-                                                visible: index + 1 < (window.now.artistCredits || []).length
-                                                text: ","
-                                                color: window.mutedInk
-                                                font.pixelSize: 11
+
+                                    Row {
+                                        id: artistCreditLinks
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: (window.now.artistCredits || []).length > 0
+                                        spacing: 4
+                                        Repeater {
+                                            model: window.now.artistCredits || []
+                                            delegate: Row {
+                                                required property var modelData
+                                                required property int index
+                                                spacing: 0
+                                                MetadataLink {
+                                                    text: modelData.name
+                                                    normalColor: window.mutedInk
+                                                    font.pixelSize: 11
+                                                    font.weight: Font.Normal
+                                                    onActivated: colorful.openTrackArtist(window.now, index)
+                                                }
+                                                Text {
+                                                    visible: index + 1 < (window.now.artistCredits || []).length
+                                                    text: ","
+                                                    color: window.mutedInk
+                                                    font.pixelSize: 11
+                                                }
                                             }
                                         }
                                     }
+
+                                    Text {
+                                        id: missingArtistText
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: !artistCreditLinks.visible
+                                        text: "Choose a track"
+                                        color: window.mutedInk
+                                        font.pixelSize: 11
+                                    }
                                 }
+
                                 Text {
-                                    visible: !(window.now.artistCredits || []).length
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    Layout.preferredWidth: 0
-                                    text: "Choose a track"
-                                    color: window.mutedInk
-                                    elide: Text.ElideRight
-                                    font.pixelSize: 11
-                                }
-                                Text {
+                                    id: playerAlbumSeparator
                                     visible: Boolean(window.now.albumId)
+                                    anchors.left: playerArtistLane.right
+                                    anchors.leftMargin: 5
+                                    anchors.verticalCenter: parent.verticalCenter
                                     text: "·"
                                     color: Qt.rgba(1, 1, 1, 0.3)
                                     font.pixelSize: 11
                                 }
                                 MetadataLink {
                                     visible: Boolean(window.now.albumId)
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    Layout.preferredWidth: 0
+                                    anchors.left: playerAlbumSeparator.right
+                                    anchors.leftMargin: 5
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
                                     text: window.now.albumTitle || "Open album"
                                     normalColor: window.mutedInk
                                     elide: Text.ElideRight
