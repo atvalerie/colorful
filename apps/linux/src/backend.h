@@ -180,6 +180,7 @@ public:
     Q_INVOKABLE void downloadTrack(const QVariantMap &track);
     Q_INVOKABLE void pauseDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
     Q_INVOKABLE void removeDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
+    Q_INVOKABLE void removeCompletedDownloads();
     Q_INVOKABLE void openDownloadsFolder();
     Q_INVOKABLE void loadTidalHub(bool refresh = false);
     Q_INVOKABLE void loadMoreTidal(const QString &section);

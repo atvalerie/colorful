@@ -1790,6 +1790,29 @@ void Backend::removeDownload(const QString &trackId, const QString &provider)
     notify(QStringLiteral("Removed offline copy of %1").arg(existing.value(QStringLiteral("title")).toString()));
 }
 
+void Backend::removeCompletedDownloads()
+{
+    const auto downloads = m_downloads;
+    int removed = 0;
+    for (const auto &value : downloads) {
+        const auto track = value.toMap();
+        if (track.value(QStringLiteral("downloadState")).toString() != QStringLiteral("complete")) continue;
+        QFile::remove(track.value(QStringLiteral("localPath")).toString());
+        removeDownloadWorkingFiles(track);
+        QFile::remove(downloadArtworkPath(track));
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
+                      {QStringLiteral("id"), QJsonObject{
+                          {QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+                          {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()},
+                      }}});
+        ++removed;
+    }
+    if (removed > 0)
+        notify(QStringLiteral("Removed %1 completed offline %2")
+                   .arg(removed)
+                   .arg(removed == 1 ? QStringLiteral("track") : QStringLiteral("tracks")));
+}
+
 void Backend::openDownloadsFolder()
 {
     QDir().mkpath(downloadsDirectory());

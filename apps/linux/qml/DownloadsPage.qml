@@ -6,9 +6,25 @@ Item {
     id: root
 
     function formatBytes(bytes) {
-        if (!bytes || bytes <= 0) return ""
+        if (!bytes || bytes <= 0) return "0 KB"
         if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB"
-        return (bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0) + " MB"
+        if (bytes < 1024 * 1024 * 1024)
+            return (bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0) + " MB"
+        return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB"
+    }
+
+    function countState(state) {
+        let count = 0
+        for (let index = 0; index < colorful.downloads.length; ++index)
+            if (colorful.downloads[index].downloadState === state) ++count
+        return count
+    }
+
+    function storedBytes() {
+        let total = 0
+        for (let index = 0; index < colorful.downloads.length; ++index)
+            total += colorful.downloads[index].bytesDownloaded || 0
+        return total
     }
 
     ColumnLayout {
@@ -29,6 +45,12 @@ Item {
                 quiet: true
                 onClicked: colorful.openDownloadsFolder()
             }
+            ColorButton {
+                text: "Remove completed"
+                quiet: true
+                enabled: root.countState("complete") > 0
+                onClicked: removeCompletedDialog.open()
+            }
         }
 
         Text {
@@ -37,6 +59,16 @@ Item {
             color: Qt.rgba(1, 1, 1, 0.42)
             font.pixelSize: 11
             wrapMode: Text.WordWrap
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 18
+            Text { text: root.formatBytes(root.storedBytes()) + " stored"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12 }
+            Text { text: root.countState("complete") + " available"; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: 11 }
+            Text { text: root.countState("downloading") + root.countState("resolving") + root.countState("queued") > 0 ? (root.countState("downloading") + root.countState("resolving") + root.countState("queued")) + " active" : ""; visible: text.length > 0; color: colorful.accent; font.pixelSize: 11 }
+            Text { text: root.countState("paused") > 0 ? root.countState("paused") + " paused" : ""; visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
+            Item { Layout.fillWidth: true }
         }
 
         ListView {
@@ -126,6 +158,27 @@ Item {
                 Text { width: parent.width; text: "Nothing downloaded yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
                 Text { width: parent.width; text: "Use the download action on a track, album, or playlist. Completed music remains playable without a network connection."; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 12; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
             }
+        }
+    }
+
+    Dialog {
+        id: removeCompletedDialog
+        anchors.centerIn: parent
+        modal: true
+        title: "Remove completed downloads?"
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: colorful.removeCompletedDownloads()
+        contentItem: Text {
+            text: "This deletes " + root.countState("complete") + " offline audio "
+                  + (root.countState("complete") === 1 ? "file" : "files") + " from this device."
+            color: Qt.rgba(1, 1, 1, 0.65)
+            font.pixelSize: 12
+            wrapMode: Text.WordWrap
+        }
+        background: Rectangle {
+            color: "#121216"
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.2)
         }
     }
 }
