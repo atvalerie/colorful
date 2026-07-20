@@ -1969,10 +1969,11 @@ void Backend::requestRelated(bool continueWhenReady)
     m_relatedSeedEntryId = m_currentEntryId;
     const auto generation = ++m_relatedGeneration;
     const auto seedEntryId = m_relatedSeedEntryId;
+    const auto seedProvider = seed.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
     if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
-    request(QStringLiteral("related"), {{QStringLiteral("provider"), seed.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+    request(QStringLiteral("related"), {{QStringLiteral("provider"), seedProvider},
                                          {QStringLiteral("trackId"), seed.value(QStringLiteral("id")).toString()},
-                                         {QStringLiteral("limit"), 20}}, [this, seedEntryId, generation](const QJsonObject &message) {
+                                         {QStringLiteral("limit"), 20}}, [this, seedEntryId, generation, seedProvider](const QJsonObject &message) {
         if (generation != m_relatedGeneration) return;
         const bool continueWhenReady = m_relatedContinueWhenReady;
         m_relatedPending = false;
@@ -1997,7 +1998,11 @@ void Backend::requestRelated(bool continueWhenReady)
         for (const auto &value : m_queue) queuedIds.insert(identity(value.toMap()));
         int added = 0;
         for (const auto &value : message.value(QStringLiteral("data")).toObject().value(QStringLiteral("tracks")).toArray()) {
-            const auto track = jsonTrackToVariant(value.toObject());
+            auto document = value.toObject();
+            if (!document.contains(QStringLiteral("provider"))) {
+                document.insert(QStringLiteral("provider"), seedProvider);
+            }
+            const auto track = jsonTrackToVariant(document);
             const auto id = track.value(QStringLiteral("id")).toString();
             const auto key = identity(track);
             if (id.isEmpty() || queuedIds.contains(key)) continue;

@@ -26,6 +26,10 @@ function publicError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function youtubeTracks(tracks: Awaited<ReturnType<typeof youtubeMusicAutomix>>): Array<(typeof tracks)[number] & { provider: "youtube" }> {
+  return tracks.map((track) => ({ ...track, provider: "youtube" as const }));
+}
+
 async function installSession(token: UserToken): Promise<void> {
   session = new UserSession(config, token, async (refreshToken) => {
     if (!await saveRefreshToken(refreshToken)) send({ event: "warning", ok: false, error: "Could not persist refreshed TIDAL login in Secret Service" });
@@ -171,7 +175,9 @@ async function handle(request: RequestMessage): Promise<void> {
             .catch(() => youtubeAutomix(resourceId, 20)),
         ]);
         const trackDocument = musicTrack ? { ...resolvedTrack, ...musicTrack, provider, uploader: resolvedTrack.uploader } : resolvedTrack;
-        send({ id: request.id, ok: true, data: { kind: "track", provider, track: trackDocument, relatedTracks } });
+        send({ id: request.id, ok: true, data: {
+          kind: "track", provider, track: trackDocument, relatedTracks: youtubeTracks(relatedTracks),
+        } });
         return;
       }
       if (provider === "youtube" && kind === "artist") {
@@ -227,7 +233,7 @@ async function handle(request: RequestMessage): Promise<void> {
         const tracks = await youtubeMusicAutomix(trackId, limit)
           .then((items) => items.length ? items : youtubeAutomix(trackId, limit))
           .catch(() => youtubeAutomix(trackId, limit));
-        send({ id: request.id, ok: true, data: { tracks } });
+        send({ id: request.id, ok: true, data: { tracks: youtubeTracks(tracks) } });
       }
       else if (provider === "tidal")
         send({ id: request.id, ok: true, data: { tracks: await browse.relatedTracks(trackId, limit) } });
