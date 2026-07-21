@@ -13,7 +13,8 @@ albums and artists, and personalized mixes.
 3. In YouTube Music, open **Library**. Filter the requests for `browse`.
 4. Select a `browse?...` request. In Chromium, use **Copy → Copy as cURL**;
    some builds do not expose a separate request-headers option. In Firefox, use
-   **Copy request headers**.
+   **Copy request headers**. Copy the request while the YouTube profile/channel
+   whose library you want is active; colorful retains its identity header.
 5. Open **colorful → Settings → Accounts → YouTube Music**, paste the complete
    header block, and select **Connect session**.
 
@@ -33,6 +34,8 @@ library or its personalized mixes.
 
 - Browser sessions can expire or be revoked. Copy a fresh `/browse` request to
   reconnect.
+- If an older colorful build restores as signed in but shows the wrong profile
+  or no private playlists, disconnect it and reconnect from a fresh request.
 - This relies on YouTube Music's private web API and may require maintenance
   when Google changes it.
 - Anonymous catalog search and playback continue if the session is disconnected

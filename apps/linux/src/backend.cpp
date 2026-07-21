@@ -733,7 +733,11 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("youtube.auth.restored")
                || event == QStringLiteral("youtube.auth.completed")) {
+        const auto completed = event.endsWith(QStringLiteral("completed"));
         m_youtubeLinked = true;
+        // A newly pasted browser session may select a different YouTube
+        // profile. Never retain the previous profile's cached library.
+        if (completed) m_youtubeHub.clear();
         const auto account = message.value(QStringLiteral("data")).toObject()
                                  .value(QStringLiteral("account")).toObject();
         if (!account.isEmpty()) m_youtubeHub.insert(QStringLiteral("account"), account.toVariantMap());
@@ -742,12 +746,12 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
             emit authPendingChanged();
         }
         emit youtubeAccountChanged();
-        setStatus(event.endsWith(QStringLiteral("completed"))
+        setStatus(completed
                       ? QStringLiteral("YouTube Music connected")
                       : QStringLiteral("YouTube Music account restored securely"));
-        if (event.endsWith(QStringLiteral("completed"))) {
+        if (completed) {
             emit toastRequested(QStringLiteral("YouTube Music connected"), QStringLiteral("success"));
-            loadYouTubeHub(false);
+            loadYouTubeHub(true);
         }
     } else if (event == QStringLiteral("youtube.auth.failed")) {
         if (m_authProvider == QStringLiteral("youtube")) {
@@ -1227,11 +1231,17 @@ void Backend::loadMoreCatalog(const QString &section)
     const auto kind = m_catalogPage.value(QStringLiteral("kind")).toString();
     const auto resourceId = m_catalogPage.value(QStringLiteral("resourceId")).toString();
     if (cursor.isEmpty() || resourceId.isEmpty()) return;
+    const auto pageProvider = m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    if (kind == QStringLiteral("playlist") && pageProvider == QStringLiteral("youtube")
+        && resourceId == m_playlistId && cursor == m_playlistCursor) {
+        requestPlaylistContinuation(false);
+        return;
+    }
     const auto generation = m_catalogGeneration;
     m_catalogMoreLoading = true;
     emit catalogPageChanged();
     request(QStringLiteral("detail.more"), {
-        {QStringLiteral("provider"), m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+        {QStringLiteral("provider"), pageProvider},
         {QStringLiteral("kind"), kind},
         {QStringLiteral("id"), resourceId},
         {QStringLiteral("section"), section},
@@ -1281,11 +1291,13 @@ void Backend::loadMoreCatalog(const QString &section)
             m_catalogPage.insert(QStringLiteral("albums"), albums);
         } else {
             const auto pageProvider = m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
-            const auto listKey = m_catalogPage.value(QStringLiteral("kind")).toString() == QStringLiteral("artist")
+            const auto pageKind = m_catalogPage.value(QStringLiteral("kind")).toString();
+            const auto listKey = pageKind == QStringLiteral("artist")
                 ? QStringLiteral("topTracks") : QStringLiteral("tracks");
             auto tracks = m_catalogPage.value(listKey).toList();
             QSet<QString> ids;
-            for (const auto &value : tracks) ids.insert(value.toMap().value(QStringLiteral("id")).toString());
+            if (pageKind != QStringLiteral("playlist"))
+                for (const auto &value : tracks) ids.insert(value.toMap().value(QStringLiteral("id")).toString());
             for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
                 auto document = value.toObject();
                 if (!document.contains(QStringLiteral("provider"))) {
@@ -1293,7 +1305,7 @@ void Backend::loadMoreCatalog(const QString &section)
                 }
                 const auto track = jsonTrackToVariant(document);
                 const auto id = track.value(QStringLiteral("id")).toString();
-                if (!ids.contains(id)) {
+                if (pageKind == QStringLiteral("playlist") || !ids.contains(id)) {
                     ids.insert(id);
                     tracks.append(track);
                 }
@@ -1365,41 +1377,42 @@ void Backend::playCatalogCollection()
         return;
     }
     const auto pageProvider = m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
-    const auto totalItems = m_catalogPage.value(QStringLiteral("playlist")).toMap()
-                                .value(QStringLiteral("numberOfItems")).toLongLong();
-    if (kind == QStringLiteral("playlist") && pageProvider == QStringLiteral("youtube")
-        && totalItems > tracks.size()
-        && !m_catalogPage.value(QStringLiteral("allPlaylistTracksLoaded")).toBool()) {
-        const auto generation = m_catalogGeneration;
-        m_catalogMoreLoading = true;
-        emit catalogPageChanged();
-        setStatus(QStringLiteral("Loading all %1 playlist tracks…").arg(totalItems));
-        request(QStringLiteral("detail.youtubePlaylistTracks"), {
-            {QStringLiteral("id"), m_catalogPage.value(QStringLiteral("resourceId")).toString()},
-        }, [this, generation](const QJsonObject &message) {
-            if (generation != m_catalogGeneration) return;
-            m_catalogMoreLoading = false;
+    if (kind == QStringLiteral("playlist") && pageProvider == QStringLiteral("youtube")) {
+        const auto playlistId = m_catalogPage.value(QStringLiteral("resourceId")).toString();
+        if (!m_shuffleEnabled) {
+            if (tracks.isEmpty()) return;
+            const auto cursor = m_catalogPage.value(QStringLiteral("trackCursor")).toString();
+            playTracks(tracks);
+            activatePlaylistContinuation(playlistId, cursor);
+            return;
+        }
+        clearPlaylistContinuation();
+        const auto generation = m_playlistContinuationGeneration;
+        setStatus(QStringLiteral("Starting shuffled playlist…"));
+        request(QStringLiteral("detail.youtubePlaylistShuffle"), {
+            {QStringLiteral("id"), playlistId},
+        }, [this, generation, playlistId](const QJsonObject &message) {
+            if (generation != m_playlistContinuationGeneration) return;
             if (!message.value(QStringLiteral("ok")).toBool()) {
                 const auto error = message.value(QStringLiteral("error")).toString();
                 setStatus(error);
                 notify(error, QStringLiteral("error"));
-                emit catalogPageChanged();
                 return;
             }
-            QVariantList allTracks;
-            for (const auto &value : message.value(QStringLiteral("data")).toObject()
-                                         .value(QStringLiteral("tracks")).toArray()) {
+            const auto data = message.value(QStringLiteral("data")).toObject();
+            QVariantList shuffledTracks;
+            for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
                 auto document = value.toObject();
                 document.insert(QStringLiteral("provider"), QStringLiteral("youtube"));
-                allTracks.append(jsonTrackToVariant(document));
+                shuffledTracks.append(jsonTrackToVariant(document));
             }
-            m_catalogPage.insert(QStringLiteral("tracks"), allTracks);
-            m_catalogPage.insert(QStringLiteral("allPlaylistTracksLoaded"), true);
-            emit catalogPageChanged();
-            if (!allTracks.isEmpty()) {
-                setStatus(QStringLiteral("Queued %1 playlist tracks").arg(allTracks.size()));
-                playTracks(allTracks);
+            if (shuffledTracks.isEmpty()) {
+                notify(QStringLiteral("YouTube Music returned an empty shuffled playlist"), QStringLiteral("error"));
+                return;
             }
+            playTracks(shuffledTracks);
+            activatePlaylistContinuation(playlistId, data.value(QStringLiteral("cursor")).toString());
+            setStatus(QStringLiteral("Shuffled playlist started"));
         });
         return;
     }
@@ -1478,6 +1491,7 @@ void Backend::moveQueueIndex(int fromIndex, int toIndex)
 
 void Backend::clearQueue()
 {
+    clearPlaylistContinuation();
     if (m_queue.isEmpty()) return;
     finishListeningSession();
     ++m_sourceGeneration;
@@ -2202,10 +2216,116 @@ void Backend::playTracks(const QVariantList &tracks)
             coreTracks.append(variantTrackToCore(track));
     }
     if (coreTracks.isEmpty()) return;
+    clearPlaylistContinuation();
     finishListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("play_tracks")},
                   {QStringLiteral("tracks"), coreTracks}});
     resolveCurrentSource();
+}
+
+void Backend::clearPlaylistContinuation()
+{
+    ++m_playlistContinuationGeneration;
+    m_playlistId.clear();
+    m_playlistCursor.clear();
+    m_playlistContinuationPending = false;
+    m_playlistContinueWhenReady = false;
+}
+
+void Backend::activatePlaylistContinuation(const QString &playlistId, const QString &cursor)
+{
+    m_playlistId = playlistId;
+    m_playlistCursor = cursor;
+    m_playlistContinuationPending = false;
+    m_playlistContinueWhenReady = false;
+}
+
+bool Backend::atLoadedQueueEnd() const
+{
+    const auto playIndex = m_playOrderEntryIds.indexOf(m_currentEntryId);
+    return playIndex >= 0 && playIndex + 1 >= m_playOrderEntryIds.size();
+}
+
+bool Backend::playlistNeedsRefill() const
+{
+    if (m_repeatMode == QStringLiteral("one") || m_playlistCursor.isEmpty() || m_currentEntryId < 0) return false;
+    const auto playIndex = m_playOrderEntryIds.indexOf(m_currentEntryId);
+    return playIndex >= 0 && playIndex + 3 >= m_playOrderEntryIds.size();
+}
+
+void Backend::requestPlaylistContinuation(bool continueWhenReady)
+{
+    if (m_playlistContinuationPending) {
+        m_playlistContinueWhenReady = m_playlistContinueWhenReady || continueWhenReady;
+        return;
+    }
+    if (m_playlistCursor.isEmpty() || m_playlistId.isEmpty()) {
+        if (continueWhenReady) {
+            if (m_autoplayEnabled && m_currentIndex >= 0) requestRelated(true);
+            else stop();
+        }
+        return;
+    }
+    m_playlistContinuationPending = true;
+    m_playlistContinueWhenReady = continueWhenReady;
+    const auto generation = m_playlistContinuationGeneration;
+    const auto requestedCursor = m_playlistCursor;
+    request(QStringLiteral("detail.more"), {
+        {QStringLiteral("provider"), QStringLiteral("youtube")},
+        {QStringLiteral("kind"), QStringLiteral("playlist")},
+        {QStringLiteral("id"), m_playlistId},
+        {QStringLiteral("section"), QStringLiteral("tracks")},
+        {QStringLiteral("cursor"), requestedCursor},
+    }, [this, generation, requestedCursor](const QJsonObject &message) {
+        if (generation != m_playlistContinuationGeneration) return;
+        const bool continueWhenReady = m_playlistContinueWhenReady;
+        m_playlistContinuationPending = false;
+        m_playlistContinueWhenReady = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            const auto error = message.value(QStringLiteral("error")).toString();
+            m_playlistCursor.clear();
+            notify(error.isEmpty() ? QStringLiteral("Could not continue the YouTube Music playlist") : error,
+                   QStringLiteral("error"));
+            if (continueWhenReady) {
+                if (m_autoplayEnabled && m_currentIndex >= 0) requestRelated(true);
+                else stop();
+            }
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        const auto nextCursor = data.value(QStringLiteral("cursor")).toString();
+        m_playlistCursor = nextCursor == requestedCursor ? QString{} : nextCursor;
+        QJsonArray coreTracks;
+        QVariantList pageTracks;
+        for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
+            auto document = value.toObject();
+            document.insert(QStringLiteral("provider"), QStringLiteral("youtube"));
+            const auto track = jsonTrackToVariant(document);
+            if (track.value(QStringLiteral("id")).toString().isEmpty()) continue;
+            coreTracks.append(variantTrackToCore(track));
+            pageTracks.append(track);
+        }
+        if (!coreTracks.isEmpty()) {
+            dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue_tracks")},
+                          {QStringLiteral("tracks"), coreTracks}});
+            if (requestedCursor.startsWith(QStringLiteral("youtube-music-browse:"))
+                && m_catalogPage.value(QStringLiteral("kind")).toString() == QStringLiteral("playlist")
+                && m_catalogPage.value(QStringLiteral("provider")).toString() == QStringLiteral("youtube")
+                && m_catalogPage.value(QStringLiteral("resourceId")).toString() == m_playlistId) {
+                auto visibleTracks = m_catalogPage.value(QStringLiteral("tracks")).toList();
+                visibleTracks.append(pageTracks);
+                m_catalogPage.insert(QStringLiteral("tracks"), visibleTracks);
+                m_catalogPage.insert(QStringLiteral("trackCursor"), m_playlistCursor);
+                emit catalogPageChanged();
+            }
+        }
+        if (continueWhenReady) {
+            if (canGoNext()) next();
+            else requestPlaylistContinuation(true);
+        } else {
+            prepareNextSource();
+        }
+    });
 }
 
 void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
@@ -2285,9 +2405,11 @@ void Backend::prepareNextSource()
         if (m_preparedEntryId >= 0 || m_playback.hasPreparedNext()) invalidatePreparedNext();
         return;
     }
+    if (playlistNeedsRefill()) requestPlaylistContinuation(false);
     if (!canGoNext()) {
         if (m_preparedEntryId >= 0 || m_playback.hasPreparedNext()) invalidatePreparedNext();
-        if (m_autoplayEnabled && m_currentIndex >= 0) requestRelated(false);
+        if (!m_playlistCursor.isEmpty() || m_playlistContinuationPending) requestPlaylistContinuation(false);
+        else if (m_autoplayEnabled && m_currentIndex >= 0) requestRelated(false);
         return;
     }
 
@@ -2397,6 +2519,11 @@ void Backend::stop()
 void Backend::next()
 {
     finishListeningSession();
+    if (m_repeatMode != QStringLiteral("one") && atLoadedQueueEnd()
+        && (!m_playlistCursor.isEmpty() || m_playlistContinuationPending)) {
+        requestPlaylistContinuation(true);
+        return;
+    }
     if (!canGoNext()) {
         if (m_autoplayEnabled && m_currentIndex >= 0) requestRelated(true);
         else stop();

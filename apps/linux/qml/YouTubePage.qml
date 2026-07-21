@@ -19,7 +19,8 @@ Item {
             Layout.fillWidth: true
             Text { text: "YouTube Music"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
             Text {
-                text: ((colorful.youtubeHub.account || {}).channelHandle) || ""
+                text: ((colorful.youtubeHub.account || {}).channelHandle)
+                      || ((colorful.youtubeHub.account || {}).accountName) || ""
                 visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10
             }
             Item { Layout.fillWidth: true }

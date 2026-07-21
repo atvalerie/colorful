@@ -6,6 +6,8 @@ type Run = { text?: unknown; navigationEndpoint?: unknown };
 
 const MUSIC_ORIGIN = "https://music.youtube.com";
 const MUSIC_API_KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30";
+const PLAYLIST_BROWSE_CURSOR = "youtube-music-browse:";
+const PLAYLIST_WATCH_CURSOR = "youtube-music-watch:";
 let accessTokenProvider: (() => Promise<string>) | null = null;
 let browserHeadersProvider: (() => Promise<Record<string, string>>) | null = null;
 let visitorIdPromise: Promise<string> | null = null;
@@ -283,9 +285,12 @@ async function youtubei(endpoint: "search" | "browse" | "next" | "account/accoun
         "Authorization": browserAuthorization(browserCookie),
         "Cookie": browserCookie,
         "X-Goog-AuthUser": browserAuthUser,
+        ...(browserHeaders["x-goog-pageid"] ? { "X-Goog-PageId": browserHeaders["x-goog-pageid"] } : {}),
         ...(browserHeaders["user-agent"] ? { "User-Agent": browserHeaders["user-agent"] } : {}),
         ...(browserHeaders["accept-language"] ? { "Accept-Language": browserHeaders["accept-language"] } : {}),
         ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
+        ...(browserHeaders["x-youtube-client-name"] ? { "X-Youtube-Client-Name": browserHeaders["x-youtube-client-name"] } : {}),
+        ...(browserHeaders["x-youtube-client-version"] ? { "X-Youtube-Client-Version": browserHeaders["x-youtube-client-version"] } : {}),
         "X-Origin": MUSIC_ORIGIN,
       } : accessToken ? {
         "Authorization": `Bearer ${accessToken}`,
@@ -655,7 +660,7 @@ export function mapYouTubeMusicCollectionDocuments(documents: {
 
 export async function youtubeMusicPlaylist(playlistId: string): Promise<PlaylistPage> {
   const cleanId = playlistId.replace(/^VL/, "");
-  const document = await youtubei("browse", { browseId: `VL${cleanId}` }, accessTokenProvider !== null);
+  const document = await youtubei("browse", { browseId: `VL${cleanId}` }, accessTokenProvider !== null || browserHeadersProvider !== null);
   return mapYouTubeMusicPlaylistDocument(document, cleanId);
 }
 
@@ -682,7 +687,11 @@ export function mapYouTubeMusicPlaylistDocument(document: JsonObject, playlistId
     ...runs(header.straplineTextOne),
   ]);
   playlist.numberOfItems = headerCount ?? (tracks.length || null);
-  return { kind: "playlist", playlist, tracks };
+  const continuation = continuationToken(document);
+  return {
+    kind: "playlist", playlist, tracks,
+    ...(continuation ? { trackCursor: `${PLAYLIST_BROWSE_CURSOR}${continuation}` } : {}),
+  };
 }
 
 function continuationToken(document: JsonObject): string {
@@ -700,19 +709,51 @@ function continuationToken(document: JsonObject): string {
   return "";
 }
 
-export async function youtubeMusicAllPlaylistTracks(playlistId: string): Promise<TrackSummary[]> {
-  const cleanId = playlistId.replace(/^VL/, "");
-  let document = await youtubei("browse", { browseId: `VL${cleanId}` });
-  const tracks = [...mapYouTubeMusicPlaylistDocument(document, cleanId).tracks];
-  const seenContinuations = new Set<string>();
-  for (;;) {
-    const continuation = continuationToken(document);
-    if (!continuation || seenContinuations.has(continuation)) break;
-    seenContinuations.add(continuation);
-    document = await youtubei("browse", { continuation });
-    tracks.push(...tracksFromDocument(document));
-    // Protect against a malformed endpoint cycling through unique tokens forever.
-    if (seenContinuations.size >= 500) throw new Error("YouTube Music playlist pagination exceeded its safety limit");
+function watchContinuationToken(document: JsonObject): string {
+  const roots = [
+    ...children(document, "playlistPanelRenderer"),
+    ...children(document, "playlistPanelContinuation"),
+    ...children(document, "appendContinuationItemsAction")
+      .filter((action) => children(action, "playlistPanelVideoRenderer").length > 0),
+  ];
+  for (const root of roots) {
+    const token = children(root, "nextContinuationData").map((item) => string(item.continuation)).find(Boolean);
+    if (token) return token;
   }
-  return tracks;
+  return "";
+}
+
+export async function youtubeMusicShuffledPlaylist(playlistId: string): Promise<{ tracks: TrackSummary[]; cursor: string }> {
+  const cleanId = playlistId.replace(/^VL/, "");
+  const document = await youtubei("next", {
+    playlistId: cleanId,
+    params: "wAEB8gECKAE%3D",
+    enablePersistentPlaylistPanel: true,
+    isAudioOnly: true,
+    tunerSettingValue: "AUTOMIX_SETTING_NORMAL",
+  });
+  return mapYouTubeMusicWatchPlaylistDocument(document);
+}
+
+export function mapYouTubeMusicWatchPlaylistDocument(document: JsonObject): { tracks: TrackSummary[]; cursor: string } {
+  const tracks = children(document, "playlistPanelVideoRenderer")
+    .map(mapPlaylistTrack).filter((track): track is TrackSummary => track !== null);
+  const continuation = watchContinuationToken(document);
+  return { tracks, cursor: continuation ? `${PLAYLIST_WATCH_CURSOR}${continuation}` : "" };
+}
+
+export async function youtubeMusicPlaylistMore(cursor: string): Promise<{ tracks: TrackSummary[]; cursor: string }> {
+  if (cursor.startsWith(PLAYLIST_BROWSE_CURSOR)) {
+    const document = await youtubei("browse", { continuation: cursor.slice(PLAYLIST_BROWSE_CURSOR.length) });
+    const continuation = continuationToken(document);
+    return {
+      tracks: tracksFromDocument(document),
+      cursor: continuation ? `${PLAYLIST_BROWSE_CURSOR}${continuation}` : "",
+    };
+  }
+  if (cursor.startsWith(PLAYLIST_WATCH_CURSOR)) {
+    const document = await youtubei("next", { continuation: cursor.slice(PLAYLIST_WATCH_CURSOR.length) });
+    return mapYouTubeMusicWatchPlaylistDocument(document);
+  }
+  throw new Error("Invalid YouTube Music playlist cursor");
 }

@@ -21,6 +21,11 @@ use a tagged shape, for example:
 }
 ```
 
+Provider continuations append queue pages transactionally with
+`{"command":"enqueue_tracks","tracks":[...]}`. One batch produces one queue
+snapshot while retaining duplicate playlist entries and their distinct stable
+entry IDs.
+
 Responses contain `abiVersion`, `ok`, and either `value` or `error`. Dispatch
 responses contain typed events. A native playback directive is explicit:
 

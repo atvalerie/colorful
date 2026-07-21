@@ -6,7 +6,7 @@ import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
 import { clearYouTubeAuth, connectYouTubeBrowser, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
-import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicAllPlaylistTracks, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
+import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -285,16 +285,17 @@ async function handle(request: RequestMessage): Promise<void> {
       const cursor = String(request.payload?.cursor ?? "").trim();
       if (!resourceId || !cursor) throw new Error("Catalog pagination state is incomplete");
       if (provider === "youtube") {
+        if (kind === "playlist" && section === "tracks" && cursor.startsWith("youtube-music-")) {
+          send({ id: request.id, ok: true, data: { section: "tracks", ...await youtubeMusicPlaylistMore(cursor) } });
+          return;
+        }
         if (kind !== "artist" || section !== "tracks" || !cursor.startsWith("youtube-channel:"))
           throw new Error("That YouTube catalog section cannot be expanded");
         const start = Number(cursor.slice("youtube-channel:".length));
         if (!Number.isSafeInteger(start) || start < 1) throw new Error("Invalid YouTube channel cursor");
         const tracks = await youtubeChannelVideos(resourceId, start, 20);
-        send({ id: request.id, ok: true, data: {
-          section: "tracks",
-          tracks,
-          cursor: tracks.length === 20 ? `youtube-channel:${start + tracks.length}` : "",
-        } });
+        send({ id: request.id, ok: true, data: { section: "tracks", tracks,
+          cursor: tracks.length === 20 ? `youtube-channel:${start + tracks.length}` : "" } });
         return;
       }
       if (provider !== "tidal") throw new Error(`Catalog pagination is not implemented for ${provider}`);
@@ -313,10 +314,10 @@ async function handle(request: RequestMessage): Promise<void> {
       send({ id: request.id, ok: true, data: { tracks: await browse.allAlbumTracks(resourceId) } });
       return;
     }
-    case "detail.youtubePlaylistTracks": {
+    case "detail.youtubePlaylistShuffle": {
       const resourceId = String(request.payload?.id ?? "").trim();
       if (!resourceId) throw new Error("Playlist ID is empty");
-      send({ id: request.id, ok: true, data: { tracks: await youtubeMusicAllPlaylistTracks(resourceId) } });
+      send({ id: request.id, ok: true, data: await youtubeMusicShuffledPlaylist(resourceId) });
       return;
     }
     case "related": {

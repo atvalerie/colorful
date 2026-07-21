@@ -11,6 +11,7 @@ use std::path::Path;
 pub enum EngineCommand {
     PlayTracks(Vec<Track>),
     Enqueue(Track),
+    EnqueueTracks(Vec<Track>),
     PlayNext(Track),
     Select(QueueEntryId),
     Remove(QueueEntryId),
@@ -210,6 +211,16 @@ impl Engine {
             EngineCommand::Enqueue(track) => {
                 self.storage.upsert_track(&track)?;
                 self.queue.append(track.id);
+                self.sync_current();
+                events.push(EngineEvent::QueueChanged(self.queue.snapshot()));
+                events.push(EngineEvent::PlaybackChanged(self.playback.clone()));
+                persist_playback = true;
+            }
+            EngineCommand::EnqueueTracks(tracks) => {
+                for track in tracks {
+                    self.storage.upsert_track(&track)?;
+                    self.queue.append(track.id);
+                }
                 self.sync_current();
                 events.push(EngineEvent::QueueChanged(self.queue.snapshot()));
                 events.push(EngineEvent::PlaybackChanged(self.playback.clone()));
@@ -479,6 +490,18 @@ mod tests {
                 .map(|track| track.id.provider_id)
                 .collect::<Vec<_>>(),
             vec!["a".to_owned(), "b".to_owned()]
+        );
+    }
+
+    #[test]
+    fn enqueue_tracks_appends_a_continuation_in_one_command_and_keeps_duplicates() {
+        let mut engine = Engine::open_in_memory().unwrap();
+        engine.dispatch(EngineCommand::PlayTracks(vec![track("a")])).unwrap();
+        let events = engine.dispatch(EngineCommand::EnqueueTracks(vec![track("b"), track("b"), track("c")])).unwrap();
+        assert_eq!(events.iter().filter(|event| matches!(event, EngineEvent::QueueChanged(_))).count(), 1);
+        assert_eq!(
+            engine.queue_tracks().unwrap().into_iter().map(|track| track.id.provider_id).collect::<Vec<_>>(),
+            vec!["a".to_owned(), "b".to_owned(), "b".to_owned(), "c".to_owned()]
         );
     }
 

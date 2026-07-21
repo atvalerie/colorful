@@ -103,9 +103,10 @@ This intentionally avoids permanent Python or third-party Rust client
 dependencies. Android and iOS will use native resolvers rather than shipping
 `yt-dlp`.
 
-YouTube account authorization follows the same provider-neutral device-code
-challenge used by native shells. The Linux host currently performs Google's TV
-device exchange and stores the user-owned client credentials and refresh token
-in Secret Service. Android will implement the exchange natively and store the
-same logical credential bundle in Keystore; tokens never cross through the Rust
-database.
+Google currently rejects custom-client OAuth tokens on YouTube Music's private
+Innertube endpoints. Linux therefore accepts a user-copied browser session and
+stores its reduced header set in Secret Service; it never crosses through the
+Rust database. The host exposes ordinary playlist browse continuations and the
+Music `next` endpoint's server-side shuffle continuations to the desktop queue,
+so large playlists start promptly and refill near the tail. Android still needs
+a native account-session capture and Keystore implementation.

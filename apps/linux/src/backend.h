@@ -292,6 +292,11 @@ private:
     void playTrackAt(int index);
     void playSingleTrack(const QVariantMap &track);
     void playTracks(const QVariantList &tracks);
+    void clearPlaylistContinuation();
+    void activatePlaylistContinuation(const QString &playlistId, const QString &cursor);
+    void requestPlaylistContinuation(bool continueWhenReady);
+    bool playlistNeedsRefill() const;
+    bool atLoadedQueueEnd() const;
     void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true,
                      const QString &provider = QStringLiteral("tidal"));
     void enqueueTrack(const QVariantMap &track);
@@ -422,6 +427,11 @@ private:
     bool m_relatedContinueWhenReady = false;
     qint64 m_relatedSeedEntryId = -1;
     quint64 m_relatedGeneration = 0;
+    QString m_playlistId;
+    QString m_playlistCursor;
+    bool m_playlistContinuationPending = false;
+    bool m_playlistContinueWhenReady = false;
+    quint64 m_playlistContinuationGeneration = 0;
     QElapsedTimer m_listenClock;
     QVariantMap m_listenTrack;
     QString m_listenTrackKey;

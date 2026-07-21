@@ -169,14 +169,30 @@ export async function connectYouTubeBrowser(raw: string): Promise<void> {
   if (!parsed["x-goog-authuser"]) throw new Error("The copied request is missing X-Goog-AuthUser; copy a logged-in /browse request");
   if (!/(?:^|;\s*)__Secure-3PAPISID=/.test(parsed.cookie))
     throw new Error("The copied Cookie header is missing __Secure-3PAPISID");
-  const allowed = ["cookie", "x-goog-authuser", "user-agent", "accept-language", "x-goog-visitor-id"];
-  const headers = Object.fromEntries(allowed.flatMap((name) => parsed[name] ? [[name, parsed[name]]] : []));
+  const headers = selectYouTubeBrowserHeaders(parsed);
   browserSession = { mode: "browser", headers };
   token = null;
   if (!await saveProviderSecret("youtube", "colorful YouTube Music browser session", JSON.stringify(browserSession))) {
     browserSession = null;
     throw new Error("Could not store the YouTube Music session in Secret Service");
   }
+}
+
+export function selectYouTubeBrowserHeaders(parsed: Record<string, string>): Record<string, string> {
+  // X-Goog-PageId selects the active YouTube channel/brand account. Dropping it
+  // leaves the cookies authenticated but silently changes private-library
+  // requests to the Google account's default identity.
+  const allowed = [
+    "cookie",
+    "x-goog-authuser",
+    "x-goog-pageid",
+    "x-goog-visitor-id",
+    "x-youtube-client-name",
+    "x-youtube-client-version",
+    "user-agent",
+    "accept-language",
+  ];
+  return Object.fromEntries(allowed.flatMap((name) => parsed[name] ? [[name, parsed[name]]] : []));
 }
 
 async function refresh(credentials: YouTubeCredentials): Promise<YouTubeToken> {
