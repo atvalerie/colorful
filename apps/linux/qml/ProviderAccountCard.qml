@@ -11,6 +11,7 @@ Rectangle {
     property bool primaryVisible: true
     property string secondaryText: "Disconnect"
     property bool secondaryVisible: root.connected
+    property bool extraVisible: false
     default property alias extraContent: extra.data
     signal primaryRequested()
     signal secondaryRequested()
@@ -70,6 +71,8 @@ Rectangle {
         ColumnLayout {
             id: extra
             Layout.fillWidth: true
+            Layout.preferredHeight: root.extraVisible ? implicitHeight : 0
+            visible: root.extraVisible
             spacing: 7
         }
     }

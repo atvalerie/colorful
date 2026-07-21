@@ -116,6 +116,7 @@ Item {
                                      ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
                                      : "Paste headers from a logged-in /browse request. A fresh private window is recommended; the session stays in the credential service."
                         primaryText: "Setup guide"
+                        extraVisible: !colorful.youtubeLinked
                         onPrimaryRequested: colorful.openYouTubeSetupGuide()
                         onSecondaryRequested: colorful.unlinkYouTube()
                         RowLayout {
@@ -147,6 +148,7 @@ Item {
                                      ? "Liked tracks, sets, and followed profiles use this account. Only the OAuth token is retained."
                                      : "Copy any logged-in api-v2.soundcloud.com or api.soundcloud.com request as cURL. colorful extracts only its Authorization: OAuth header."
                         primaryText: "Setup guide"
+                        extraVisible: !colorful.soundcloudLinked
                         onPrimaryRequested: colorful.openSoundCloudSetupGuide()
                         onSecondaryRequested: colorful.unlinkSoundCloud()
                         RowLayout {
