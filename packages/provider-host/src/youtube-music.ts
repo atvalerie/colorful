@@ -703,7 +703,8 @@ function continuationToken(document: JsonObject): string {
   ];
   for (const root of playlistRoots) {
     const token = children(root, "nextContinuationData").map((item) => string(item.continuation)).find(Boolean)
-      || children(root, "reloadContinuationData").map((item) => string(item.continuation)).find(Boolean);
+      || children(root, "reloadContinuationData").map((item) => string(item.continuation)).find(Boolean)
+      || children(root, "continuationCommand").map((item) => string(item.token)).find(Boolean);
     if (token) return token;
   }
   return "";
@@ -717,7 +718,9 @@ function watchContinuationToken(document: JsonObject): string {
       .filter((action) => children(action, "playlistPanelVideoRenderer").length > 0),
   ];
   for (const root of roots) {
-    const token = children(root, "nextContinuationData").map((item) => string(item.continuation)).find(Boolean);
+    const token = children(root, "nextContinuationData").map((item) => string(item.continuation)).find(Boolean)
+      || children(root, "reloadContinuationData").map((item) => string(item.continuation)).find(Boolean)
+      || children(root, "continuationCommand").map((item) => string(item.token)).find(Boolean);
     if (token) return token;
   }
   return "";

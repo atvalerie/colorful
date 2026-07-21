@@ -61,7 +61,9 @@ describe("authenticated YouTube Music mapping", () => {
         secondSubtitle: { runs: [{ text: "2,844 tracks" }, { text: " • " }, { text: "99+ hours" }] },
       } },
       contents: [track("one", "One"), track("two", "Two")],
-      shelf: { musicPlaylistShelfRenderer: { continuations: [{ nextContinuationData: { continuation: "browse-next" } }] } },
+      shelf: { musicPlaylistShelfRenderer: { contents: [{ continuationItemRenderer: {
+        continuationEndpoint: { continuationCommand: { token: "browse-next" } },
+      } }] } },
     }, "PL_HUGE");
     expect(page.playlist.numberOfItems).toBe(2844);
     expect(page.tracks).toHaveLength(2);
@@ -76,8 +78,10 @@ describe("authenticated YouTube Music mapping", () => {
       lengthText: { runs: [{ text: "3:21" }] },
     } });
     const result = mapYouTubeMusicWatchPlaylistDocument({ panel: { playlistPanelRenderer: {
-      contents: [item("random-b", "Random B"), item("random-a", "Random A")],
-      continuations: [{ nextContinuationData: { continuation: "shuffle-next" } }],
+      contents: [
+        item("random-b", "Random B"), item("random-a", "Random A"),
+        { continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "shuffle-next" } } } },
+      ],
     } } });
     expect(result.tracks.map((track) => track.id)).toEqual(["random-b", "random-a"]);
     expect(result.cursor).toBe("youtube-music-watch:shuffle-next");

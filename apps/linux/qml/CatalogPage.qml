@@ -258,7 +258,7 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 visible: Boolean(root.page.trackCursor)
                 quiet: true
-                text: colorful.catalogMoreLoading ? "Loading…" : "Show 20 more tracks"
+                text: colorful.catalogMoreLoading ? "Loading…" : "Show more tracks"
                 enabled: !colorful.catalogMoreLoading
                 onClicked: colorful.loadMoreCatalog("tracks")
             }
