@@ -9,17 +9,23 @@ describe("authenticated YouTube Music mapping", () => {
       -H 'x-goog-pageid: UC_selected_profile' \
       -H 'x-youtube-client-name: 67' \
       -H 'x-youtube-client-version: 1.20260720.01.00' \
+      -H 'x-youtube-bootstrap-logged-in: true' \
+      -H 'x-youtube-identity-token: selected-profile-token' \
       -H 'cookie: SID=ignored; __Secure-3PAPISID=private-value; PREF=music' \
       -H 'authorization: copied-secret-that-must-not-be-stored' \
+      -H 'sec-fetch-site: same-origin' \
       -H 'user-agent: colorful-test'`);
     const retained = selectYouTubeBrowserHeaders(headers);
     expect(retained["x-goog-authuser"]).toBe("0");
     expect(retained["x-goog-pageid"]).toBe("UC_selected_profile");
     expect(retained["x-youtube-client-name"]).toBe("67");
     expect(retained["x-youtube-client-version"]).toBe("1.20260720.01.00");
+    expect(retained["x-youtube-bootstrap-logged-in"]).toBe("true");
+    expect(retained["x-youtube-identity-token"]).toBe("selected-profile-token");
     expect(retained.cookie).toContain("__Secure-3PAPISID=private-value");
     expect(retained["user-agent"]).toBe("colorful-test");
     expect(retained.authorization).toBeUndefined();
+    expect(retained["sec-fetch-site"]).toBeUndefined();
   });
 
   test("maps private playlists and personalized mixes without confusing their IDs", () => {

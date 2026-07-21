@@ -274,6 +274,10 @@ async function youtubei(endpoint: "search" | "browse" | "next" | "account/accoun
   const browserAuthUser = browserHeaders["x-goog-authuser"] ?? "0";
   if (accountRequired && !browserCookie && !accessToken) throw new Error("Connect your YouTube Music account first");
   const visitor = browserHeaders["x-goog-visitor-id"] ?? ((accessToken || browserCookie) ? await visitorId() : "");
+  const retainedIdentityHeaders = Object.fromEntries(Object.entries(browserHeaders).filter(([name]) =>
+    (name.startsWith("x-goog-") || name.startsWith("x-youtube-"))
+      && name !== "x-goog-authuser" && name !== "x-goog-visitor-id"));
+  const browserClientVersion = browserHeaders["x-youtube-client-version"] || clientVersion();
   const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json${browserCookie ? `&key=${MUSIC_API_KEY}` : ""}`, {
     method: "POST",
     headers: {
@@ -284,13 +288,11 @@ async function youtubei(endpoint: "search" | "browse" | "next" | "account/accoun
       ...(browserCookie ? {
         "Authorization": browserAuthorization(browserCookie),
         "Cookie": browserCookie,
+        ...retainedIdentityHeaders,
         "X-Goog-AuthUser": browserAuthUser,
-        ...(browserHeaders["x-goog-pageid"] ? { "X-Goog-PageId": browserHeaders["x-goog-pageid"] } : {}),
         ...(browserHeaders["user-agent"] ? { "User-Agent": browserHeaders["user-agent"] } : {}),
         ...(browserHeaders["accept-language"] ? { "Accept-Language": browserHeaders["accept-language"] } : {}),
         ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
-        ...(browserHeaders["x-youtube-client-name"] ? { "X-Youtube-Client-Name": browserHeaders["x-youtube-client-name"] } : {}),
-        ...(browserHeaders["x-youtube-client-version"] ? { "X-Youtube-Client-Version": browserHeaders["x-youtube-client-version"] } : {}),
         "X-Origin": MUSIC_ORIGIN,
       } : accessToken ? {
         "Authorization": `Bearer ${accessToken}`,
@@ -300,7 +302,7 @@ async function youtubei(endpoint: "search" | "browse" | "next" | "account/accoun
       } : { "X-Origin": MUSIC_ORIGIN }),
     },
     body: JSON.stringify({
-      context: { client: { clientName: "WEB_REMIX", clientVersion: clientVersion(), hl: "en", gl: "US" }, user: {} },
+      context: { client: { clientName: "WEB_REMIX", clientVersion: browserClientVersion, hl: "en", gl: "US" }, user: {} },
       ...body,
     }),
   });
@@ -617,9 +619,13 @@ export async function youtubeMusicAccount(): Promise<YouTubeMusicAccount> {
   requireAccount();
   const document = await youtubei("account/account_menu", {}, true);
   const header = children(document, "activeAccountHeaderRenderer")[0] || {};
+  const accountName = runText(header.accountName);
+  const channelHandle = runText(header.channelHandle);
+  if (!accountName && !channelHandle)
+    throw new Error("YouTube Music did not return an active account; reconnect from a logged-in /browse request");
   return {
-    accountName: runText(header.accountName) || "YouTube Music account",
-    channelHandle: runText(header.channelHandle) || null,
+    accountName: accountName || "YouTube Music account",
+    channelHandle: channelHandle || null,
     accountPhotoUrl: thumbnail(header),
   };
 }

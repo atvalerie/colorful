@@ -21,6 +21,8 @@ albums and artists, and personalized mixes.
 The pasted session is stored in the operating system credential service, not in
 colorful's SQLite database or configuration files. Disconnecting the account
 removes it. Treat copied headers like a password: do not post or share them.
+colorful verifies that YouTube returns an active account before marking the
+session connected; a public HTTP 200 response is not treated as authentication.
 
 ## Why not Google OAuth?
 
@@ -34,6 +36,9 @@ library or its personalized mixes.
 
 - Browser sessions can expire or be revoked. Copy a fresh `/browse` request to
   reconnect.
+- With multiple signed-in Google accounts, capture the request from a private
+  window containing only the intended account. YouTube's `X-Goog-AuthUser`
+  index otherwise may select a different, empty library.
 - If an older colorful build restores as signed in but shows the wrong profile
   or no private playlists, disconnect it and reconnect from a fresh request.
 - This relies on YouTube Music's private web API and may require maintenance

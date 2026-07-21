@@ -182,17 +182,9 @@ export function selectYouTubeBrowserHeaders(parsed: Record<string, string>): Rec
   // X-Goog-PageId selects the active YouTube channel/brand account. Dropping it
   // leaves the cookies authenticated but silently changes private-library
   // requests to the Google account's default identity.
-  const allowed = [
-    "cookie",
-    "x-goog-authuser",
-    "x-goog-pageid",
-    "x-goog-visitor-id",
-    "x-youtube-client-name",
-    "x-youtube-client-version",
-    "user-agent",
-    "accept-language",
-  ];
-  return Object.fromEntries(allowed.flatMap((name) => parsed[name] ? [[name, parsed[name]]] : []));
+  const exact = new Set(["cookie", "user-agent", "accept-language"]);
+  return Object.fromEntries(Object.entries(parsed).filter(([name, value]) =>
+    Boolean(value) && (exact.has(name) || name.startsWith("x-goog-") || name.startsWith("x-youtube-"))));
 }
 
 async function refresh(credentials: YouTubeCredentials): Promise<YouTubeToken> {
