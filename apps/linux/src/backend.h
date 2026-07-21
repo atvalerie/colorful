@@ -254,6 +254,7 @@ public:
     Q_INVOKABLE void storeDiscordWidgetToken(const QString &token);
     Q_INVOKABLE void forgetDiscordWidgetToken();
     Q_INVOKABLE void publishDiscordWidgetNow();
+    void shutdownDiscordPresence() { m_discordPresence.shutdown(); }
 
 signals:
     void providerReadyChanged();

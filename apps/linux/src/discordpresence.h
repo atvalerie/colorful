@@ -15,6 +15,7 @@ public:
     ~DiscordPresence() override;
 
     void setApplicationId(const QString &applicationId);
+    void shutdown();
     void update(const QString &title,
                 const QString &artist,
                 const QString &album,
@@ -36,6 +37,8 @@ private:
     void handleReadyRead();
     void handleFrame(Opcode opcode, const QByteArray &payload);
     void publishDesiredActivity();
+    void clearActivityForProcess(qint64 processId);
+    bool flushActivity(int timeoutMs);
     void writeFrame(Opcode opcode, const QJsonObject &payload);
     void scheduleReconnect();
 
@@ -47,6 +50,7 @@ private:
     QStringList m_candidates;
     qsizetype m_candidateIndex = 0;
     quint64 m_nonce = 0;
+    qint64 m_staleProcessId = 0;
     bool m_enabled = true;
     bool m_ready = false;
     bool m_hasDesiredActivity = false;

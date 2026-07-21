@@ -29,8 +29,15 @@ QString discordRuntimeDirectory()
 DiscordPresence::DiscordPresence(QObject *parent)
     : QObject(parent)
 {
-    m_applicationId = QSettings().value(QStringLiteral("discord/applicationId"),
-                                        QString::fromLatin1(defaultApplicationId)).toString();
+    QSettings settings;
+    m_applicationId = settings.value(QStringLiteral("discord/applicationId"),
+                                     QString::fromLatin1(defaultApplicationId)).toString();
+    const auto currentProcessId = QCoreApplication::applicationPid();
+    const auto previousProcessId = settings.value(QStringLiteral("discord/lastRpcProcessId"), 0).toLongLong();
+    if (previousProcessId > 0 && previousProcessId != currentProcessId) {
+        m_staleProcessId = previousProcessId;
+    }
+    settings.setValue(QStringLiteral("discord/lastRpcProcessId"), currentProcessId);
     m_enabled = !qEnvironmentVariableIsSet("COLORFUL_DISABLE_DISCORD_RPC");
     if (!m_enabled) return;
     m_reconnectTimer.setSingleShot(true);
@@ -49,20 +56,17 @@ DiscordPresence::DiscordPresence(QObject *parent)
 
 DiscordPresence::~DiscordPresence()
 {
-    m_shuttingDown = true;
-    if (m_socket.state() == QLocalSocket::ConnectedState && m_ready) {
-        m_hasDesiredActivity = false;
-        publishDesiredActivity();
-        m_socket.flush();
-        m_socket.waitForBytesWritten(100);
-    }
-    m_socket.abort();
+    shutdown();
 }
 
 void DiscordPresence::setApplicationId(const QString &applicationId)
 {
     const auto trimmed = applicationId.trimmed();
     if (trimmed == m_applicationId) return;
+    if (m_ready && m_socket.state() == QLocalSocket::ConnectedState) {
+        clearActivityForProcess(QCoreApplication::applicationPid());
+        flushActivity(300);
+    }
     m_applicationId = trimmed;
     m_ready = false;
     m_readBuffer.clear();
@@ -71,6 +75,25 @@ void DiscordPresence::setApplicationId(const QString &applicationId)
     m_reconnectTimer.stop();
     m_socket.abort();
     QTimer::singleShot(0, this, &DiscordPresence::connectToDiscord);
+}
+
+void DiscordPresence::shutdown()
+{
+    if (m_shuttingDown) return;
+    m_shuttingDown = true;
+    bool cleared = false;
+    if (m_socket.state() == QLocalSocket::ConnectedState && m_ready) {
+        clearActivityForProcess(QCoreApplication::applicationPid());
+        cleared = flushActivity(500);
+    }
+    if (cleared) {
+        QSettings settings;
+        settings.remove(QStringLiteral("discord/lastRpcProcessId"));
+        settings.sync();
+    }
+    m_hasDesiredActivity = false;
+    m_desiredActivity = {};
+    m_socket.abort();
 }
 
 void DiscordPresence::update(const QString &title,
@@ -211,6 +234,10 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
                                 .value(QStringLiteral("id")).toString();
         if (!userId.isEmpty()) emit userIdResolved(userId);
         m_ready = true;
+        if (m_staleProcessId > 0) {
+            clearActivityForProcess(m_staleProcessId);
+            m_staleProcessId = 0;
+        }
         publishDesiredActivity();
     }
 }
@@ -225,6 +252,30 @@ void DiscordPresence::publishDesiredActivity()
         {QStringLiteral("args"), arguments},
         {QStringLiteral("nonce"), QString::number(++m_nonce)},
     });
+}
+
+void DiscordPresence::clearActivityForProcess(qint64 processId)
+{
+    if (!m_ready || m_socket.state() != QLocalSocket::ConnectedState || processId <= 0) return;
+    writeFrame(Opcode::Frame, {
+        {QStringLiteral("cmd"), QStringLiteral("SET_ACTIVITY")},
+        {QStringLiteral("args"), QJsonObject{
+            {QStringLiteral("pid"), processId},
+            {QStringLiteral("activity"), QJsonValue(QJsonValue::Null)},
+        }},
+        {QStringLiteral("nonce"), QString::number(++m_nonce)},
+    });
+}
+
+bool DiscordPresence::flushActivity(int timeoutMs)
+{
+    if (!m_socket.flush()) return false;
+    if (m_socket.bytesToWrite() > 0 && !m_socket.waitForBytesWritten(timeoutMs)) return false;
+    // Discord acknowledges SET_ACTIVITY. Waiting for that response prevents
+    // process teardown from racing the clear frame on a busy IPC connection.
+    if (!m_socket.waitForReadyRead(timeoutMs)) return false;
+    handleReadyRead();
+    return true;
 }
 
 void DiscordPresence::writeFrame(Opcode opcode, const QJsonObject &payload)

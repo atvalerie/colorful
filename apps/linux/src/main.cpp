@@ -23,6 +23,9 @@ int main(int argc, char *argv[])
     std::setlocale(LC_NUMERIC, "C");
 
     Backend backend;
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &backend, [&backend] {
+        backend.shutdownDiscordPresence();
+    });
     MprisService mpris(&backend);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("colorful"), &backend);
