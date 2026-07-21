@@ -50,6 +50,9 @@ class Backend final : public QObject
     Q_PROPERTY(bool canNavigateCatalogBack READ canNavigateCatalogBack NOTIFY catalogPageChanged)
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
     Q_PROPERTY(QVariantList library READ library NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList localPlaylists READ localPlaylists NOTIFY localPlaylistsChanged)
+    Q_PROPERTY(QVariantMap playlistPickerTrack READ playlistPickerTrack NOTIFY playlistPickerRequested)
+    Q_PROPERTY(QVariantList playlistPickerTracks READ playlistPickerTracks NOTIFY playlistPickerRequested)
     Q_PROPERTY(QVariantList downloads READ downloads NOTIFY downloadsChanged)
     Q_PROPERTY(qint64 offlineStorageUsed READ offlineStorageUsed NOTIFY downloadsChanged)
     Q_PROPERTY(qint64 offlineStorageLimitBytes READ offlineStorageLimitBytes WRITE setOfflineStorageLimitBytes NOTIFY offlineStorageLimitChanged)
@@ -124,6 +127,9 @@ public:
     bool canNavigateCatalogBack() const { return !m_catalogHistory.isEmpty(); }
     QVariantList queue() const { return m_queue; }
     QVariantList library() const { return m_library; }
+    QVariantList localPlaylists() const { return m_localPlaylists; }
+    QVariantMap playlistPickerTrack() const { return m_playlistPickerTrack; }
+    QVariantList playlistPickerTracks() const { return m_playlistPickerTracks; }
     QVariantList downloads() const { return m_downloads; }
     qint64 offlineStorageUsed() const;
     qint64 offlineStorageLimitBytes() const { return m_offlineStorageLimitBytes; }
@@ -215,6 +221,18 @@ public:
     Q_INVOKABLE void addSearchResultToLibrary(int index);
     Q_INVOKABLE void playLibraryIndex(int index);
     Q_INVOKABLE void removeLibraryIndex(int index);
+    Q_INVOKABLE void showPlaylistPicker(const QVariantMap &track);
+    Q_INVOKABLE void showPlaylistPickerForTracks(const QVariantList &tracks);
+    Q_INVOKABLE void dismissPlaylistPicker();
+    Q_INVOKABLE void createLocalPlaylist(const QString &name, const QVariantMap &initialTrack = {});
+    Q_INVOKABLE void renameLocalPlaylist(const QString &id, const QString &name);
+    Q_INVOKABLE void deleteLocalPlaylist(const QString &id);
+    Q_INVOKABLE void addTrackToLocalPlaylist(const QString &id, const QVariantMap &track);
+    Q_INVOKABLE void addPickerTracksToLocalPlaylist(const QString &id);
+    Q_INVOKABLE void removeLocalPlaylistItem(const QString &id, int position);
+    Q_INVOKABLE void moveLocalPlaylistItem(const QString &id, int position, int target);
+    Q_INVOKABLE void playLocalPlaylist(const QString &id, int startIndex = 0);
+    Q_INVOKABLE void enqueueLocalPlaylist(const QString &id);
     Q_INVOKABLE void downloadTrack(const QVariantMap &track);
     Q_INVOKABLE void pauseDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
     Q_INVOKABLE void removeDownload(const QString &trackId, const QString &provider = QStringLiteral("tidal"));
@@ -273,6 +291,8 @@ signals:
     void catalogPageChanged();
     void queueChanged();
     void libraryChanged();
+    void localPlaylistsChanged();
+    void playlistPickerRequested();
     void downloadsChanged();
     void offlineStorageLimitChanged();
     void tidalHubChanged();
@@ -404,6 +424,9 @@ private:
     quint64 m_catalogGeneration = 0;
     QVariantList m_queue;
     QVariantList m_library;
+    QVariantList m_localPlaylists;
+    QVariantMap m_playlistPickerTrack;
+    QVariantList m_playlistPickerTracks;
     QVariantList m_downloads;
     QList<QVariantMap> m_downloadQueue;
     QVariantMap m_activeDownloadTrack;

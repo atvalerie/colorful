@@ -5,6 +5,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 migration_one="$repo_dir/crates/colorful-core/migrations/0001_local_state.sql"
 migration_two="$repo_dir/crates/colorful-core/migrations/0002_listening_history.sql"
+migration_three="$repo_dir/crates/colorful-core/migrations/0003_local_playlists.sql"
 test_db="$(mktemp --suffix=.colorful-storage-test.sqlite)"
 
 cleanup() {
@@ -14,11 +15,13 @@ trap cleanup EXIT
 
 sqlite3 -bail "$test_db" < "$migration_one"
 sqlite3 -bail "$test_db" < "$migration_two"
+sqlite3 -bail "$test_db" < "$migration_three"
 
-[[ "$(sqlite3 "$test_db" 'PRAGMA user_version;')" == "2" ]]
+[[ "$(sqlite3 "$test_db" 'PRAGMA user_version;')" == "3" ]]
 [[ -z "$(sqlite3 "$test_db" 'PRAGMA foreign_key_check;')" ]]
 [[ "$(sqlite3 "$test_db" 'SELECT count(*) FROM schema_migrations WHERE version = 1;')" == "1" ]]
 [[ "$(sqlite3 "$test_db" 'SELECT count(*) FROM schema_migrations WHERE version = 2;')" == "1" ]]
+[[ "$(sqlite3 "$test_db" 'SELECT count(*) FROM schema_migrations WHERE version = 3;')" == "1" ]]
 [[ "$(sqlite3 "$test_db" 'SELECT count(*) FROM playback_state WHERE singleton_id = 1;')" == "1" ]]
 
 sqlite3 -bail "$test_db" <<'SQL'
@@ -56,10 +59,17 @@ INSERT INTO listen_events (
   event_id, device_id, provider, provider_id, started_at_ms,
   ended_at_ms, listened_ms, track_duration_ms
 ) VALUES ('event-a', 'device-a', 'tidal', 'track-a', 10, 100010, 100000, 180000);
+
+INSERT INTO local_playlists (playlist_id, name, created_at_ms, updated_at_ms)
+VALUES ('playlist-a', 'Mixed providers', 6, 6);
+INSERT INTO local_playlist_items (playlist_id, position, provider, provider_id, added_at_ms)
+VALUES ('playlist-a', 0, 'tidal', 'track-a', 7),
+       ('playlist-a', 1, 'tidal', 'track-a', 8);
 SQL
 
 [[ "$(sqlite3 "$test_db" 'SELECT provider_id FROM playback_queue ORDER BY play_position;')" == $'track-b\ntrack-a' ]]
 [[ "$(sqlite3 "$test_db" "SELECT listened_ms FROM listen_events WHERE event_id = 'event-a';")" == "100000" ]]
+[[ "$(sqlite3 "$test_db" "SELECT count(*) FROM local_playlist_items WHERE playlist_id = 'playlist-a';")" == "2" ]]
 
 if sqlite3 -bail "$test_db" \
   "PRAGMA foreign_keys = ON; INSERT INTO tracks (provider, provider_id, title, metadata_updated_at_ms) VALUES ('invalid', 'x', 'x', 1);" \

@@ -2,6 +2,7 @@ use crate::download::DownloadJob;
 use crate::history::{ListenEvent, ListenStats};
 use crate::media::{MediaId, Track};
 use crate::playback::{PlaybackState, RepeatMode};
+use crate::playlist::LocalPlaylist;
 use crate::queue::{PlaybackQueue, QueueEntryId, QueueSnapshot};
 use crate::storage::{Storage, StorageError};
 use std::fmt;
@@ -34,6 +35,32 @@ pub enum EngineCommand {
     CheckpointPosition(u64),
     AddToLibrary(Track),
     RemoveFromLibrary(MediaId),
+    CreatePlaylist {
+        name: String,
+        tracks: Vec<Track>,
+    },
+    RenamePlaylist {
+        id: String,
+        name: String,
+    },
+    DeletePlaylist(String),
+    AddPlaylistTrack {
+        id: String,
+        track: Track,
+    },
+    AddPlaylistTracks {
+        id: String,
+        tracks: Vec<Track>,
+    },
+    RemovePlaylistItem {
+        id: String,
+        position: usize,
+    },
+    MovePlaylistItem {
+        id: String,
+        position: usize,
+        target: usize,
+    },
     SetSetting {
         key: String,
         value_json: String,
@@ -69,6 +96,7 @@ pub enum EngineEvent {
     PlaybackChanged(PlaybackState),
     PlaybackDirective(PlaybackDirective),
     LibraryChanged,
+    PlaylistsChanged,
     SettingChanged(String),
     DownloadChanged(DownloadJob),
     DownloadRemoved(MediaId),
@@ -147,6 +175,10 @@ impl Engine {
 
     pub fn library(&self) -> EngineResult<Vec<Track>> {
         Ok(self.storage.library()?)
+    }
+
+    pub fn playlists(&self) -> EngineResult<Vec<LocalPlaylist>> {
+        Ok(self.storage.playlists()?)
     }
 
     /// Hydrates the visible queue order for native shells. Queue snapshots use
@@ -387,6 +419,58 @@ impl Engine {
                     events.push(EngineEvent::LibraryChanged);
                 }
             }
+            EngineCommand::CreatePlaylist { name, tracks } => {
+                let now = unix_time_ms();
+                let id = self.storage.create_playlist(&name, now)?;
+                self.storage.add_playlist_tracks(&id, &tracks, now)?;
+                events.push(EngineEvent::PlaylistsChanged);
+            }
+            EngineCommand::RenamePlaylist { id, name } => {
+                if self.storage.rename_playlist(&id, &name, unix_time_ms())? {
+                    events.push(EngineEvent::PlaylistsChanged);
+                }
+            }
+            EngineCommand::DeletePlaylist(id) => {
+                if self.storage.delete_playlist(&id)? {
+                    events.push(EngineEvent::PlaylistsChanged);
+                }
+            }
+            EngineCommand::AddPlaylistTrack { id, track } => {
+                if self
+                    .storage
+                    .add_playlist_track(&id, &track, unix_time_ms())?
+                {
+                    events.push(EngineEvent::PlaylistsChanged);
+                }
+            }
+            EngineCommand::AddPlaylistTracks { id, tracks } => {
+                if self
+                    .storage
+                    .add_playlist_tracks(&id, &tracks, unix_time_ms())?
+                {
+                    events.push(EngineEvent::PlaylistsChanged);
+                }
+            }
+            EngineCommand::RemovePlaylistItem { id, position } => {
+                if self
+                    .storage
+                    .remove_playlist_item(&id, position, unix_time_ms())?
+                {
+                    events.push(EngineEvent::PlaylistsChanged);
+                }
+            }
+            EngineCommand::MovePlaylistItem {
+                id,
+                position,
+                target,
+            } => {
+                if self
+                    .storage
+                    .move_playlist_item(&id, position, target, unix_time_ms())?
+                {
+                    events.push(EngineEvent::PlaylistsChanged);
+                }
+            }
             EngineCommand::SetSetting { key, value_json } => {
                 self.storage
                     .set_setting(&key, &value_json, unix_time_ms())?;
@@ -617,6 +701,21 @@ mod tests {
             engine.setting("discord.enabled").unwrap().as_deref(),
             Some("true")
         );
+    }
+
+    #[test]
+    fn playlists_share_the_portable_engine_boundary() {
+        let mut engine = Engine::open_in_memory().unwrap();
+        let events = engine
+            .dispatch(EngineCommand::CreatePlaylist {
+                name: "Portable".into(),
+                tracks: vec![track("first")],
+            })
+            .unwrap();
+        assert_eq!(events, vec![EngineEvent::PlaylistsChanged]);
+        let playlist = &engine.playlists().unwrap()[0];
+        assert_eq!(playlist.name, "Portable");
+        assert_eq!(playlist.tracks[0].id.provider_id, "first");
     }
 
     #[test]

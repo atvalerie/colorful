@@ -92,6 +92,34 @@ enum WireCommand {
     RemoveFromLibrary {
         id: MediaId,
     },
+    CreatePlaylist {
+        name: String,
+        tracks: Vec<Track>,
+    },
+    RenamePlaylist {
+        id: String,
+        name: String,
+    },
+    DeletePlaylist {
+        id: String,
+    },
+    AddPlaylistTrack {
+        id: String,
+        track: Track,
+    },
+    AddPlaylistTracks {
+        id: String,
+        tracks: Vec<Track>,
+    },
+    RemovePlaylistItem {
+        id: String,
+        position: usize,
+    },
+    MovePlaylistItem {
+        id: String,
+        position: usize,
+        target: usize,
+    },
     SetSetting {
         key: String,
         value_json: String,
@@ -139,6 +167,23 @@ impl From<WireCommand> for EngineCommand {
             }
             WireCommand::AddToLibrary { track } => Self::AddToLibrary(track),
             WireCommand::RemoveFromLibrary { id } => Self::RemoveFromLibrary(id),
+            WireCommand::CreatePlaylist { name, tracks } => Self::CreatePlaylist { name, tracks },
+            WireCommand::RenamePlaylist { id, name } => Self::RenamePlaylist { id, name },
+            WireCommand::DeletePlaylist { id } => Self::DeletePlaylist(id),
+            WireCommand::AddPlaylistTrack { id, track } => Self::AddPlaylistTrack { id, track },
+            WireCommand::AddPlaylistTracks { id, tracks } => Self::AddPlaylistTracks { id, tracks },
+            WireCommand::RemovePlaylistItem { id, position } => {
+                Self::RemovePlaylistItem { id, position }
+            }
+            WireCommand::MovePlaylistItem {
+                id,
+                position,
+                target,
+            } => Self::MovePlaylistItem {
+                id,
+                position,
+                target,
+            },
             WireCommand::SetSetting { key, value_json } => Self::SetSetting { key, value_json },
             WireCommand::SaveDownload { track, job } => Self::SaveDownload { track, job },
             WireCommand::RemoveDownload { id } => Self::RemoveDownload(id),
@@ -194,6 +239,7 @@ enum WireEvent {
         value: WireDirective,
     },
     LibraryChanged,
+    PlaylistsChanged,
     SettingChanged {
         key: String,
     },
@@ -215,6 +261,7 @@ impl From<EngineEvent> for WireEvent {
                 value: value.into(),
             },
             EngineEvent::LibraryChanged => Self::LibraryChanged,
+            EngineEvent::PlaylistsChanged => Self::PlaylistsChanged,
             EngineEvent::SettingChanged(key) => Self::SettingChanged { key },
             EngineEvent::DownloadChanged(job) => Self::DownloadChanged { job },
             EngineEvent::DownloadRemoved(id) => Self::DownloadRemoved { id },
@@ -231,6 +278,7 @@ struct Snapshot<'a> {
     queue_tracks: Vec<Track>,
     playback: &'a crate::playback::PlaybackState,
     library: Vec<Track>,
+    playlists: Vec<crate::playlist::LocalPlaylist>,
     downloads: Vec<DownloadJob>,
     download_tracks: Vec<Track>,
     listen_stats: ListenStats,
@@ -373,6 +421,7 @@ pub extern "C" fn colorful_engine_snapshot(handle: u64) -> *mut c_char {
             queue_tracks: engine.queue_tracks().map_err(|error| error.to_string())?,
             playback: engine.playback(),
             library: engine.library().map_err(|error| error.to_string())?,
+            playlists: engine.playlists().map_err(|error| error.to_string())?,
             downloads,
             download_tracks,
             listen_stats: engine.listen_stats().map_err(|error| error.to_string())?,

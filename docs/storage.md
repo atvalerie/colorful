@@ -22,6 +22,13 @@ replaying an event received through multi-device sync cannot increment
 statistics twice. Aggregates are derived locally; no listening profile needs to
 be uploaded to a colorful service.
 
+`0003_local_playlists.sql` adds colorful-owned playlists and ordered playlist
+items. A playlist may contain tracks from different providers and may contain
+the same track more than once. Renaming, deletion, item removal, and reordering
+change only local colorful state; provider libraries and playlists remain
+read-only. Stable playlist IDs and explicit positions are designed to become
+sync operations later without changing the desktop data model.
+
 Queue rows distinguish `visible_position` from `play_position`. This keeps manual
 reordering predictable while shuffle is active and allows the portable queue
 state machine to reconstruct the exact sequence after a restart.

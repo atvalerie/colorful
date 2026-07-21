@@ -183,6 +183,11 @@ Item {
                         }
                     }
                     IconButton {
+                        iconSource: "icons/library.svg"
+                        tooltipText: "Add to playlist"
+                        onClicked: colorful.showPlaylistPicker(modelData)
+                    }
+                    IconButton {
                         iconSource: "icons/close.svg"
                         tooltipText: "Remove offline copy"
                         onClicked: colorful.removeDownload(modelData.id, modelData.provider || "tidal")

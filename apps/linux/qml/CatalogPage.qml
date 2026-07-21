@@ -213,6 +213,14 @@ Item {
                         }
                         ColorButton {
                             visible: root.kind === "track" || root.tracks.length > 0
+                            text: root.kind === "track" ? "Add to playlist" : "Add loaded tracks to playlist"
+                            quiet: true
+                            onClicked: root.kind === "track"
+                                       ? colorful.showPlaylistPicker(root.primary)
+                                       : colorful.showPlaylistPickerForTracks(root.tracks)
+                        }
+                        ColorButton {
+                            visible: root.kind === "track" || root.tracks.length > 0
                             text: root.kind === "track" ? "Download" : "Download tracks"
                             quiet: true
                             onClicked: {

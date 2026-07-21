@@ -492,16 +492,21 @@ ApplicationWindow {
                             visible: window.currentSection === "downloads"
                         }
 
+                        LibraryPage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: window.currentSection === "library"
+                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                        }
+
                         RowLayout {
-                            visible: (window.currentSection === "search" || window.currentSection === "library")
+                            visible: window.currentSection === "search"
                                      && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                             Layout.fillWidth: true
                             spacing: 10
 
                             Text {
-                                text: window.currentSection === "library"
-                                      ? "Your library"
-                                      : window.submittedQuery.length > 0 ? "Search results" : "Search"
+                                text: window.submittedQuery.length > 0 ? "Search results" : "Search"
                                 color: window.ink
                                 font.weight: Font.Bold
                                 font.pixelSize: 24
@@ -536,8 +541,8 @@ ApplicationWindow {
                             id: resultsList
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            model: window.currentSection === "library" ? colorful.library : window.visibleSearchTracks
-                            visible: (window.currentSection === "search" || window.currentSection === "library")
+                            model: window.visibleSearchTracks
+                            visible: window.currentSection === "search"
                                      && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                             spacing: 0
                             clip: true
@@ -549,17 +554,11 @@ ApplicationWindow {
                                 required property int index
                                 required property var modelData
                                 track: modelData
-                                libraryMode: window.currentSection === "library"
-                                showSaveAction: window.currentSection === "search"
+                                showSaveAction: true
                                 showDownloadAction: ["tidal", "youtube", "soundcloud"].includes(modelData.provider || "tidal")
-                                onPlayRequested: window.currentSection === "library"
-                                                 ? colorful.playLibraryIndex(index)
-                                                 : colorful.playCatalogTrack(modelData)
-                                onAddRequested: window.currentSection === "library"
-                                                ? colorful.enqueueCatalogTrack(modelData)
-                                                : colorful.enqueueCatalogTrack(modelData)
+                                onPlayRequested: colorful.playCatalogTrack(modelData)
+                                onAddRequested: colorful.enqueueCatalogTrack(modelData)
                                 onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
-                                onRemoveRequested: colorful.removeLibraryIndex(index)
                                 onSaveRequested: colorful.saveCatalogTrack(modelData)
                                 onDownloadRequested: colorful.downloadTrack(modelData)
                                 onDetailsRequested: colorful.openTrackItem(modelData)
@@ -651,23 +650,19 @@ ApplicationWindow {
                                 anchors.centerIn: parent
                                 width: Math.min(400, parent.width - 48)
                                 spacing: 12
-                                visible: window.currentSection === "library" ? resultsList.count === 0
-                                         : window.visibleSearchTracks.length + window.visibleSearchAlbums.length + window.visibleSearchArtists.length === 0
+                                visible: window.visibleSearchTracks.length + window.visibleSearchAlbums.length + window.visibleSearchArtists.length === 0
 
                                 AppIcon {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     width: 28
                                     height: 28
-                                    iconSource: window.currentSection === "library" ? "icons/library.svg"
-                                                : window.submittedQuery.length > 0 ? "icons/search.svg" : "icons/music.svg"
+                                    iconSource: window.submittedQuery.length > 0 ? "icons/search.svg" : "icons/music.svg"
                                     opacity: 0.3
                                 }
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     width: parent.width
-                                    text: window.currentSection === "library"
-                                          ? "Tracks you save will live here on this device"
-                                          : window.submittedQuery.length > 0
+                                    text: window.submittedQuery.length > 0
                                           ? "No " + (window.searchProvider === "all" ? "results" : window.searchProvider + " results")
                                             + " found for “" + window.submittedQuery + "”"
                                           : colorful.linked
@@ -944,6 +939,14 @@ ApplicationWindow {
                                     onActivated: colorful.openAlbumItem({ id: window.now.albumId, provider: window.now.provider || "tidal" })
                                 }
                             }
+                        }
+                        IconButton {
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            visible: Boolean(window.now.id)
+                            iconSource: "icons/library.svg"
+                            tooltipText: "Add to playlist"
+                            onClicked: colorful.showPlaylistPicker(window.now)
                         }
                     }
                 }
@@ -1259,6 +1262,103 @@ ApplicationWindow {
         height: 9
         edges: Qt.RightEdge | Qt.BottomEdge
         handleCursor: Qt.SizeFDiagCursor
+    }
+
+    Connections {
+        target: colorful
+        function onPlaylistPickerRequested() {
+            if (colorful.playlistPickerTrack.id) playlistPicker.open()
+            else playlistPicker.close()
+        }
+    }
+
+    Popup {
+        id: playlistPicker
+        anchors.centerIn: Overlay.overlay
+        width: 430
+        height: Math.min(520, 190 + (colorful.localPlaylists || []).length * 54)
+        modal: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 0
+        onClosed: colorful.dismissPlaylistPicker()
+
+        background: Rectangle {
+            color: "#19191e"
+            border.width: 1
+            border.color: Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.72)
+        }
+
+        contentItem: ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 18
+            spacing: 10
+
+            Text { text: "Add to playlist"; color: window.ink; font.bold: true; font.pixelSize: 19 }
+            Text {
+                Layout.fillWidth: true
+                text: colorful.playlistPickerTracks.length > 1
+                      ? colorful.playlistPickerTracks.length + " tracks selected"
+                      : colorful.playlistPickerTrack.title || "Track"
+                color: window.mutedInk
+                font.pixelSize: 12
+                elide: Text.ElideRight
+            }
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                model: colorful.localPlaylists || []
+                clip: true
+                spacing: 2
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                delegate: ItemDelegate {
+                    required property var modelData
+                    width: ListView.view.width
+                    height: 48
+                    hoverEnabled: true
+                    onClicked: {
+                        colorful.addPickerTracksToLocalPlaylist(modelData.id)
+                        playlistPicker.close()
+                    }
+                    background: Rectangle { color: parent.hovered ? Qt.rgba(1,1,1,0.06) : "transparent" }
+                    contentItem: RowLayout {
+                        Text { Layout.fillWidth: true; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13; elide: Text.ElideRight }
+                        Text { text: String(modelData.numberOfItems || 0); color: Qt.rgba(1,1,1,0.4); font.pixelSize: 11 }
+                    }
+                }
+                Text {
+                    anchors.centerIn: parent
+                    visible: parent.count === 0
+                    text: "No playlists yet—create one below."
+                    color: Qt.rgba(1,1,1,0.42)
+                    font.pixelSize: 12
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                TextField {
+                    id: pickerPlaylistName
+                    Layout.fillWidth: true
+                    placeholderText: "New playlist name"
+                    color: "#f5f5f5"
+                    onAccepted: if (text.trim()) {
+                        colorful.createLocalPlaylist(text, colorful.playlistPickerTrack)
+                        text = ""
+                        playlistPicker.close()
+                    }
+                }
+                ColorButton {
+                    text: "Create & add"
+                    enabled: pickerPlaylistName.text.trim().length > 0
+                    onClicked: {
+                        colorful.createLocalPlaylist(pickerPlaylistName.text, colorful.playlistPickerTrack)
+                        pickerPlaylistName.text = ""
+                        playlistPicker.close()
+                    }
+                }
+            }
+        }
     }
 
     Popup {

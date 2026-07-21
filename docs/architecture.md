@@ -129,7 +129,7 @@ remain incomplete.
 - Complete: domain contracts, queue state machine, SQLite schema, stable ABI,
   provider fixtures, Linux TIDAL/public-YouTube alpha, Linux downloads/gapless
   playback/DSP, and the Android TIDAL playback vertical slice.
-- Next: deepen desktop library/provider behavior, add Android feature parity,
+- Next: add Android feature parity,
   and migrate more provider behavior away from the Bun host.
 - Later: SoundCloud, encrypted device sync and active-device presence, parties,
   Windows, then iOS and its cloud build/signing workflow.

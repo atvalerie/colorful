@@ -446,6 +446,23 @@ void Backend::refreshCoreSnapshot()
         nextLibrary.append(coreTrackToVariant(track.toObject()));
     }
 
+    QVariantList nextLocalPlaylists;
+    for (const auto &value : snapshot.value(QStringLiteral("playlists")).toArray()) {
+        const auto document = value.toObject();
+        QVariantList playlistTracks;
+        for (const auto &track : document.value(QStringLiteral("tracks")).toArray())
+            playlistTracks.append(coreTrackToVariant(track.toObject()));
+        nextLocalPlaylists.append(QVariantMap{
+            {QStringLiteral("id"), document.value(QStringLiteral("id")).toString()},
+            {QStringLiteral("name"), document.value(QStringLiteral("name")).toString()},
+            {QStringLiteral("createdAtMs"), document.value(QStringLiteral("createdAtMs")).toInteger()},
+            {QStringLiteral("updatedAtMs"), document.value(QStringLiteral("updatedAtMs")).toInteger()},
+            {QStringLiteral("tracks"), playlistTracks},
+            {QStringLiteral("numberOfItems"), playlistTracks.size()},
+            {QStringLiteral("coverUrl"), playlistTracks.isEmpty() ? QString{} : playlistTracks.first().toMap().value(QStringLiteral("coverUrl")).toString()},
+        });
+    }
+
     QVariantList nextDownloads;
     const auto downloadJobs = snapshot.value(QStringLiteral("downloads")).toArray();
     const auto downloadTracks = snapshot.value(QStringLiteral("downloadTracks")).toArray();
@@ -466,6 +483,7 @@ void Backend::refreshCoreSnapshot()
         || nextPlayOrderEntryIds != m_playOrderEntryIds;
     const bool currentWasChanged = currentEntryId != m_currentEntryId;
     const bool libraryWasChanged = nextLibrary != m_library;
+    const bool localPlaylistsWereChanged = nextLocalPlaylists != m_localPlaylists;
     const bool downloadsWereChanged = nextDownloads != m_downloads;
     const auto nextListenStats = snapshot.value(QStringLiteral("listenStats")).toObject().toVariantMap();
     const bool listenStatsWereChanged = nextListenStats != m_listenStats;
@@ -477,6 +495,7 @@ void Backend::refreshCoreSnapshot()
     m_currentIndex = nextCurrentIndex;
     m_currentEntryId = currentEntryId;
     m_library = std::move(nextLibrary);
+    m_localPlaylists = std::move(nextLocalPlaylists);
     m_downloads = std::move(nextDownloads);
     m_listenStats = nextListenStats;
     m_repeatMode = nextRepeatMode;
@@ -491,6 +510,7 @@ void Backend::refreshCoreSnapshot()
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
+    if (localPlaylistsWereChanged) emit localPlaylistsChanged();
     if (downloadsWereChanged) emit downloadsChanged();
     if (listenStatsWereChanged) emit listenStatsChanged();
     if (playbackOptionsWereChanged) emit playbackOptionsChanged();
@@ -1771,6 +1791,137 @@ void Backend::removeLibraryIndex(int index)
                   {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                      {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
     notify(QStringLiteral("Removed %1 from your library").arg(track.value(QStringLiteral("title")).toString()));
+}
+
+void Backend::showPlaylistPicker(const QVariantMap &track)
+{
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    m_playlistPickerTrack = track;
+    m_playlistPickerTracks = {track};
+    emit playlistPickerRequested();
+}
+
+void Backend::showPlaylistPickerForTracks(const QVariantList &tracks)
+{
+    m_playlistPickerTracks.clear();
+    for (const auto &value : tracks)
+        if (!value.toMap().value(QStringLiteral("id")).toString().isEmpty()) m_playlistPickerTracks.append(value);
+    if (m_playlistPickerTracks.isEmpty()) return;
+    m_playlistPickerTrack = m_playlistPickerTracks.first().toMap();
+    emit playlistPickerRequested();
+}
+
+void Backend::dismissPlaylistPicker()
+{
+    if (m_playlistPickerTrack.isEmpty()) return;
+    m_playlistPickerTrack.clear();
+    m_playlistPickerTracks.clear();
+    emit playlistPickerRequested();
+}
+
+void Backend::createLocalPlaylist(const QString &name, const QVariantMap &initialTrack)
+{
+    const auto trimmed = name.trimmed();
+    if (trimmed.isEmpty()) return;
+    QJsonObject command{{QStringLiteral("command"), QStringLiteral("create_playlist")},
+                        {QStringLiteral("name"), trimmed}};
+    QJsonArray tracks;
+    if (!m_playlistPickerTracks.isEmpty() && initialTrack == m_playlistPickerTrack) {
+        for (const auto &track : m_playlistPickerTracks) tracks.append(variantTrackToCore(track.toMap()));
+    } else if (!initialTrack.value(QStringLiteral("id")).toString().isEmpty()) {
+        tracks.append(variantTrackToCore(initialTrack));
+    }
+    command.insert(QStringLiteral("tracks"), tracks);
+    dispatchCore(command);
+    notify(tracks.isEmpty()
+               ? QStringLiteral("Created playlist %1").arg(trimmed)
+               : tracks.size() == 1
+                   ? QStringLiteral("Created %1 and added %2").arg(trimmed, initialTrack.value(QStringLiteral("title")).toString())
+                   : QStringLiteral("Created %1 and added %2 tracks").arg(trimmed).arg(tracks.size()),
+           QStringLiteral("success"));
+}
+
+void Backend::renameLocalPlaylist(const QString &id, const QString &name)
+{
+    const auto trimmed = name.trimmed();
+    if (id.isEmpty() || trimmed.isEmpty()) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("rename_playlist")},
+                  {QStringLiteral("id"), id}, {QStringLiteral("name"), trimmed}});
+    notify(QStringLiteral("Renamed playlist to %1").arg(trimmed), QStringLiteral("success"));
+}
+
+void Backend::deleteLocalPlaylist(const QString &id)
+{
+    if (id.isEmpty()) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("delete_playlist")},
+                  {QStringLiteral("id"), id}});
+    notify(QStringLiteral("Deleted playlist"));
+}
+
+void Backend::addTrackToLocalPlaylist(const QString &id, const QVariantMap &track)
+{
+    if (id.isEmpty() || track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("add_playlist_track")},
+                  {QStringLiteral("id"), id}, {QStringLiteral("track"), variantTrackToCore(track)}});
+    notify(QStringLiteral("Added %1 to playlist").arg(track.value(QStringLiteral("title")).toString()),
+           QStringLiteral("success"));
+}
+
+void Backend::addPickerTracksToLocalPlaylist(const QString &id)
+{
+    if (id.isEmpty() || m_playlistPickerTracks.isEmpty()) return;
+    QJsonArray tracks;
+    for (const auto &track : m_playlistPickerTracks) tracks.append(variantTrackToCore(track.toMap()));
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("add_playlist_tracks")},
+                  {QStringLiteral("id"), id}, {QStringLiteral("tracks"), tracks}});
+    notify(m_playlistPickerTracks.size() == 1
+               ? QStringLiteral("Added %1 to playlist").arg(m_playlistPickerTrack.value(QStringLiteral("title")).toString())
+               : QStringLiteral("Added %1 tracks to playlist").arg(m_playlistPickerTracks.size()),
+           QStringLiteral("success"));
+}
+
+void Backend::removeLocalPlaylistItem(const QString &id, int position)
+{
+    if (id.isEmpty() || position < 0) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_playlist_item")},
+                  {QStringLiteral("id"), id}, {QStringLiteral("position"), position}});
+}
+
+void Backend::moveLocalPlaylistItem(const QString &id, int position, int target)
+{
+    if (id.isEmpty() || position < 0 || target < 0) return;
+    dispatchCore({{QStringLiteral("command"), QStringLiteral("move_playlist_item")},
+                  {QStringLiteral("id"), id}, {QStringLiteral("position"), position},
+                  {QStringLiteral("target"), target}});
+}
+
+void Backend::playLocalPlaylist(const QString &id, int startIndex)
+{
+    for (const auto &value : m_localPlaylists) {
+        const auto playlist = value.toMap();
+        if (playlist.value(QStringLiteral("id")).toString() != id) continue;
+        const auto tracks = playlist.value(QStringLiteral("tracks")).toList();
+        if (!tracks.isEmpty() && startIndex >= 0 && startIndex < tracks.size())
+            playTracks(tracks.mid(startIndex), true);
+        return;
+    }
+}
+
+void Backend::enqueueLocalPlaylist(const QString &id)
+{
+    for (const auto &value : m_localPlaylists) {
+        const auto playlist = value.toMap();
+        if (playlist.value(QStringLiteral("id")).toString() != id) continue;
+        const auto tracks = playlist.value(QStringLiteral("tracks")).toList();
+        if (tracks.isEmpty()) return;
+        QJsonArray coreTracks;
+        for (const auto &track : tracks) coreTracks.append(variantTrackToCore(track.toMap()));
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue_tracks")},
+                      {QStringLiteral("tracks"), coreTracks}});
+        prepareNextSource();
+        notify(QStringLiteral("Added %1 tracks to the queue").arg(tracks.size()));
+        return;
+    }
 }
 
 QString Backend::downloadsDirectory() const

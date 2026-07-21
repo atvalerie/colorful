@@ -43,6 +43,7 @@ ItemDelegate {
     property bool libraryMode: false
     property bool showSaveAction: false
     property bool showDownloadAction: false
+    property string removeActionText: ""
     property int queueIndex: -1
     property int queueCount: 0
     signal playRequested()
@@ -90,7 +91,7 @@ ItemDelegate {
         CompactMenuItem { text: "Start radio"; onTriggered: root.startRadioRequested() }
         CompactSeparator {}
         CompactMenuItem {
-            text: root.queueMode ? "Remove from queue" : "Add to queue"
+            text: root.queueMode ? (root.removeActionText || "Remove from queue") : "Add to queue"
             onTriggered: root.queueMode ? root.removeRequested() : root.addRequested()
         }
         CompactMenuItem {
@@ -107,13 +108,17 @@ ItemDelegate {
         }
         CompactMenuItem {
             visible: root.libraryMode
-            text: "Remove from library"
+            text: root.removeActionText || "Remove from library"
             onTriggered: root.removeRequested()
         }
         CompactMenuItem {
             visible: root.showSaveAction
             text: "Save to library"
             onTriggered: root.saveRequested()
+        }
+        CompactMenuItem {
+            text: "Add to playlist…"
+            onTriggered: colorful.showPlaylistPicker(root.track)
         }
         CompactMenuItem {
             visible: root.showDownloadAction
@@ -222,8 +227,8 @@ ItemDelegate {
             implicitWidth: 36
             implicitHeight: 36
             iconSource: root.queueMode || root.libraryMode ? "icons/close.svg" : "icons/add.svg"
-            tooltipText: root.queueMode ? "Remove from queue"
-                         : root.libraryMode ? "Remove from library" : "Add to queue"
+            tooltipText: root.queueMode ? (root.removeActionText || "Remove from queue")
+                         : root.libraryMode ? (root.removeActionText || "Remove from library") : "Add to queue"
             onClicked: root.queueMode || root.libraryMode ? root.removeRequested() : root.addRequested()
         }
 

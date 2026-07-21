@@ -2,15 +2,17 @@ use crate::download::{DownloadJob, DownloadState};
 use crate::history::{ListenEvent, ListenStats, TopAlbum, TopArtist, TopTrack};
 use crate::media::{ArtistCredit, Artwork, MediaId, Provider, Track};
 use crate::playback::RepeatMode;
+use crate::playlist::LocalPlaylist;
 use crate::queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::fmt;
 use std::path::Path;
 use std::time::Duration;
 
-const CURRENT_SCHEMA_VERSION: i64 = 2;
+const CURRENT_SCHEMA_VERSION: i64 = 3;
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_local_state.sql");
 const LISTENING_HISTORY_MIGRATION: &str = include_str!("../migrations/0002_listening_history.sql");
+const LOCAL_PLAYLISTS_MIGRATION: &str = include_str!("../migrations/0003_local_playlists.sql");
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -112,9 +114,12 @@ impl Storage {
         let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
         let migrations = match version {
             0 => Some(format!(
-                "{INITIAL_MIGRATION}\n{LISTENING_HISTORY_MIGRATION}"
+                "{INITIAL_MIGRATION}\n{LISTENING_HISTORY_MIGRATION}\n{LOCAL_PLAYLISTS_MIGRATION}"
             )),
-            1 => Some(LISTENING_HISTORY_MIGRATION.to_owned()),
+            1 => Some(format!(
+                "{LISTENING_HISTORY_MIGRATION}\n{LOCAL_PLAYLISTS_MIGRATION}"
+            )),
+            2 => Some(LOCAL_PLAYLISTS_MIGRATION.to_owned()),
             CURRENT_SCHEMA_VERSION => None,
             other => return Err(StorageError::UnsupportedSchema(other)),
         };
@@ -190,6 +195,183 @@ impl Storage {
                 load_track(&self.connection, &id)?.ok_or(StorageError::InvalidMediaId)
             })
             .collect()
+    }
+
+    pub fn create_playlist(&mut self, name: &str, created_at_ms: i64) -> StorageResult<String> {
+        let name = name.trim();
+        let id = self.connection.query_row(
+            "INSERT INTO local_playlists (playlist_id, name, created_at_ms, updated_at_ms)
+             VALUES (lower(hex(randomblob(16))), ?1, ?2, ?2) RETURNING playlist_id",
+            params![name, created_at_ms],
+            |row| row.get(0),
+        )?;
+        Ok(id)
+    }
+
+    pub fn rename_playlist(
+        &mut self,
+        id: &str,
+        name: &str,
+        updated_at_ms: i64,
+    ) -> StorageResult<bool> {
+        Ok(self.connection.execute(
+            "UPDATE local_playlists SET name = ?2, updated_at_ms = ?3 WHERE playlist_id = ?1",
+            params![id, name.trim(), updated_at_ms],
+        )? > 0)
+    }
+
+    pub fn delete_playlist(&mut self, id: &str) -> StorageResult<bool> {
+        Ok(self
+            .connection
+            .execute("DELETE FROM local_playlists WHERE playlist_id = ?1", [id])?
+            > 0)
+    }
+
+    pub fn add_playlist_track(
+        &mut self,
+        id: &str,
+        track: &Track,
+        added_at_ms: i64,
+    ) -> StorageResult<bool> {
+        self.add_playlist_tracks(id, std::slice::from_ref(track), added_at_ms)
+    }
+
+    pub fn add_playlist_tracks(
+        &mut self,
+        id: &str,
+        tracks: &[Track],
+        added_at_ms: i64,
+    ) -> StorageResult<bool> {
+        let transaction = self.connection.transaction()?;
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM local_playlists WHERE playlist_id = ?1)",
+            [id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Ok(false);
+        }
+        let mut position: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM local_playlist_items WHERE playlist_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        for track in tracks {
+            upsert_track(&transaction, track)?;
+            transaction.execute(
+                "INSERT INTO local_playlist_items (playlist_id, position, provider, provider_id, added_at_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, position, track.id.provider.to_string(), track.id.provider_id, added_at_ms],
+            )?;
+            position += 1;
+        }
+        transaction.execute(
+            "UPDATE local_playlists SET updated_at_ms = ?2 WHERE playlist_id = ?1",
+            params![id, added_at_ms],
+        )?;
+        transaction.commit()?;
+        Ok(!tracks.is_empty())
+    }
+
+    pub fn remove_playlist_item(
+        &mut self,
+        id: &str,
+        position: usize,
+        updated_at_ms: i64,
+    ) -> StorageResult<bool> {
+        self.rewrite_playlist_items(id, Some(position), None, updated_at_ms)
+    }
+
+    pub fn move_playlist_item(
+        &mut self,
+        id: &str,
+        position: usize,
+        target: usize,
+        updated_at_ms: i64,
+    ) -> StorageResult<bool> {
+        self.rewrite_playlist_items(id, Some(position), Some(target), updated_at_ms)
+    }
+
+    fn rewrite_playlist_items(
+        &mut self,
+        id: &str,
+        position: Option<usize>,
+        target: Option<usize>,
+        updated_at_ms: i64,
+    ) -> StorageResult<bool> {
+        let transaction = self.connection.transaction()?;
+        let mut items = {
+            let mut statement = transaction.prepare(
+                "SELECT provider, provider_id, added_at_ms FROM local_playlist_items
+                 WHERE playlist_id = ?1 ORDER BY position",
+            )?;
+            statement
+                .query_map([id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let Some(position) = position.filter(|value| *value < items.len()) else {
+            return Ok(false);
+        };
+        let item = items.remove(position);
+        if let Some(target) = target {
+            items.insert(target.min(items.len()), item);
+        }
+        transaction.execute(
+            "DELETE FROM local_playlist_items WHERE playlist_id = ?1",
+            [id],
+        )?;
+        for (index, (provider, provider_id, added_at_ms)) in items.iter().enumerate() {
+            transaction.execute(
+                "INSERT INTO local_playlist_items (playlist_id, position, provider, provider_id, added_at_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, sqlite_usize(index, "playlist position")?, provider, provider_id, added_at_ms],
+            )?;
+        }
+        transaction.execute(
+            "UPDATE local_playlists SET updated_at_ms = ?2 WHERE playlist_id = ?1",
+            params![id, updated_at_ms],
+        )?;
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    pub fn playlists(&self) -> StorageResult<Vec<LocalPlaylist>> {
+        let rows = {
+            let mut statement = self.connection.prepare(
+                "SELECT playlist_id, name, created_at_ms, updated_at_ms
+                 FROM local_playlists ORDER BY updated_at_ms DESC, name COLLATE NOCASE",
+            )?;
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        rows.into_iter().map(|(id, name, created_at_ms, updated_at_ms)| {
+            let ids = {
+                let mut statement = self.connection.prepare(
+                    "SELECT provider, provider_id FROM local_playlist_items WHERE playlist_id = ?1 ORDER BY position",
+                )?;
+                statement.query_map([&id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            let tracks = ids.into_iter().map(|(provider, provider_id)| {
+                let media_id = media_id(&provider, provider_id)?;
+                load_track(&self.connection, &media_id)?.ok_or(StorageError::InvalidMediaId)
+            }).collect::<StorageResult<Vec<_>>>()?;
+            Ok(LocalPlaylist { id, name, created_at_ms, updated_at_ms, tracks })
+        }).collect()
     }
 
     /// Inserts a globally identified listen once. Replayed sync operations are
@@ -944,6 +1126,24 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_a_version_two_database_with_local_playlists() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(&format!(
+                "{INITIAL_MIGRATION}\n{LISTENING_HISTORY_MIGRATION}"
+            ))
+            .unwrap();
+        let mut storage = Storage::from_connection(connection).unwrap();
+        assert_eq!(storage.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+        let id = storage.create_playlist("Migrated", 1).unwrap();
+        storage.add_playlist_track(&id, &track("kept"), 2).unwrap();
+        assert_eq!(
+            storage.playlists().unwrap()[0].tracks[0].id.provider_id,
+            "kept"
+        );
+    }
+
+    #[test]
     fn listening_history_is_idempotent_and_aggregates_tracks_artists_and_albums() {
         let mut storage = Storage::open_in_memory().unwrap();
         let first = track("first");
@@ -982,6 +1182,42 @@ mod tests {
         assert_eq!(storage.library().unwrap(), vec![loaded]);
         assert!(storage.remove_from_library(&original.id).unwrap());
         assert!(storage.library().unwrap().is_empty());
+    }
+
+    #[test]
+    fn local_playlists_preserve_order_duplicates_and_edits() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        let id = storage.create_playlist("Night drive", 10).unwrap();
+        storage.add_playlist_track(&id, &track("a"), 11).unwrap();
+        storage.add_playlist_track(&id, &track("b"), 12).unwrap();
+        storage.add_playlist_track(&id, &track("a"), 13).unwrap();
+
+        let playlist = &storage.playlists().unwrap()[0];
+        assert_eq!(playlist.name, "Night drive");
+        assert_eq!(
+            playlist
+                .tracks
+                .iter()
+                .map(|track| track.id.provider_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "a"]
+        );
+
+        assert!(storage.move_playlist_item(&id, 2, 0, 14).unwrap());
+        assert!(storage.remove_playlist_item(&id, 1, 15).unwrap());
+        assert!(storage.rename_playlist(&id, "After dark", 16).unwrap());
+        let playlist = &storage.playlists().unwrap()[0];
+        assert_eq!(playlist.name, "After dark");
+        assert_eq!(
+            playlist
+                .tracks
+                .iter()
+                .map(|track| track.id.provider_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
+        assert!(storage.delete_playlist(&id).unwrap());
+        assert!(storage.playlists().unwrap().is_empty());
     }
 
     #[test]
@@ -1041,7 +1277,14 @@ mod tests {
         refreshed_metadata.artwork.as_mut().unwrap().local_key = None;
         storage.upsert_track(&refreshed_metadata).unwrap();
         assert_eq!(
-            storage.track(&track.id).unwrap().unwrap().artwork.unwrap().local_key.as_deref(),
+            storage
+                .track(&track.id)
+                .unwrap()
+                .unwrap()
+                .artwork
+                .unwrap()
+                .local_key
+                .as_deref(),
             Some("music/offline.cover")
         );
         assert!(storage.remove_download(&track.id).unwrap());

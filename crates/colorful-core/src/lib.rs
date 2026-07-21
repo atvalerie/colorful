@@ -9,6 +9,7 @@ pub mod history;
 pub mod media;
 pub mod party;
 pub mod playback;
+pub mod playlist;
 pub mod providers;
 pub mod queue;
 pub mod storage;

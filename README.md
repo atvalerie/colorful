@@ -68,6 +68,8 @@ colorful is an early personal alpha, not a packaged consumer release.
 - prepared-next, gapless Linux playback with prefetched autoplay
 - persistent reorderable queue, play-next insertion, repeat/shuffle, playback
   position, autoplay, and related tracks
+- provider-neutral local playlists with ordered duplicates, create/rename/delete,
+  collection-wide adds, and editing from every desktop track surface
 - Linux MPRIS and Discord Rich Presence
 - Android system media session and background playback ownership
 - album-art-derived, contrast-safe accent colors
@@ -87,7 +89,6 @@ colorful is an early personal alpha, not a packaged consumer release.
 - broader TIDAL home/recommendation surfaces
 - Android EQ and normalization using the shared audio-processing contract
 - Android offline downloads and YouTube Music support
-- SoundCloud write actions such as likes and follows
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback
 - Windows and iOS native shells
