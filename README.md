@@ -31,8 +31,8 @@
 ## About
 
 colorful is a local-first personal streaming and music-library client. TIDAL is
-the primary provider; public and optionally authenticated YouTube Music desktop
-paths are also working.
+the primary provider; public SoundCloud and public/optionally authenticated
+YouTube Music desktop paths are also working.
 
 - Platform-native playback, media sessions, credentials, and interfaces
 - A shared Rust core for queues, storage, offline-job state, and listening history
@@ -47,7 +47,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 | Target | Status | Current implementation |
 | --- | --- | --- |
-| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL and public YouTube playback, persistent queue/library |
+| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL, YouTube Music, and public SoundCloud playback, persistent queue/library |
 | Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking/search/playback, and Rust/SQLite queue persistence |
 | Windows | Planned | WinUI, Media Foundation/WASAPI, System Media Transport Controls |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
@@ -60,6 +60,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
 - public YouTube Music song, video, release, artist, and uploader-channel search; paginated channel uploads, catalog pages, playback, downloads, and genuine radio/automix on Linux
 - optional locally stored YouTube Music browser session for private library content, playlists, and personalized mixes
+- public SoundCloud mixed search, tracks, profiles, sets, related radio, catalog pagination, and playback on Linux
 - lossless/adaptive playback with accurate duration and seeking
 - persisted perceptual desktop volume, real mute, and selectable Linux output
 - prepared-next, gapless Linux playback with prefetched autoplay
@@ -84,7 +85,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - broader TIDAL home/recommendation surfaces
 - Android EQ and normalization using the shared audio-processing contract
 - Android offline downloads and YouTube Music support
-- SoundCloud public accounts, catalog, and playback
+- SoundCloud account/library support and offline downloads
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback
 - Windows and iOS native shells
@@ -104,7 +105,7 @@ Native UI
        settings · offline-job records
 
 Linux provider host (transitional Bun process)
-  └── TIDAL + public/authenticated YouTube Music catalog/source adapters
+  └── TIDAL + public SoundCloud + public/authenticated YouTube Music adapters
 ```
 
 Playback is intentionally platform-owned. The portable engine does not decode

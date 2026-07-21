@@ -22,7 +22,7 @@ No secrets or `.env` values are copied into colorful.
 - TIDAL device authorization state and slow-down polling behavior
 - access-token single-flight refresh behavior
 - manifest parsing and quality mapping
-- SoundCloud transcoding selection (planned; not present in colorful yet)
+- SoundCloud homepage-hydrated public client discovery and transcoding selection
 - artwork palette scoring, generalized to decoded pixel input
 - LRCLIB integration and synced lyric parsing (planned)
 
@@ -65,7 +65,9 @@ The visual layer derives contrast-safe accents and gradients from the result.
 2. Public YouTube Music search/catalog, Linux playback/downloads, uploader
    pages, and real automix — implemented; optional browser-session credentials
    now add private Music library, playlist, account, and personalized-home data
-3. SoundCloud public OAuth/catalog and stream selection — next provider
+3. SoundCloud public search/catalog, profiles, sets, related radio, pagination,
+   and Linux stream selection — implemented; account authorization, private
+   library surfaces, and downloads remain
 
 ## Current boundary
 
@@ -110,3 +112,10 @@ Rust database. The host exposes ordinary playlist browse continuations and the
 Music `next` endpoint's server-side shuffle continuations to the desktop queue,
 so large playlists start promptly and refill near the tail. Android still needs
 a native account-session capture and Keystore implementation.
+
+SoundCloud public access bootstraps from the web client's `apiClient` entry in
+`window.__sc_hydration`. The client ID is cached in memory for six hours and
+rediscovered after an authorization rejection; geo, privacy, and experiment
+hydration are ignored. Public tracks resolve directly to SoundCloud's signed
+progressive or HLS transcoding URL. No SoundCloud login credential is currently
+captured or stored.

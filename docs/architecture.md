@@ -21,7 +21,7 @@ Native UI
         download records · listening history
 ```
 
-Today Linux obtains TIDAL and public YouTube Music data through the
+Today Linux obtains TIDAL, public SoundCloud, and public YouTube Music data through the
 transitional Bun provider host, then plays through libmpv. Android implements
 its TIDAL authorization, account, search, and source resolution natively and
 plays through Media3. Neither shell sends provider credentials into the Rust

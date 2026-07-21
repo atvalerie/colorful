@@ -489,7 +489,8 @@ ApplicationWindow {
                                     model: [
                                         { id: "all", label: "All", width: 48 },
                                         { id: "tidal", label: "TIDAL", width: 62 },
-                                        { id: "youtube", label: "YouTube", width: 76 }
+                                        { id: "youtube", label: "YouTube", width: 76 },
+                                        { id: "soundcloud", label: "SoundCloud", width: 96 }
                                     ]
                                     delegate: ColorButton {
                                         required property var modelData

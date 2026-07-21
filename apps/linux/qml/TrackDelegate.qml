@@ -206,8 +206,9 @@ ItemDelegate {
             Layout.preferredWidth: 14
             Layout.preferredHeight: 14
             Layout.alignment: Qt.AlignVCenter
-            iconSource: (root.track.provider || "tidal") === "youtube"
-                        ? "icons/youtube.svg" : "icons/tidal.svg"
+            iconSource: (root.track.provider || "tidal") === "youtube" ? "icons/youtube.svg"
+                        : root.track.provider === "soundcloud" ? "icons/soundcloud.svg"
+                        : "icons/tidal.svg"
             opacity: 0.48
         }
 

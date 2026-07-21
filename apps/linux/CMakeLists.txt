@@ -102,6 +102,7 @@ qt_add_qml_module(colorful-linux
         qml/icons/restore.svg
         qml/icons/search.svg
         qml/icons/settings.svg
+        qml/icons/soundcloud.svg
         qml/icons/tidal.svg
         qml/icons/youtube.svg
         qml/icons/user.svg
