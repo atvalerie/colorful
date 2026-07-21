@@ -23,7 +23,7 @@ for durable queue, library, history, settings, and offline-job state.
 - seeking, persisted perceptual volume and mute, selectable Linux audio output,
   buffering/error feedback with retry, MPRIS, keyboard and mouse controls, and
   Discord Rich Presence;
-- resumable TIDAL and YouTube downloads stored as standalone `.mka` files,
+- resumable TIDAL, YouTube, and SoundCloud downloads stored as standalone `.mka` files,
   with storage/count summaries, configurable quotas, quota-aware pausing, and
   confirmed cleanup for completed or unfinished jobs;
 - ten-band EQ, presets, clipping protection, and optional ReplayGain

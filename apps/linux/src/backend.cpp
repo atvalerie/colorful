@@ -1934,7 +1934,8 @@ void Backend::downloadTrack(const QVariantMap &track)
                QStringLiteral("warning"));
         return;
     }
-    if (provider != QStringLiteral("tidal") && provider != QStringLiteral("youtube")) {
+    if (provider != QStringLiteral("tidal") && provider != QStringLiteral("youtube")
+        && provider != QStringLiteral("soundcloud")) {
         notify(QStringLiteral("Offline downloads are not implemented for %1 yet").arg(provider),
                QStringLiteral("warning"));
         return;

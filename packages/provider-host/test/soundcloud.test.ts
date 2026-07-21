@@ -1,7 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { mapSoundCloudHome, mapSoundCloudPlaylist, mapSoundCloudTrack, parseSoundCloudAuthorization, parseSoundCloudBootstrap } from "../src/soundcloud";
+import { mapSoundCloudHome, mapSoundCloudPlaylist, mapSoundCloudTrack, parseSoundCloudAuthorization, parseSoundCloudBootstrap, selectSoundCloudTranscoding } from "../src/soundcloud";
 
 describe("SoundCloud public catalog", () => {
+  test("prefers progressive audio for playback and offline downloads", () => {
+    const selected = selectSoundCloudTranscoding([
+      { url: "hls", preset: "opus_0_0", format: { protocol: "hls", mime_type: "audio/ogg; codecs=opus" } },
+      { url: "progressive", preset: "mp3_0_1", format: { protocol: "progressive", mime_type: "audio/mpeg" } },
+    ]);
+    expect(selected?.url).toBe("progressive");
+  });
+
+  test("falls back to HLS when no progressive transcoding exists", () => {
+    const selected = selectSoundCloudTranscoding([
+      { url: "hls", preset: "opus_0_0", format: { protocol: "hls", mime_type: "audio/ogg; codecs=opus" } },
+    ]);
+    expect(selected?.url).toBe("hls");
+  });
+
   test("discovers the public API client from homepage hydration", () => {
     const html = `<script>window.__sc_hydration = [
       {"hydratable":"features","data":{"value":"quoted ] bracket"}},

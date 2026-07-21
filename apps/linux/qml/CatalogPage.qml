@@ -243,7 +243,7 @@ Item {
                         Layout.fillWidth: true
                         track: modelData
                         showSaveAction: true
-                        showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
+                        showDownloadAction: ["tidal", "youtube", "soundcloud"].includes(modelData.provider || "tidal")
                         onPlayRequested: colorful.playCatalogTrack(modelData)
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
                         onPlayNextRequested: colorful.playNextCatalogTrack(modelData)

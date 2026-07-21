@@ -18,6 +18,21 @@ type SoundCloudTranscoding = {
   format?: { protocol?: unknown; mime_type?: unknown };
 };
 
+export function selectSoundCloudTranscoding(transcodings: SoundCloudTranscoding[]): SoundCloudTranscoding | null {
+  const score = (transcoding: SoundCloudTranscoding) => {
+    const protocol = string(transcoding.format?.protocol);
+    const mime = string(transcoding.format?.mime_type);
+    const preset = string(transcoding.preset);
+    // Progressive input is independently playable and gives offline transfers
+    // a more reliable source. HLS remains the fallback when it is all a track has.
+    return (protocol === "progressive" ? 100 : protocol === "hls" ? 50 : 0)
+      + (mime.includes("opus") ? 20 : mime.includes("mpeg") ? 15 : 0)
+      + (preset.includes("hq") ? 10 : 0);
+  };
+  return transcodings.filter((value) => string(value.url))
+    .sort((left, right) => score(right) - score(left))[0] ?? null;
+}
+
 type SoundCloudTrack = {
   id?: unknown;
   kind?: unknown;
@@ -522,15 +537,7 @@ export async function soundCloudSource(id: string): Promise<Record<string, unkno
   const track = await api<SoundCloudTrack>(`tracks/${id}`);
   if (track.streamable === false) throw new Error("This SoundCloud track is not streamable");
   const transcodings = array(track.media?.transcodings).filter((value): value is SoundCloudTranscoding => Boolean(value) && typeof value === "object");
-  const score = (transcoding: SoundCloudTranscoding) => {
-    const protocol = string(transcoding.format?.protocol);
-    const mime = string(transcoding.format?.mime_type);
-    const preset = string(transcoding.preset);
-    return (protocol === "progressive" ? 100 : protocol === "hls" ? 50 : 0)
-      + (mime.includes("opus") ? 20 : mime.includes("mpeg") ? 15 : 0)
-      + (preset.includes("hq") ? 10 : 0);
-  };
-  const selected = transcodings.filter((value) => string(value.url)).sort((left, right) => score(right) - score(left))[0];
+  const selected = selectSoundCloudTranscoding(transcodings);
   if (!selected) throw new Error("SoundCloud did not expose a playable transcoding");
   const resolved = await api<{ url?: unknown }>(string(selected.url), {
     track_authorization: string(track.track_authorization),

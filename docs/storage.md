@@ -40,7 +40,7 @@ local path. Source URLs are deliberately absent from durable storage; only their
 expiry is recorded, so a resumed job re-resolves short-lived provider manifests
 instead of replaying stale credentials.
 
-The Linux client currently downloads TIDAL or YouTube audio into independently
+The Linux client currently downloads TIDAL, YouTube, or SoundCloud audio into independently
 checkpointed Matroska chunks, then asks ffmpeg to concatenate/remux them without
 re-encoding into one standalone `.mka` file. Pausing or restarting preserves
 completed chunks, re-resolves a fresh provider source, validates existing part

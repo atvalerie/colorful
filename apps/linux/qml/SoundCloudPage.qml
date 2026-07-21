@@ -153,9 +153,11 @@ Item {
                     delegate: TrackDelegate {
                         required property var modelData
                         width: tracks.width; track: modelData; showSaveAction: false
+                        showDownloadAction: true
                         onPlayRequested: colorful.playCatalogTrack(modelData)
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
                         onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
+                        onDownloadRequested: colorful.downloadTrack(modelData)
                         onDetailsRequested: colorful.openTrackItem(modelData)
                         onStartRadioRequested: colorful.startRadio(modelData)
                     }

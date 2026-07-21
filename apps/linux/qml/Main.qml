@@ -551,7 +551,7 @@ ApplicationWindow {
                                 track: modelData
                                 libraryMode: window.currentSection === "library"
                                 showSaveAction: window.currentSection === "search"
-                                showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
+                                showDownloadAction: ["tidal", "youtube", "soundcloud"].includes(modelData.provider || "tidal")
                                 onPlayRequested: window.currentSection === "library"
                                                  ? colorful.playLibraryIndex(index)
                                                  : colorful.playCatalogTrack(modelData)
@@ -756,7 +756,7 @@ ApplicationWindow {
                                     queueMode: true
                                     queueIndex: index
                                     queueCount: queueList.count
-                                    showDownloadAction: ["tidal", "youtube"].includes(modelData.provider || "tidal")
+                                    showDownloadAction: ["tidal", "youtube", "soundcloud"].includes(modelData.provider || "tidal")
                                     active: index === colorful.currentQueueIndex
                                     onPlayRequested: colorful.playQueueIndex(index)
                                     onRemoveRequested: colorful.removeQueueIndex(index)
