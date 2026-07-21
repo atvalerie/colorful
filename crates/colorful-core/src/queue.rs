@@ -162,6 +162,17 @@ impl PlaybackQueue {
     }
 
     pub fn replace(&mut self, media: impl IntoIterator<Item = MediaId>) {
+        self.replace_in_order(media);
+        if self.shuffle {
+            self.rebuild_play_order();
+        }
+    }
+
+    /// Replaces the queue without applying the core's local shuffle. Providers
+    /// use this when the supplied sequence is already an authoritative
+    /// server-generated shuffle. The shuffle flag remains enabled so the UI
+    /// still describes the active playback mode.
+    pub fn replace_in_order(&mut self, media: impl IntoIterator<Item = MediaId>) {
         self.entries.clear();
         self.play_order.clear();
         self.current = None;
@@ -173,9 +184,6 @@ impl PlaybackQueue {
         }
 
         self.current = self.play_order.first().copied();
-        if self.shuffle {
-            self.rebuild_play_order();
-        }
     }
 
     pub fn append(&mut self, media_id: MediaId) -> QueueEntryId {

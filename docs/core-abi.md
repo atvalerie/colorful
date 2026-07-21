@@ -26,6 +26,12 @@ Provider continuations append queue pages transactionally with
 snapshot while retaining duplicate playlist entries and their distinct stable
 entry IDs.
 
+An already shuffled provider sequence starts with
+`{"command":"play_tracks_in_order","tracks":[...]}`. This preserves the
+provider's authoritative order while leaving the queue's shuffle state enabled;
+continuation pages can then append to that same order without a second local
+shuffle.
+
 Responses contain `abiVersion`, `ok`, and either `value` or `error`. Dispatch
 responses contain typed events. A native playback directive is explicit:
 

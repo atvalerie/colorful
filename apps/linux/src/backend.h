@@ -291,7 +291,7 @@ private:
     void setEntitlementWarning(bool visible, const QString &message = {});
     void playTrackAt(int index);
     void playSingleTrack(const QVariantMap &track);
-    void playTracks(const QVariantList &tracks);
+    void playTracks(const QVariantList &tracks, bool preserveProvidedOrder = false);
     void clearPlaylistContinuation();
     void activatePlaylistContinuation(const QString &playlistId, const QString &cursor);
     void requestPlaylistContinuation(bool continueWhenReady);

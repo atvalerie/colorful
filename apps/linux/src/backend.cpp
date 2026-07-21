@@ -1410,7 +1410,7 @@ void Backend::playCatalogCollection()
                 notify(QStringLiteral("YouTube Music returned an empty shuffled playlist"), QStringLiteral("error"));
                 return;
             }
-            playTracks(shuffledTracks);
+            playTracks(shuffledTracks, true);
             activatePlaylistContinuation(playlistId, data.value(QStringLiteral("cursor")).toString());
             setStatus(QStringLiteral("Shuffled playlist started"));
         });
@@ -2207,7 +2207,7 @@ void Backend::playSingleTrack(const QVariantMap &track)
     playTracks(QVariantList{track});
 }
 
-void Backend::playTracks(const QVariantList &tracks)
+void Backend::playTracks(const QVariantList &tracks, bool preserveProvidedOrder)
 {
     QJsonArray coreTracks;
     for (const auto &value : tracks) {
@@ -2218,7 +2218,9 @@ void Backend::playTracks(const QVariantList &tracks)
     if (coreTracks.isEmpty()) return;
     clearPlaylistContinuation();
     finishListeningSession();
-    dispatchCore({{QStringLiteral("command"), QStringLiteral("play_tracks")},
+    dispatchCore({{QStringLiteral("command"), preserveProvidedOrder
+                                                ? QStringLiteral("play_tracks_in_order")
+                                                : QStringLiteral("play_tracks")},
                   {QStringLiteral("tracks"), coreTracks}});
     resolveCurrentSource();
 }

@@ -10,6 +10,7 @@ use std::path::Path;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EngineCommand {
     PlayTracks(Vec<Track>),
+    PlayTracksInOrder(Vec<Track>),
     Enqueue(Track),
     EnqueueTracks(Vec<Track>),
     PlayNext(Track),
@@ -198,6 +199,22 @@ impl Engine {
                     self.storage.upsert_track(track)?;
                 }
                 self.queue.replace(tracks.into_iter().map(|track| track.id));
+                self.sync_current();
+                self.playback.position_ms = 0;
+                self.playback.playing = self.playback.current.is_some();
+                events.push(EngineEvent::QueueChanged(self.queue.snapshot()));
+                events.push(EngineEvent::PlaybackChanged(self.playback.clone()));
+                if let Some(directive) = self.load_current_directive(self.playback.playing)? {
+                    events.push(EngineEvent::PlaybackDirective(directive));
+                }
+                persist_playback = true;
+            }
+            EngineCommand::PlayTracksInOrder(tracks) => {
+                for track in &tracks {
+                    self.storage.upsert_track(track)?;
+                }
+                self.queue
+                    .replace_in_order(tracks.into_iter().map(|track| track.id));
                 self.sync_current();
                 self.playback.position_ms = 0;
                 self.playback.playing = self.playback.current.is_some();
@@ -496,13 +513,66 @@ mod tests {
     #[test]
     fn enqueue_tracks_appends_a_continuation_in_one_command_and_keeps_duplicates() {
         let mut engine = Engine::open_in_memory().unwrap();
-        engine.dispatch(EngineCommand::PlayTracks(vec![track("a")])).unwrap();
-        let events = engine.dispatch(EngineCommand::EnqueueTracks(vec![track("b"), track("b"), track("c")])).unwrap();
-        assert_eq!(events.iter().filter(|event| matches!(event, EngineEvent::QueueChanged(_))).count(), 1);
+        engine
+            .dispatch(EngineCommand::PlayTracks(vec![track("a")]))
+            .unwrap();
+        let events = engine
+            .dispatch(EngineCommand::EnqueueTracks(vec![
+                track("b"),
+                track("b"),
+                track("c"),
+            ]))
+            .unwrap();
         assert_eq!(
-            engine.queue_tracks().unwrap().into_iter().map(|track| track.id.provider_id).collect::<Vec<_>>(),
-            vec!["a".to_owned(), "b".to_owned(), "b".to_owned(), "c".to_owned()]
+            events
+                .iter()
+                .filter(|event| matches!(event, EngineEvent::QueueChanged(_)))
+                .count(),
+            1
         );
+        assert_eq!(
+            engine
+                .queue_tracks()
+                .unwrap()
+                .into_iter()
+                .map(|track| track.id.provider_id)
+                .collect::<Vec<_>>(),
+            vec![
+                "a".to_owned(),
+                "b".to_owned(),
+                "b".to_owned(),
+                "c".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn provider_order_bypasses_local_shuffle_without_disabling_it() {
+        let mut engine = Engine::open_in_memory().unwrap();
+        engine
+            .dispatch(EngineCommand::SetShuffle {
+                enabled: true,
+                seed: 41,
+            })
+            .unwrap();
+        engine
+            .dispatch(EngineCommand::PlayTracksInOrder(vec![
+                track("a"),
+                track("b"),
+                track("c"),
+            ]))
+            .unwrap();
+        let snapshot = engine.queue.snapshot();
+        assert!(snapshot.shuffle);
+        assert_eq!(
+            snapshot.play_order,
+            snapshot
+                .entries
+                .iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(engine.playback.current.as_ref().unwrap().provider_id, "a");
     }
 
     #[test]
@@ -562,7 +632,10 @@ mod tests {
             .unwrap();
         assert_eq!(events, vec![EngineEvent::DownloadChanged(job.clone())]);
         assert_eq!(engine.downloads().unwrap(), vec![job.clone()]);
-        assert_eq!(engine.download_tracks(&[job.clone()]).unwrap()[0].id, job.media_id.clone());
+        assert_eq!(
+            engine.download_tracks(&[job.clone()]).unwrap()[0].id,
+            job.media_id.clone()
+        );
         assert_eq!(
             engine
                 .dispatch(EngineCommand::RemoveDownload(job.media_id.clone()))

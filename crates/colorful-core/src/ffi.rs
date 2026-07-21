@@ -46,6 +46,9 @@ enum WireCommand {
     PlayTracks {
         tracks: Vec<Track>,
     },
+    PlayTracksInOrder {
+        tracks: Vec<Track>,
+    },
     Enqueue {
         track: Track,
     },
@@ -110,6 +113,7 @@ impl From<WireCommand> for EngineCommand {
     fn from(value: WireCommand) -> Self {
         match value {
             WireCommand::PlayTracks { tracks } => Self::PlayTracks(tracks),
+            WireCommand::PlayTracksInOrder { tracks } => Self::PlayTracksInOrder(tracks),
             WireCommand::Enqueue { track } => Self::Enqueue(track),
             WireCommand::EnqueueTracks { tracks } => Self::EnqueueTracks(tracks),
             WireCommand::PlayNext { track } => Self::PlayNext(track),
