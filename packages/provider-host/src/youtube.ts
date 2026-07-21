@@ -20,6 +20,7 @@ type YtDlpEntry = {
 export type YouTubeTrackSummary = TrackSummary & { provider: "youtube" };
 
 const MUSIC_ORIGIN = "https://music.youtube.com";
+const sourceCache = new Map<string, { value: Record<string, unknown>; expiresAt: number }>();
 
 function executable(): string {
   const configured = process.env.COLORFUL_YT_DLP?.trim();
@@ -28,7 +29,7 @@ function executable(): string {
   return path;
 }
 
-async function runYtDlp(arguments_: string[]): Promise<YtDlpEntry> {
+async function runYtDlpOutput(arguments_: string[]): Promise<string> {
   const subprocess = Bun.spawn([executable(), ...arguments_], {
     stdin: "ignore",
     stdout: "pipe",
@@ -44,11 +45,48 @@ async function runYtDlp(arguments_: string[]): Promise<YtDlpEntry> {
     const detail = stderr.trim().split("\n").at(-1)?.replace(/^ERROR:\s*/, "") ?? "unknown error";
     throw new Error(`yt-dlp could not resolve YouTube Music: ${detail}`);
   }
+  return stdout;
+}
+
+async function runYtDlp(arguments_: string[]): Promise<YtDlpEntry> {
+  const stdout = await runYtDlpOutput(arguments_);
   try {
     return JSON.parse(stdout) as YtDlpEntry;
   } catch {
     throw new Error("yt-dlp returned invalid YouTube metadata");
   }
+}
+
+export function parseYouTubeSourceOutput(stdout: string, videoId: string): Record<string, unknown> {
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const uri = text(lines[0]);
+  if (!uri) throw new Error("yt-dlp did not return a playable YouTube audio URL");
+  let httpHeaders: Record<string, string> = {};
+  try {
+    const raw = JSON.parse(lines[1] ?? "{}") as unknown;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      httpHeaders = Object.fromEntries(Object.entries(raw)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+    }
+  } catch {
+    // The direct media URL remains usable with yt-dlp's ordinary defaults.
+  }
+  return {
+    uri,
+    httpHeaders,
+    userAgent: text(httpHeaders["User-Agent"]),
+    referrer: MUSIC_ORIGIN,
+    webpageUrl: `${MUSIC_ORIGIN}/watch?v=${videoId}`,
+  };
+}
+
+function sourceExpiry(source: Record<string, unknown>): number {
+  const now = Date.now();
+  try {
+    const upstream = Number(new URL(String(source.uri ?? "")).searchParams.get("expire")) * 1000;
+    if (Number.isFinite(upstream) && upstream > now) return Math.min(upstream - 60_000, now + 10 * 60_000);
+  } catch { /* use the conservative fallback */ }
+  return now + 5 * 60_000;
 }
 
 function text(value: unknown): string {
@@ -161,21 +199,14 @@ export async function youtubeTrack(videoId: string): Promise<YouTubeTrackSummary
 }
 
 export async function youtubeSource(videoId: string): Promise<Record<string, unknown>> {
-  const document = await runYtDlp([
-    "--no-warnings", "--no-playlist", "--dump-single-json",
-    "--format", "bestaudio/best", `${MUSIC_ORIGIN}/watch?v=${encodeURIComponent(videoId)}`,
+  const cached = sourceCache.get(videoId);
+  if (cached && cached.expiresAt > Date.now() + 30_000) return cached.value;
+  const stdout = await runYtDlpOutput([
+    "--no-warnings", "--no-playlist", "--format", "bestaudio/best",
+    "--print", "%(url)s", "--print", "%(http_headers)j",
+    `${MUSIC_ORIGIN}/watch?v=${encodeURIComponent(videoId)}`,
   ]);
-  const uri = text(document.url);
-  if (!uri) throw new Error("yt-dlp did not return a playable YouTube audio URL");
-  const rawHeaders = document.http_headers;
-  const httpHeaders = rawHeaders && typeof rawHeaders === "object" && !Array.isArray(rawHeaders)
-    ? Object.fromEntries(Object.entries(rawHeaders).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
-    : {};
-  return {
-    uri,
-    httpHeaders,
-    userAgent: text(httpHeaders["User-Agent"]),
-    referrer: MUSIC_ORIGIN,
-    webpageUrl: text(document.webpage_url) || `${MUSIC_ORIGIN}/watch?v=${videoId}`,
-  };
+  const source = parseYouTubeSourceOutput(stdout, videoId);
+  sourceCache.set(videoId, { value: source, expiresAt: sourceExpiry(source) });
+  return source;
 }

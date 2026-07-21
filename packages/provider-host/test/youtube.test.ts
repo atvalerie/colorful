@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mapYouTubeTrack } from "../src/youtube";
+import { mapYouTubeTrack, parseYouTubeSourceOutput } from "../src/youtube";
 
 describe("YouTube Music mapping", () => {
   test("maps yt-dlp metadata into a provider-aware track", () => {
@@ -36,5 +36,18 @@ describe("YouTube Music mapping", () => {
     expect(mapYouTubeTrack({ id: "UCNw2hq-0-3", title: "A channel-shaped result" })).toBeNull();
     expect(mapYouTubeTrack({ id: "UCNw2hq-0-3-Wideo", title: "A channel" })).toBeNull();
     expect(mapYouTubeTrack({ id: "PL123456789012345", title: "A playlist" })).toBeNull();
+  });
+
+  test("parses the lightweight playback URL and headers output", () => {
+    expect(parseYouTubeSourceOutput([
+      "https://rr.example/videoplayback?expire=9999999999",
+      JSON.stringify({ "User-Agent": "colorful-test", Accept: "*/*" }),
+    ].join("\n"), "abcdefghijk")).toEqual({
+      uri: "https://rr.example/videoplayback?expire=9999999999",
+      httpHeaders: { "User-Agent": "colorful-test", Accept: "*/*" },
+      userAgent: "colorful-test",
+      referrer: "https://music.youtube.com",
+      webpageUrl: "https://music.youtube.com/watch?v=abcdefghijk",
+    });
   });
 });
