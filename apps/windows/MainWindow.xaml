@@ -85,17 +85,18 @@
                         <Grid Grid.Column="0" Height="40" VerticalAlignment="Center">
                             <TextBox
                                 x:Name="SearchBox"
-                                Padding="40,8,12,8"
+                                Padding="40,0,12,0"
                                 Background="#07070A"
                                 BorderBrush="#303038"
                                 BorderThickness="1"
                                 CornerRadius="0"
                                 FontFamily="{StaticResource ColorfulFont}"
                                 FontSize="13"
+                                VerticalContentAlignment="Center"
                                 PlaceholderText="Search tracks, albums, artists" />
                             <Image Source="Assets/icons/search.svg" Width="17" Height="17" Margin="13,0,0,0" Opacity="0.45" HorizontalAlignment="Left" IsHitTestVisible="False" />
                         </Grid>
-                        <Button Grid.Column="2" Height="40" Style="{StaticResource AccentButtonStyle}" Content="Search" FontFamily="{StaticResource ColorfulFont}" FontSize="12" FontWeight="SemiBold" />
+                        <Button Grid.Column="2" Height="40" Style="{StaticResource SearchButtonStyle}" Content="Search" FontFamily="{StaticResource ColorfulFont}" FontSize="12" FontWeight="SemiBold" />
                     </Grid>
                 </Border>
 
