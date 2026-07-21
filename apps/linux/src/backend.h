@@ -159,6 +159,7 @@ public:
 
     Q_INVOKABLE void startLogin();
     Q_INVOKABLE void openVerificationUrl();
+    Q_INVOKABLE void cancelLogin();
     Q_INVOKABLE void unlink();
     Q_INVOKABLE void startYouTubeLogin(const QString &clientId, const QString &clientSecret);
     Q_INVOKABLE void unlinkYouTube();

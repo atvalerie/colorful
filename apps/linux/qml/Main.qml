@@ -72,6 +72,7 @@ ApplicationWindow {
     Shortcut { sequence: "Right"; enabled: !window.textEntryFocused(); onActivated: colorful.seekBy(5000) }
     Shortcut { sequence: "Ctrl+Left"; enabled: !window.textEntryFocused(); onActivated: colorful.previous() }
     Shortcut { sequence: "Ctrl+Right"; enabled: !window.textEntryFocused(); onActivated: colorful.next() }
+    Shortcut { sequence: "Escape"; enabled: colorful.authPending; onActivated: colorful.cancelLogin() }
     Shortcut { sequence: "Up"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(0.04) }
     Shortcut { sequence: "Down"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(-0.04) }
 
@@ -1274,7 +1275,7 @@ ApplicationWindow {
         id: authPopup
         anchors.centerIn: Overlay.overlay
         width: 420
-        height: 330
+        height: 380
         modal: true
         closePolicy: Popup.NoAutoClose
         visible: colorful.authPending
@@ -1340,6 +1341,12 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: colorful.authProvider === "youtube" ? "Open Google to approve" : "Open TIDAL to approve"
                 onClicked: colorful.openVerificationUrl()
+            }
+            ColorButton {
+                Layout.fillWidth: true
+                text: "Cancel"
+                quiet: true
+                onClicked: colorful.cancelLogin()
             }
             Text {
                 Layout.alignment: Qt.AlignHCenter

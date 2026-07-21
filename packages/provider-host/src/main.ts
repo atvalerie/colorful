@@ -127,6 +127,11 @@ async function handle(request: RequestMessage): Promise<void> {
       setYouTubeMusicAccessTokenProvider(null);
       send({ id: request.id, ok: true, data: { linked: false } });
       return;
+    case "youtube.auth.cancel":
+      youtubeAuthAbort?.abort();
+      youtubeAuthAbort = null;
+      send({ id: request.id, ok: true, data: { cancelled: true } });
+      return;
     case "youtube.account":
       send({ id: request.id, ok: true, data: await youtubeMusicAccount() });
       return;
@@ -163,6 +168,11 @@ async function handle(request: RequestMessage): Promise<void> {
       userBrowse = null;
       await clearRefreshToken();
       send({ id: request.id, ok: true, data: { linked: false } });
+      return;
+    case "auth.cancel":
+      authAbort?.abort();
+      authAbort = null;
+      send({ id: request.id, ok: true, data: { cancelled: true } });
       return;
     case "account":
       send({ id: request.id, ok: true, data: await accountStatus(Boolean(request.payload?.refresh)) });

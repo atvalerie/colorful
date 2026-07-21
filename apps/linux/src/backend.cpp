@@ -912,6 +912,25 @@ void Backend::openVerificationUrl()
     if (!m_verificationUrl.isEmpty()) QDesktopServices::openUrl(QUrl(m_verificationUrl));
 }
 
+void Backend::cancelLogin()
+{
+    if (!m_authPending) return;
+    const auto type = m_authProvider == QStringLiteral("youtube")
+        ? QStringLiteral("youtube.auth.cancel") : QStringLiteral("auth.cancel");
+    m_authPending = false;
+    m_userCode.clear();
+    m_verificationUrl.clear();
+    emit authPendingChanged();
+    emit authDetailsChanged();
+    request(type, {}, [this](const QJsonObject &message) {
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            setStatus(message.value(QStringLiteral("error")).toString());
+            return;
+        }
+        setStatus(QStringLiteral("Account connection cancelled"));
+    });
+}
+
 void Backend::unlink()
 {
     request(QStringLiteral("auth.unlink"), {}, [this](const QJsonObject &message) {
