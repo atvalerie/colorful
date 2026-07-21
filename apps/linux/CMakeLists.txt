@@ -80,6 +80,7 @@ qt_add_qml_module(colorful-linux
         qml/SoundCloudPage.qml
         qml/DownloadsPage.qml
         qml/LibraryPage.qml
+        qml/LyricsPanel.qml
         qml/ToastOverlay.qml
         qml/AccountCard.qml
         qml/ProviderAccountCard.qml
@@ -92,6 +93,7 @@ qt_add_qml_module(colorful-linux
         qml/icons/download.svg
         qml/icons/home.svg
         qml/icons/library.svg
+        qml/icons/lyrics.svg
         qml/icons/maximize.svg
         qml/icons/minimize.svg
         qml/icons/music.svg

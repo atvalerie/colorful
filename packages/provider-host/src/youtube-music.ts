@@ -428,6 +428,21 @@ export async function youtubeMusicTrackMetadata(video: string): Promise<TrackSum
   return null;
 }
 
+export async function youtubeMusicLyrics(video: string): Promise<{ plain: string | null; synced: string | null }> {
+  const next = await youtubei("next", { videoId: video, enablePersistentPlaylistPanel: true });
+  const lyricsEndpoint = children(next, "browseEndpoint").find((endpoint) =>
+    string(endpoint.browseId).startsWith("MPLYt")
+      || string(object(object(endpoint.browseEndpointContextSupportedConfigs)
+        .browseEndpointContextMusicConfig).pageType).includes("LYRICS"));
+  const browse = string(lyricsEndpoint?.browseId);
+  if (!browse) return { plain: null, synced: null };
+  const page = await youtubei("browse", { browseId: browse });
+  const shelf = children(page, "musicDescriptionShelfRenderer")[0]
+    ?? children(page, "descriptionShelfRenderer")[0];
+  const plain = shelf ? runText(shelf.description) || runText(shelf.text) : "";
+  return { plain: plain || null, synced: null };
+}
+
 export async function youtubeMusicAutomix(video: string, limit = 20): Promise<TrackSummary[]> {
   const document = await youtubei("next", {
     videoId: video,

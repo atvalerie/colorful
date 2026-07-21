@@ -2,6 +2,7 @@ import { BrowseAuth } from "./auth";
 import type { TidalConfig } from "./config";
 
 export type TrackSummary = {
+  provider?: string;
   id: string;
   title: string;
   version: string | null;
@@ -571,6 +572,25 @@ export class BrowseClient {
     const track = (await this.hydrateMissingArtwork(mapTracks(document)))[0];
     if (!track) throw new Error("TIDAL did not return that track");
     return { kind: "track", track, relatedTracks: await this.relatedTracks(trackId, 20).catch(() => []) };
+  }
+
+  async trackLyrics(trackId: string): Promise<{ plain: string | null; synced: string | null }> {
+    const document = await this.get(`tracks/${encodeURIComponent(trackId)}/relationships/lyrics`, {
+      include: "lyrics",
+    });
+    const lyrics = resourcesFrom(document).find((resource) => resource.type === "lyrics");
+    const attributes = lyrics?.attributes ?? {};
+    const firstText = (names: string[]): string | null => {
+      for (const name of names) {
+        const value = attributes[name];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
+      return null;
+    };
+    return {
+      plain: firstText(["text", "lyrics", "body", "content"]),
+      synced: firstText(["subtitles", "syncLyrics", "lrc", "lrcText"]),
+    };
   }
 
   async albumPage(albumId: string): Promise<AlbumPage> {

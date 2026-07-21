@@ -430,6 +430,32 @@ pub extern "C" fn colorful_engine_snapshot(handle: u64) -> *mut c_char {
     })
 }
 
+/// Reads one JSON setting without inflating the regular engine snapshot.
+///
+/// # Safety
+///
+/// `key` must point to a valid NUL-terminated UTF-8 string for the duration of
+/// this call. The returned string must be released with [`colorful_string_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn colorful_engine_setting(handle: u64, key: *const c_char) -> *mut c_char {
+    guarded(|| {
+        let key = unsafe { required_string(key, "key") }?;
+        let registry = registry()
+            .lock()
+            .map_err(|_| "engine registry lock is poisoned".to_owned())?;
+        let engine = registry
+            .engines
+            .get(&handle)
+            .ok_or_else(|| format!("unknown engine handle {handle}"))?;
+        let value = engine.setting(&key).map_err(|error| error.to_string())?;
+        let parsed = value
+            .map(|json| serde_json::from_str::<serde_json::Value>(&json))
+            .transpose()
+            .map_err(|error| format!("stored setting is invalid JSON: {error}"))?;
+        Ok(success(parsed))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn colorful_engine_close(handle: u64) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
@@ -508,6 +534,26 @@ mod tests {
         );
         assert!(colorful_engine_close(handle));
         assert!(!colorful_engine_close(handle));
+    }
+
+    #[test]
+    fn c_abi_reads_one_json_setting() {
+        let path = CString::new(":memory:").unwrap();
+        let opened = response(unsafe { colorful_engine_open(path.as_ptr()) });
+        let handle = opened["value"]["handle"].as_u64().unwrap();
+        let command = CString::new(
+            r#"{"command":"set_setting","key":"lyrics/tidal/track","value_json":"{\"source\":\"tidal\"}"}"#,
+        )
+        .unwrap();
+        assert!(
+            response(unsafe { colorful_engine_dispatch(handle, command.as_ptr()) })["ok"]
+                .as_bool()
+                .unwrap()
+        );
+        let key = CString::new("lyrics/tidal/track").unwrap();
+        let value = response(unsafe { colorful_engine_setting(handle, key.as_ptr()) });
+        assert_eq!(value["value"]["source"], "tidal");
+        assert!(colorful_engine_close(handle));
     }
 
     #[test]

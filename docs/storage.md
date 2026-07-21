@@ -29,6 +29,12 @@ change only local colorful state; provider libraries and playlists remain
 read-only. Stable playlist IDs and explicit positions are designed to become
 sync operations later without changing the desktop data model.
 
+Normalized lyric documents are stored as JSON settings under hashed
+`lyrics/<provider>/<track>` keys. Successful documents remain available
+offline; negative lookups expire after one hour so transient provider or
+network failures do not become permanent. Provider credentials and signed
+media URLs are never included in lyric cache values.
+
 Queue rows distinguish `visible_position` from `play_position`. This keeps manual
 reordering predictable while shuffle is active and allows the portable queue
 state machine to reconstruct the exact sequence after a restart.

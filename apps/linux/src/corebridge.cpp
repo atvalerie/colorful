@@ -39,6 +39,17 @@ QJsonObject CoreBridge::snapshot(QString *error) const
     return takeResponse(colorful_engine_snapshot(m_handle), error);
 }
 
+QJsonValue CoreBridge::setting(const QString &key, QString *error) const
+{
+    if (m_handle == 0) {
+        if (error) *error = QStringLiteral("colorful core is not open");
+        return {};
+    }
+    const auto bytes = key.toUtf8();
+    return takeResponse(colorful_engine_setting(m_handle, bytes.constData()), error)
+        .value(QStringLiteral("value"));
+}
+
 QJsonObject CoreBridge::takeResponse(char *value, QString *error)
 {
     if (!value) {

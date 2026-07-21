@@ -16,6 +16,7 @@ public:
     bool open(const QString &databasePath, QString *error = nullptr);
     QJsonObject dispatch(const QJsonObject &command, QString *error = nullptr) const;
     QJsonObject snapshot(QString *error = nullptr) const;
+    QJsonValue setting(const QString &key, QString *error = nullptr) const;
     bool isOpen() const { return m_handle != 0; }
 
 private:

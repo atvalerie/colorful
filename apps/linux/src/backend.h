@@ -61,6 +61,9 @@ class Backend final : public QObject
     Q_PROPERTY(bool tidalMoreLoading READ tidalMoreLoading NOTIFY tidalHubChanged)
     Q_PROPERTY(int currentQueueIndex READ currentQueueIndex NOTIFY currentTrackChanged)
     Q_PROPERTY(QVariantMap currentTrack READ currentTrack NOTIFY currentTrackChanged)
+    Q_PROPERTY(QVariantMap lyrics READ lyrics NOTIFY lyricsChanged)
+    Q_PROPERTY(bool lyricsLoading READ lyricsLoading NOTIFY lyricsChanged)
+    Q_PROPERTY(QString lyricsError READ lyricsError NOTIFY lyricsChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
     Q_PROPERTY(qint64 position READ position NOTIFY positionChanged)
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
@@ -138,6 +141,9 @@ public:
     bool tidalMoreLoading() const { return m_tidalMoreLoading; }
     int currentQueueIndex() const { return m_currentIndex; }
     QVariantMap currentTrack() const;
+    QVariantMap lyrics() const { return m_lyrics; }
+    bool lyricsLoading() const { return m_lyricsLoading; }
+    QString lyricsError() const { return m_lyricsError; }
     bool playing() const;
     qint64 position() const;
     qint64 duration() const;
@@ -257,6 +263,7 @@ public:
     Q_INVOKABLE void setAudioDevice(const QString &device);
     Q_INVOKABLE void refreshAudioDevices();
     Q_INVOKABLE void retryPlayback();
+    Q_INVOKABLE void loadLyrics(bool refresh = false);
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
     Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
@@ -297,6 +304,7 @@ signals:
     void offlineStorageLimitChanged();
     void tidalHubChanged();
     void currentTrackChanged();
+    void lyricsChanged();
     void playbackChanged();
     void positionChanged();
     void durationChanged();
@@ -373,6 +381,8 @@ private:
     void downloadArtwork(const QVariantMap &track);
     QString downloadsDirectory() const;
     void requestRelated(bool continueWhenReady);
+    QString lyricsCacheKey(const QVariantMap &track) const;
+    void resetLyrics();
     bool openCore();
     QJsonObject dispatchCore(const QJsonObject &command);
     void refreshCoreSnapshot();
@@ -452,6 +462,11 @@ private:
     bool m_soundcloudMoreLoading = false;
     bool m_soundcloudLinked = false;
     QVariantMap m_listenStats;
+    QVariantMap m_lyrics;
+    QString m_lyricsTrackKey;
+    QString m_lyricsError;
+    bool m_lyricsLoading = false;
+    quint64 m_lyricsGeneration = 0;
     QList<qint64> m_queueEntryIds;
     QList<qint64> m_playOrderEntryIds;
     int m_currentIndex = -1;

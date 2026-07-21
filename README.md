@@ -70,6 +70,8 @@ colorful is an early personal alpha, not a packaged consumer release.
   position, autoplay, and related tracks
 - provider-neutral local playlists with ordered duplicates, create/rename/delete,
   collection-wide adds, and editing from every desktop track surface
+- provider-first desktop lyrics with TIDAL synchronization, YouTube Music
+  lyrics, LRCLIB fallback, offline caching, and adjustable timing
 - Linux MPRIS and Discord Rich Presence
 - Android system media session and background playback ownership
 - album-art-derived, contrast-safe accent colors

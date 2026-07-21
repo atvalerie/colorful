@@ -243,6 +243,11 @@ Backend::Backend(QObject *parent)
     });
     connect(this, &Backend::currentTrackChanged, this, [this] {
         emit durationChanged();
+        const auto currentKey = trackKey(currentTrack());
+        if (currentKey != m_lyricsTrackKey) {
+            resetLyrics();
+            m_lyricsTrackKey = currentKey;
+        }
         updateDiscordPresence();
     });
     connect(this, &Backend::seeked, this, [this] { updateDiscordPresence(); });
@@ -367,6 +372,86 @@ QVariantMap Backend::currentTrack() const
     return m_currentIndex >= 0 && m_currentIndex < m_queue.size()
         ? m_queue.at(m_currentIndex).toMap()
         : QVariantMap{};
+}
+
+QString Backend::lyricsCacheKey(const QVariantMap &track) const
+{
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto id = track.value(QStringLiteral("id")).toString().toUtf8();
+    const auto digest = QCryptographicHash::hash(id, QCryptographicHash::Sha256).toHex();
+    return QStringLiteral("lyrics/%1/%2").arg(provider, QString::fromLatin1(digest));
+}
+
+void Backend::resetLyrics()
+{
+    ++m_lyricsGeneration;
+    const bool changed = !m_lyrics.isEmpty() || !m_lyricsError.isEmpty() || m_lyricsLoading;
+    m_lyrics.clear();
+    m_lyricsTrackKey.clear();
+    m_lyricsError.clear();
+    m_lyricsLoading = false;
+    if (changed) emit lyricsChanged();
+}
+
+void Backend::loadLyrics(bool refresh)
+{
+    const auto track = currentTrack();
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) {
+        resetLyrics();
+        m_lyricsError = QStringLiteral("Choose a track to view lyrics");
+        emit lyricsChanged();
+        return;
+    }
+    const auto cacheKey = lyricsCacheKey(track);
+    m_lyricsTrackKey = trackKey(track);
+    if (!refresh) {
+        QString cacheError;
+        const auto cached = m_core.setting(cacheKey, &cacheError).toObject();
+        if (!cached.isEmpty()) {
+            const bool missing = cached.value(QStringLiteral("missing")).toBool();
+            const auto fetchedAt = cached.value(QStringLiteral("fetchedAtMs")).toInteger();
+            // Successful documents are durable. Retry negative results after
+            // an hour because an offline provider host is indistinguishable
+            // from a genuinely lyric-less track at the fallback boundary.
+            if (!missing || QDateTime::currentMSecsSinceEpoch() - fetchedAt < 60 * 60 * 1000) {
+                m_lyrics = missing ? QVariantMap{} : cached.toVariantMap();
+                m_lyricsError = missing ? QStringLiteral("No lyrics were found for this track") : QString{};
+                m_lyricsLoading = false;
+                emit lyricsChanged();
+                return;
+            }
+        }
+    }
+    const auto generation = ++m_lyricsGeneration;
+    const auto requestedKey = trackKey(track);
+    m_lyrics.clear();
+    m_lyricsError.clear();
+    m_lyricsLoading = true;
+    emit lyricsChanged();
+    request(QStringLiteral("lyrics"), {{QStringLiteral("track"), QJsonObject::fromVariantMap(track)}},
+            [this, generation, requestedKey, cacheKey](const QJsonObject &message) {
+        if (generation != m_lyricsGeneration || trackKey(currentTrack()) != requestedKey) return;
+        m_lyricsLoading = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            m_lyricsError = message.value(QStringLiteral("error")).toString(QStringLiteral("Could not load lyrics"));
+            emit lyricsChanged();
+            return;
+        }
+        auto document = message.value(QStringLiteral("data")).toObject();
+        if (document.isEmpty()) {
+            document = QJsonObject{{QStringLiteral("missing"), true},
+                                   {QStringLiteral("fetchedAtMs"), QDateTime::currentMSecsSinceEpoch()}};
+            m_lyrics.clear();
+            m_lyricsError = QStringLiteral("No lyrics were found for this track");
+        } else {
+            m_lyrics = document.toVariantMap();
+            m_lyricsError.clear();
+        }
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("set_setting")},
+                      {QStringLiteral("key"), cacheKey},
+                      {QStringLiteral("value_json"), QString::fromUtf8(QJsonDocument(document).toJson(QJsonDocument::Compact))}});
+        emit lyricsChanged();
+    });
 }
 
 qint64 Backend::offlineStorageUsed() const

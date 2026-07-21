@@ -8,6 +8,7 @@ import { parseSoundCloudAuthorization, setSoundCloudAccessToken, soundCloudAccou
 import { clearYouTubeAuth, connectYouTubeBrowser, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { searchYouTubeVideos, youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
 import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
+import { resolveLyrics } from "./lyrics";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -247,6 +248,14 @@ async function handle(request: RequestMessage): Promise<void> {
       const cursor = String(request.payload?.cursor ?? "");
       if (!section || !cursor) throw new Error("Collection pagination state is incomplete");
       send({ id: request.id, ok: true, data: await userBrowse.userCollectionMore(details.userId, section, cursor) });
+      return;
+    }
+    case "lyrics": {
+      const rawTrack = request.payload?.track;
+      if (!rawTrack || typeof rawTrack !== "object") throw new Error("Lyrics require track metadata");
+      const track = rawTrack as import("./browse").TrackSummary;
+      if (!track.id || !track.title) throw new Error("Lyrics require a valid track");
+      send({ id: request.id, ok: true, data: await resolveLyrics(userBrowse ?? browse, track) });
       return;
     }
     case "search": {

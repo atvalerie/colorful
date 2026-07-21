@@ -17,6 +17,7 @@ ApplicationWindow {
     readonly property color mutedInk: Qt.rgba(1, 1, 1, 0.5)
     readonly property var now: colorful.currentTrack
     property bool queueOpen: false
+    property bool lyricsOpen: false
     property string submittedQuery: ""
     property string searchProvider: "all"
     property string currentSection: "search"
@@ -39,7 +40,11 @@ ApplicationWindow {
         function onToastRequested(message, kind) {
             toastOverlay.show(message, kind)
         }
+        function onCurrentTrackChanged() {
+            if (window.lyricsOpen) colorful.loadLyrics(false)
+        }
     }
+    onLyricsOpenChanged: if (lyricsOpen) colorful.loadLyrics(false)
 
     function formatTime(milliseconds) {
         if (!milliseconds || milliseconds < 0) return "0:00"
@@ -785,6 +790,18 @@ ApplicationWindow {
                             }
                         }
                     }
+
+                    LyricsPanel {
+                        Layout.preferredWidth: window.lyricsOpen ? 380 : 0
+                        Layout.fillHeight: true
+                        visible: window.lyricsOpen
+                        lyrics: colorful.lyrics
+                        loading: colorful.lyricsLoading
+                        errorText: colorful.lyricsError
+                        playbackPosition: colorful.position
+                        onCloseRequested: window.lyricsOpen = false
+                        onRefreshRequested: colorful.loadLyrics(true)
+                    }
                 }
 
             }
@@ -1135,6 +1152,18 @@ ApplicationWindow {
                                 }
                             }
                         }
+                        IconButton {
+                            implicitWidth: 36
+                            implicitHeight: 36
+                            iconSource: "icons/lyrics.svg"
+                            selected: window.lyricsOpen
+                            enabled: Boolean(window.now.id)
+                            tooltipText: "Lyrics"
+                            onClicked: {
+                                window.lyricsOpen = !window.lyricsOpen
+                                if (window.lyricsOpen) window.queueOpen = false
+                            }
+                        }
                         Item {
                             Layout.preferredWidth: 42
                             Layout.preferredHeight: 42
@@ -1143,7 +1172,10 @@ ApplicationWindow {
                                 iconSource: "icons/queue.svg"
                                 selected: window.queueOpen
                                 tooltipText: "Queue"
-                                onClicked: window.queueOpen = !window.queueOpen
+                                onClicked: {
+                                    window.queueOpen = !window.queueOpen
+                                    if (window.queueOpen) window.lyricsOpen = false
+                                }
                             }
                             Rectangle {
                                 anchors.right: parent.right

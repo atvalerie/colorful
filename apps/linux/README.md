@@ -78,6 +78,12 @@ five seconds, Ctrl+left/right for previous/next, and up/down for perceptual
 volume steps. Mouse buttons 4 and 5 retain previous/next behavior. Shortcuts do
 not intercept typing in text fields.
 
+The lyrics control beside the queue opens a mutually exclusive side panel.
+colorful prefers the provider's own lyrics: timestamped TIDAL lyrics and native
+YouTube Music lyrics are used when present, with LRCLIB as a fallback for all
+providers. Synced lines follow playback and support a ±250 ms display offset;
+successful results are cached in shared local storage for offline reuse.
+
 ## Offline files and low-data mode
 
 TIDAL downloads resolve a fresh stable representation and write resumable media

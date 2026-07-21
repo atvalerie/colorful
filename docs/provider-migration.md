@@ -24,7 +24,8 @@ No secrets or `.env` values are copied into colorful.
 - manifest parsing and quality mapping
 - SoundCloud homepage-hydrated public client discovery and transcoding selection
 - artwork palette scoring, generalized to decoded pixel input
-- LRCLIB integration and synced lyric parsing (planned)
+- provider-first lyrics with TIDAL and YouTube Music sources, LRCLIB fallback,
+  normalized synced-line parsing, and shared persistent caching
 
 ## Replace
 
