@@ -126,8 +126,24 @@ async function persistYouTubeCredentials(credentials: YouTubeCredentials): Promi
   }));
 }
 
-function parseBrowserHeaders(raw: string): Record<string, string> {
+export function parseYouTubeBrowserHeaders(raw: string): Record<string, string> {
   const headers: Record<string, string> = {};
+  // Chromium always exposes "Copy as cURL", even in builds that omit
+  // "Copy request headers". Read its -H/--header and -b/--cookie arguments.
+  const shellArgument = String.raw`(?:'([^']*)'|"((?:\\.|[^"])*)"|([^\s\\]+))`;
+  const decodeArgument = (match: RegExpMatchArray): string =>
+    (match[1] ?? match[2]?.replace(/\\"/g, '"').replace(/\\\\/g, "\\") ?? match[3] ?? "").trim();
+  for (const match of raw.matchAll(new RegExp(String.raw`(?:^|\s)(?:-H|--header)\s+${shellArgument}`, "g"))) {
+    const header = decodeArgument(match);
+    const colon = header.indexOf(":");
+    if (colon > 0) headers[header.slice(0, colon).trim().toLowerCase()] = header.slice(colon + 1).trim();
+  }
+  for (const match of raw.matchAll(new RegExp(String.raw`(?:^|\s)(?:-b|--cookie)\s+${shellArgument}`, "g"))) {
+    const cookie = decodeArgument(match);
+    if (cookie) headers.cookie = cookie;
+  }
+  if (Object.keys(headers).length > 0) return headers;
+
   const lines = raw.replace(/\r/g, "").split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]?.trim() ?? "";
@@ -148,7 +164,7 @@ function parseBrowserHeaders(raw: string): Record<string, string> {
 }
 
 export async function connectYouTubeBrowser(raw: string): Promise<void> {
-  const parsed = parseBrowserHeaders(raw.trim());
+  const parsed = parseYouTubeBrowserHeaders(raw.trim());
   if (!parsed.cookie) throw new Error("The copied request is missing its Cookie header");
   if (!parsed["x-goog-authuser"]) throw new Error("The copied request is missing X-Goog-AuthUser; copy a logged-in /browse request");
   if (!/(?:^|;\s*)__Secure-3PAPISID=/.test(parsed.cookie))

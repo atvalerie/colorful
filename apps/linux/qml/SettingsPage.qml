@@ -141,7 +141,7 @@ Item {
                                         clip: true
                                         TextArea {
                                             id: youtubeBrowserHeaders
-                                            placeholderText: "Paste request headers here (Cookie, X-Goog-AuthUser, …)"
+                                            placeholderText: "Paste request headers or Copy as cURL here"
                                             placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
                                             color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
                                             background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeBrowserHeaders) }

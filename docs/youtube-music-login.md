@@ -11,8 +11,9 @@ albums and artists, and personalized mixes.
    produces a cleaner cookie set and usually remains usable by colorful longer.
 2. Open the browser developer tools and select the **Network** tab.
 3. In YouTube Music, open **Library**. Filter the requests for `browse`.
-4. Select a `browse?...` request and copy its **request headers**. In Chromium,
-   use **Copy → Copy request headers**. In Firefox, use **Copy request headers**.
+4. Select a `browse?...` request. In Chromium, use **Copy → Copy as cURL**;
+   some builds do not expose a separate request-headers option. In Firefox, use
+   **Copy request headers**.
 5. Open **colorful → Settings → Accounts → YouTube Music**, paste the complete
    header block, and select **Connect session**.
 
