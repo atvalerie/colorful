@@ -66,8 +66,8 @@ The visual layer derives contrast-safe accents and gradients from the result.
    pages, and real automix — implemented; optional browser-session credentials
    now add private Music library, playlist, account, and personalized-home data
 3. SoundCloud public search/catalog, profiles, sets, related radio, pagination,
-   and Linux stream selection — implemented; account authorization, private
-   library surfaces, and downloads remain
+   Linux stream selection, and locally imported account library — implemented;
+   downloads and deeper private-library pagination remain
 
 ## Current boundary
 
@@ -105,6 +105,12 @@ This intentionally avoids permanent Python or third-party Rust client
 dependencies. Android and iOS will use native resolvers rather than shipping
 `yt-dlp`.
 
+Filtered YouTube Music search currently returns capped shelves without a
+continuation token. When the user explicitly asks for more YouTube results, the
+Linux host extends the track section through paged standard-YouTube search via
+the already-required `yt-dlp`; native Music continuations remain preferred
+whenever Google supplies them.
+
 Google currently rejects custom-client OAuth tokens on YouTube Music's private
 Innertube endpoints. Linux therefore accepts a user-copied browser session and
 stores its reduced header set in Secret Service; it never crosses through the
@@ -117,5 +123,7 @@ SoundCloud public access bootstraps from the web client's `apiClient` entry in
 `window.__sc_hydration`. The client ID is cached in memory for six hours and
 rediscovered after an authorization rejection; geo, privacy, and experiment
 hydration are ignored. Public tracks resolve directly to SoundCloud's signed
-progressive or HLS transcoding URL. No SoundCloud login credential is currently
-captured or stored.
+progressive or HLS transcoding URL. No SoundCloud login credential is required
+for public playback. When the user explicitly imports a copied API request,
+only its OAuth token is retained in Secret Service; copied URLs, cookies,
+DataDome identifiers, and browser fingerprint headers are discarded.

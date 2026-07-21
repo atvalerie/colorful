@@ -156,11 +156,49 @@ Item {
                         }
                     }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 92
-                        color: Qt.rgba(1, 1, 1, 0.018); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
-                        Column { anchors.left: parent.left; anchors.leftMargin: 16; anchors.verticalCenter: parent.verticalCenter; spacing: 5
-                            Text { text: "SoundCloud"; color: Qt.rgba(1, 1, 1, 0.52); font.bold: true; font.pixelSize: 15 }
-                            Text { text: "Public account and catalog support is planned."; color: Qt.rgba(1, 1, 1, 0.32); font.pixelSize: 11 }
+                        Layout.fillWidth: true; Layout.preferredHeight: colorful.soundcloudLinked ? 126 : 294
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 16; spacing: 8
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 3
+                                    Text { text: "SoundCloud"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                                    Text {
+                                        text: colorful.soundcloudLinked
+                                              ? "Connected  ·  " + (((colorful.soundcloudHub.account || {}).username) || "account ready")
+                                              : "Public catalog mode"
+                                        color: colorful.soundcloudLinked ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11
+                                    }
+                                }
+                                ColorButton { text: "Setup guide"; quiet: true; onClicked: colorful.openSoundCloudSetupGuide() }
+                                ColorButton { visible: colorful.soundcloudLinked; text: "Disconnect"; quiet: true; onClicked: colorful.unlinkSoundCloud() }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: colorful.soundcloudLinked
+                                      ? "Liked tracks, sets, and followed profiles use this account. Only the OAuth token is retained."
+                                      : "Copy any logged-in api-v2.soundcloud.com or api.soundcloud.com request as cURL. colorful extracts only its Authorization: OAuth header."
+                                color: Qt.rgba(1, 1, 1, 0.4); wrapMode: Text.WordWrap; font.pixelSize: 11
+                            }
+                            RowLayout {
+                                visible: !colorful.soundcloudLinked; Layout.fillWidth: true; spacing: 8
+                                ScrollView {
+                                    Layout.fillWidth: true; Layout.preferredHeight: 118; clip: true
+                                    TextArea {
+                                        id: soundcloudCurl
+                                        placeholderText: "Paste a logged-in SoundCloud request copied as cURL"
+                                        placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
+                                        color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
+                                        background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(soundcloudCurl) }
+                                    }
+                                }
+                                ColorButton {
+                                    text: "Connect session"; enabled: soundcloudCurl.text.trim().length > 0 && !colorful.busy
+                                    onClicked: colorful.connectSoundCloudSession(soundcloudCurl.text)
+                                }
+                            }
                         }
                     }
                 }

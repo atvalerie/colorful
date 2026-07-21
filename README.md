@@ -61,6 +61,8 @@ colorful is an early personal alpha, not a packaged consumer release.
 - public YouTube Music song, video, release, artist, and uploader-channel search; paginated channel uploads, catalog pages, playback, downloads, and genuine radio/automix on Linux
 - optional locally stored YouTube Music browser session for private library content, playlists, and personalized mixes
 - public SoundCloud mixed search, tracks, profiles, sets, related radio, catalog pagination, and playback on Linux
+- optional locally stored SoundCloud OAuth session for liked tracks, sets, owned playlists, and followed profiles
+- independent TIDAL, YouTube, and SoundCloud search continuation without resetting the visible result list
 - lossless/adaptive playback with accurate duration and seeking
 - persisted perceptual desktop volume, real mute, and selectable Linux output
 - prepared-next, gapless Linux playback with prefetched autoplay
@@ -85,7 +87,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - broader TIDAL home/recommendation surfaces
 - Android EQ and normalization using the shared audio-processing contract
 - Android offline downloads and YouTube Music support
-- SoundCloud account/library support and offline downloads
+- SoundCloud offline downloads and deeper account-library pagination
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback
 - Windows and iOS native shells
@@ -145,6 +147,8 @@ Android Keystore.
 
 Authenticated YouTube Music uses a browser session captured from your own
 account. See the [YouTube Music account setup guide](docs/youtube-music-login.md).
+SoundCloud can likewise import only the OAuth header from one of your own
+logged-in API requests; see the [SoundCloud account setup guide](docs/soundcloud-login.md).
 
 colorful is not affiliated with, endorsed by, or sponsored by TIDAL, Discord,
 SoundCloud, YouTube, or their respective owners. Product names belong to their

@@ -668,6 +668,11 @@ void Backend::startProviderHost()
             m_youtubeLinked = youtubeLinked;
             emit youtubeAccountChanged();
         }
+        const auto soundcloudLinked = data.value(QStringLiteral("soundcloudLinked")).toBool();
+        if (m_soundcloudLinked != soundcloudLinked) {
+            m_soundcloudLinked = soundcloudLinked;
+            emit soundcloudAccountChanged();
+        }
         if (!data.value(QStringLiteral("browseConfigured")).toBool()) {
             setStatus(QStringLiteral("TIDAL browse credentials are missing. Launch with scripts/run-linux.sh."));
         } else if (!data.value(QStringLiteral("deviceConfigured")).toBool()) {
@@ -768,6 +773,22 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
             emit authPendingChanged();
         }
         setStatus(message.value(QStringLiteral("error")).toString());
+    } else if (event == QStringLiteral("soundcloud.auth.restored")
+               || event == QStringLiteral("soundcloud.auth.completed")) {
+        const auto completed = event.endsWith(QStringLiteral("completed"));
+        m_soundcloudLinked = true;
+        if (completed) m_soundcloudHub.clear();
+        const auto account = message.value(QStringLiteral("data")).toObject()
+                                 .value(QStringLiteral("account")).toObject();
+        if (!account.isEmpty()) m_soundcloudHub.insert(QStringLiteral("account"), account.toVariantMap());
+        emit soundcloudAccountChanged();
+        setStatus(completed
+                      ? QStringLiteral("SoundCloud connected")
+                      : QStringLiteral("SoundCloud account restored securely"));
+        if (completed) {
+            emit toastRequested(QStringLiteral("SoundCloud connected"), QStringLiteral("success"));
+            loadSoundCloudHub(true);
+        }
     } else if (event == QStringLiteral("warning")) {
         setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("subscription.status")) {
@@ -874,6 +895,95 @@ void Backend::openYouTubeSetupGuide()
 {
     QDesktopServices::openUrl(QUrl(QStringLiteral(
         "https://github.com/atvalerie/colorful/blob/main/docs/youtube-music-login.md")));
+}
+
+void Backend::connectSoundCloudSession(const QString &requestText)
+{
+    if (requestText.trimmed().isEmpty()) {
+        notify(QStringLiteral("Paste a logged-in SoundCloud API request copied as cURL"), QStringLiteral("error"));
+        return;
+    }
+    setBusy(true);
+    setStatus(QStringLiteral("Checking SoundCloud session…"));
+    request(QStringLiteral("soundcloud.auth.browser"), {
+        {QStringLiteral("request"), requestText},
+    }, [this](const QJsonObject &message) {
+        setBusy(false);
+        if (!message.value(QStringLiteral("ok")).toBool())
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+    });
+}
+
+void Backend::unlinkSoundCloud()
+{
+    request(QStringLiteral("soundcloud.auth.unlink"), {}, [this](const QJsonObject &message) {
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            return;
+        }
+        m_soundcloudLinked = false;
+        m_soundcloudHub.clear();
+        emit soundcloudAccountChanged();
+        notify(QStringLiteral("SoundCloud account disconnected"));
+    });
+}
+
+void Backend::openSoundCloudSetupGuide()
+{
+    QDesktopServices::openUrl(QUrl(QStringLiteral(
+        "https://github.com/atvalerie/colorful/blob/main/docs/soundcloud-login.md")));
+}
+
+void Backend::loadSoundCloudHub(bool refresh)
+{
+    if (!m_soundcloudLinked || m_soundcloudHubLoading) return;
+    if (!refresh && m_soundcloudHub.contains(QStringLiteral("tracks"))) return;
+    m_soundcloudHubLoading = true;
+    emit soundcloudAccountChanged();
+    request(QStringLiteral("soundcloud.account"), {}, [this](const QJsonObject &message) {
+        if (message.value(QStringLiteral("ok")).toBool()) {
+            m_soundcloudHub.insert(QStringLiteral("account"), message.value(QStringLiteral("data")).toObject().toVariantMap());
+            emit soundcloudAccountChanged();
+        }
+    });
+    request(QStringLiteral("soundcloud.collection"), {}, [this](const QJsonObject &message) {
+        m_soundcloudHubLoading = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            emit soundcloudAccountChanged();
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        const auto tracksFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject(); object.insert(QStringLiteral("provider"), QStringLiteral("soundcloud"));
+                result.append(jsonTrackToVariant(object));
+            }
+            return result;
+        };
+        const auto albumsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject(); object.insert(QStringLiteral("provider"), QStringLiteral("soundcloud"));
+                result.append(jsonAlbumToVariant(object));
+            }
+            return result;
+        };
+        const auto artistsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject(); object.insert(QStringLiteral("provider"), QStringLiteral("soundcloud"));
+                result.append(jsonArtistToVariant(object));
+            }
+            return result;
+        };
+        m_soundcloudHub.insert(QStringLiteral("tracks"), tracksFrom(data.value(QStringLiteral("tracks")).toArray()));
+        m_soundcloudHub.insert(QStringLiteral("albums"), albumsFrom(data.value(QStringLiteral("albums")).toArray()));
+        m_soundcloudHub.insert(QStringLiteral("artists"), artistsFrom(data.value(QStringLiteral("artists")).toArray()));
+        setStatus(QStringLiteral("SoundCloud library is ready"));
+        emit soundcloudAccountChanged();
+    });
 }
 
 void Backend::loadYouTubeHub(bool refresh)
@@ -1078,9 +1188,14 @@ void Backend::openTidalAccount()
 void Backend::search(const QString &query)
 {
     if (query.trimmed().isEmpty()) return;
+    const auto wantedQuery = query.trimmed();
+    m_searchQuery = wantedQuery;
+    m_searchCursors.clear();
+    m_searchMoreLoading = false;
     setBusy(true);
     setStatus(QStringLiteral("Searching…"));
-    request(QStringLiteral("search"), {{QStringLiteral("query"), query.trimmed()}}, [this](const QJsonObject &message) {
+    request(QStringLiteral("search"), {{QStringLiteral("query"), wantedQuery}}, [this, wantedQuery](const QJsonObject &message) {
+        if (m_searchQuery != wantedQuery) return;
         setBusy(false);
         if (!message.value(QStringLiteral("ok")).toBool()) {
             setStatus(message.value(QStringLiteral("error")).toString());
@@ -1090,6 +1205,7 @@ void Backend::search(const QString &query)
         m_searchAlbums.clear();
         m_searchArtists.clear();
         const auto data = message.value(QStringLiteral("data")).toObject();
+        m_searchCursors = data.value(QStringLiteral("cursors")).toObject().toVariantMap();
         for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
             m_searchResults.append(jsonTrackToVariant(value.toObject()));
         }
@@ -1106,6 +1222,58 @@ void Backend::search(const QString &query)
         if (qEnvironmentVariableIsSet("COLORFUL_SMOKE_DETAIL") && !m_searchResults.isEmpty()) {
             openTrack(m_searchResults.first().toMap().value(QStringLiteral("id")).toString());
         }
+    });
+}
+
+void Backend::loadMoreSearch(const QString &provider)
+{
+    if (m_searchMoreLoading || m_searchQuery.isEmpty()) return;
+    const auto cursor = m_searchCursors.value(provider);
+    if (!cursor.isValid() || cursor.isNull()
+        || (cursor.metaType().id() == QMetaType::QString && cursor.toString().isEmpty())
+        || (cursor.metaType().id() == QMetaType::QVariantMap && cursor.toMap().isEmpty())) return;
+    const auto wantedQuery = m_searchQuery;
+    m_searchMoreLoading = true;
+    emit searchResultsChanged();
+    request(QStringLiteral("search.more"), {
+        {QStringLiteral("provider"), provider},
+        {QStringLiteral("query"), wantedQuery},
+        {QStringLiteral("cursor"), QJsonValue::fromVariant(cursor)},
+    }, [this, provider, wantedQuery](const QJsonObject &message) {
+        if (m_searchQuery != wantedQuery) return;
+        m_searchMoreLoading = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            emit searchResultsChanged();
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        const auto appendUnique = [provider](QVariantList &target, const QJsonArray &values,
+                                             const auto &mapper) {
+            QSet<QString> identities;
+            for (const auto &entry : target) {
+                const auto item = entry.toMap();
+                identities.insert(item.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+                                  + QLatin1Char(':') + item.value(QStringLiteral("id")).toString());
+            }
+            for (const auto &value : values) {
+                auto document = value.toObject();
+                if (!document.contains(QStringLiteral("provider"))) document.insert(QStringLiteral("provider"), provider);
+                const auto item = mapper(document);
+                const auto identity = item.value(QStringLiteral("provider")).toString()
+                    + QLatin1Char(':') + item.value(QStringLiteral("id")).toString();
+                if (!item.value(QStringLiteral("id")).toString().isEmpty() && !identities.contains(identity)) {
+                    identities.insert(identity);
+                    target.append(item);
+                }
+            }
+        };
+        appendUnique(m_searchResults, data.value(QStringLiteral("tracks")).toArray(), jsonTrackToVariant);
+        appendUnique(m_searchAlbums, data.value(QStringLiteral("albums")).toArray(), jsonAlbumToVariant);
+        appendUnique(m_searchArtists, data.value(QStringLiteral("artists")).toArray(), jsonArtistToVariant);
+        m_searchCursors.insert(provider, data.value(QStringLiteral("cursor")).toVariant());
+        emit searchResultsChanged();
+        setStatus(QStringLiteral("Loaded more %1 results").arg(provider));
     });
 }
 

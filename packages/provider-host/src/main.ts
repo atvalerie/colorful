@@ -2,11 +2,11 @@ import { normalizeVerificationUrl, pollDeviceAuth, refreshUserToken, startDevice
 import { BrowseClient } from "./browse";
 import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
-import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
+import { clearProviderSecret, clearRefreshToken, loadProviderSecret, loadRefreshToken, saveProviderSecret, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
-import { soundCloudArtistPage, soundCloudMore, soundCloudPlaylistPage, soundCloudRelated, soundCloudSearch, soundCloudSource, soundCloudTrackPage } from "./soundcloud";
+import { parseSoundCloudAuthorization, setSoundCloudAccessToken, soundCloudAccount, soundCloudArtistPage, soundCloudCollection, soundCloudLinked, soundCloudMore, soundCloudPlaylistPage, soundCloudRelated, soundCloudSearch, soundCloudSearchMore, soundCloudSource, soundCloudTrackPage } from "./soundcloud";
 import { clearYouTubeAuth, connectYouTubeBrowser, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
-import { youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
+import { searchYouTubeVideos, youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
 import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
@@ -91,6 +91,7 @@ async function handle(request: RequestMessage): Promise<void> {
         youtubeAvailable: youtubeAvailable(),
         youtubeLinked: youtubeLinked(),
         soundcloudAvailable: true,
+        soundcloudLinked: soundCloudLinked(),
       } });
       return;
     case "youtube.auth.status":
@@ -156,6 +157,35 @@ async function handle(request: RequestMessage): Promise<void> {
       return;
     case "youtube.collection":
       send({ id: request.id, ok: true, data: await youtubeMusicCollection() });
+      return;
+    case "soundcloud.auth.browser": {
+      const token = parseSoundCloudAuthorization(String(request.payload?.request ?? ""));
+      setSoundCloudAccessToken(token);
+      let account;
+      try {
+        account = await soundCloudAccount();
+      } catch (error) {
+        setSoundCloudAccessToken(null);
+        throw error;
+      }
+      if (!await saveProviderSecret("soundcloud", "colorful SoundCloud account", token)) {
+        setSoundCloudAccessToken(null);
+        throw new Error("Could not persist the SoundCloud session in Secret Service");
+      }
+      send({ id: request.id, ok: true, data: { linked: true, account } });
+      send({ event: "soundcloud.auth.completed", ok: true, data: { linked: true, account } });
+      return;
+    }
+    case "soundcloud.auth.unlink":
+      setSoundCloudAccessToken(null);
+      await clearProviderSecret("soundcloud");
+      send({ id: request.id, ok: true, data: { linked: false } });
+      return;
+    case "soundcloud.account":
+      send({ id: request.id, ok: true, data: await soundCloudAccount() });
+      return;
+    case "soundcloud.collection":
+      send({ id: request.id, ok: true, data: await soundCloudCollection() });
       return;
     case "auth.start": {
       authAbort?.abort();
@@ -223,9 +253,9 @@ async function handle(request: RequestMessage): Promise<void> {
         throw new Error(`Search failed: ${publicError(tidalResult.reason)}; YouTube: ${publicError(youtubeResult.reason)}; SoundCloud: ${publicError(soundcloudResult.reason)}`);
       }
       const tidal = tidalResult.status === "fulfilled"
-        ? tidalResult.value : { tracks: [], albums: [], artists: [] };
+        ? tidalResult.value : { tracks: [], albums: [], artists: [], cursors: {} };
       const youtube = youtubeResult.status === "fulfilled"
-        ? youtubeResult.value : { tracks: [], albums: [], artists: [] };
+        ? youtubeResult.value : { tracks: [], albums: [], artists: [], cursors: {} };
       const soundcloud = soundcloudResult.status === "fulfilled"
         ? soundcloudResult.value : { tracks: [], albums: [], artists: [] };
       send({ id: request.id, ok: true, data: {
@@ -233,6 +263,12 @@ async function handle(request: RequestMessage): Promise<void> {
         tracks: [...tidal.tracks, ...youtube.tracks.map((track) => ({ ...track, provider: "youtube" })), ...soundcloud.tracks],
         albums: [...tidal.albums, ...youtube.albums.map((album) => ({ ...album, provider: "youtube" })), ...soundcloud.albums],
         artists: [...tidal.artists, ...youtube.artists.map((artist) => ({ ...artist, provider: "youtube" })), ...soundcloud.artists],
+        cursors: {
+          tidal: tidalResult.status === "fulfilled" ? tidal.cursors : {},
+          youtube: youtubeResult.status === "fulfilled"
+            ? (Object.keys(youtube.cursors).length ? youtube.cursors : youtubeAvailable() ? { fallbackOffset: "1" } : {}) : {},
+          soundcloud: soundcloudResult.status === "fulfilled" ? soundcloud.cursor ?? "" : "",
+        },
         warnings: [
           ...(tidalResult.status === "rejected" ? [`TIDAL: ${publicError(tidalResult.reason)}`] : []),
           ...(youtubeResult.status === "rejected" ? [`YouTube: ${publicError(youtubeResult.reason)}`] : []),
@@ -240,6 +276,46 @@ async function handle(request: RequestMessage): Promise<void> {
         ],
       } });
       return;
+    }
+    case "search.more": {
+      const provider = String(request.payload?.provider ?? "");
+      const query = String(request.payload?.query ?? "").trim();
+      const cursor = request.payload?.cursor;
+      if (!query) throw new Error("Search query is empty");
+      if (provider === "tidal") {
+        const page = await browse.searchCatalog(query, 20,
+          cursor && typeof cursor === "object" ? cursor as Record<string, string> : {});
+        send({ id: request.id, ok: true, data: { provider, ...page, cursor: page.cursors } });
+        return;
+      }
+      if (provider === "youtube") {
+        const youtubeCursor = cursor && typeof cursor === "object" ? cursor as Record<string, string> : {};
+        if (youtubeCursor.fallbackOffset) {
+          const start = Number(youtubeCursor.fallbackOffset);
+          if (!Number.isSafeInteger(start) || start < 1) throw new Error("Invalid YouTube search offset");
+          const tracks = await searchYouTubeVideos(query, 20, start);
+          send({ id: request.id, ok: true, data: { provider,
+            tracks, albums: [], artists: [],
+            cursor: tracks.length === 20 ? { fallbackOffset: String(start + tracks.length) } : {} } });
+          return;
+        }
+        const page = await searchYouTubeMusicCatalog(query,
+          youtubeCursor);
+        send({ id: request.id, ok: true, data: { provider,
+          tracks: page.tracks.map((track) => ({ ...track, provider })),
+          albums: page.albums.map((album) => ({ ...album, provider })),
+          artists: page.artists.map((artist) => ({ ...artist, provider })),
+          cursor: page.cursors } });
+        return;
+      }
+      if (provider === "soundcloud") {
+        const value = String(cursor ?? "").trim();
+        if (!value) throw new Error("SoundCloud search has no next page");
+        const page = await soundCloudSearchMore(value);
+        send({ id: request.id, ok: true, data: { provider, ...page, cursor: page.cursor ?? "" } });
+        return;
+      }
+      throw new Error(`Search pagination is not implemented for ${provider}`);
     }
     case "detail": {
       const provider = String(request.payload?.provider ?? "tidal");
@@ -407,6 +483,18 @@ async function restoreAccounts(): Promise<void> {
       await clearYouTubeAuth();
       setYouTubeMusicBrowserHeadersProvider(null);
       send({ event: "warning", ok: false, error: `Stored YouTube Music session expired: ${publicError(error)}` });
+    }
+  })(), (async () => {
+    const token = await loadProviderSecret("soundcloud");
+    if (!token) return;
+    setSoundCloudAccessToken(token);
+    try {
+      const account = await soundCloudAccount();
+      send({ event: "soundcloud.auth.restored", ok: true, data: { linked: true, account } });
+    } catch (error) {
+      setSoundCloudAccessToken(null);
+      await clearProviderSecret("soundcloud");
+      send({ event: "warning", ok: false, error: `Stored SoundCloud session expired: ${publicError(error)}` });
     }
   })()]);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mapSoundCloudPlaylist, mapSoundCloudTrack, parseSoundCloudBootstrap } from "../src/soundcloud";
+import { mapSoundCloudPlaylist, mapSoundCloudTrack, parseSoundCloudAuthorization, parseSoundCloudBootstrap } from "../src/soundcloud";
 
 describe("SoundCloud public catalog", () => {
   test("discovers the public API client from homepage hydration", () => {
@@ -33,6 +33,17 @@ describe("SoundCloud public catalog", () => {
       albumTitle: "A set",
       coverUrl: "https://i1.sndcdn.com/artworks-test-t500x500.jpg",
     }));
+  });
+
+  test("keeps only the OAuth token from a copied cURL request", () => {
+    expect(parseSoundCloudAuthorization(`curl 'https://api-v2.soundcloud.com/me' \\
+      -H 'Accept: application/json' \\
+      -H 'Authorization: OAuth account-token' \\
+      -H 'x-datadome-clientid: fingerprint'`)).toBe("account-token");
+    expect(parseSoundCloudAuthorization("Authorization: OAuth raw-header-token"))
+      .toBe("raw-header-token");
+    expect(() => parseSoundCloudAuthorization("curl https://soundcloud.com"))
+      .toThrow("Authorization: OAuth");
   });
 
   test("maps sets into collection cards without losing their size", () => {

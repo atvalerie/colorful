@@ -233,6 +233,13 @@ export function setYouTubeMusicBrowserHeadersProvider(provider: (() => Promise<R
   browserHeadersProvider = provider;
 }
 
+export type YouTubeSearchCursors = {
+  songs?: string;
+  videos?: string;
+  albums?: string;
+  artists?: string;
+};
+
 function cookieValue(cookie: string, name: string): string {
   const prefix = `${name}=`;
   return cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix))?.slice(prefix.length) ?? "";
@@ -322,12 +329,16 @@ function responsiveItems(document: JsonObject): JsonObject[] {
   return children(document, "musicResponsiveListItemRenderer");
 }
 
-export async function searchYouTubeMusicCatalog(query: string): Promise<CatalogSearch> {
+export async function searchYouTubeMusicCatalog(query: string, cursors: YouTubeSearchCursors = {}): Promise<CatalogSearch & { cursors: YouTubeSearchCursors }> {
+  const continuation = Object.keys(cursors).length > 0;
+  const page = (filter: keyof typeof SEARCH_FILTERS, cursor?: string) => continuation && !cursor
+    ? Promise.resolve({})
+    : youtubei("search", cursor ? { continuation: cursor } : { query, params: SEARCH_FILTERS[filter] });
   const [songDocument, videoDocument, albumDocument, artistDocument] = await Promise.all([
-    youtubei("search", { query, params: SEARCH_FILTERS.songs }),
-    youtubei("search", { query, params: SEARCH_FILTERS.videos }),
-    youtubei("search", { query, params: SEARCH_FILTERS.albums }),
-    youtubei("search", { query, params: SEARCH_FILTERS.artists }),
+    page("songs", cursors.songs),
+    page("videos", cursors.videos),
+    page("albums", cursors.albums),
+    page("artists", cursors.artists),
   ]);
   const songs = responsiveItems(songDocument).map(mapTrack).filter((item): item is TrackSummary => Boolean(item));
   const videos = responsiveItems(videoDocument).map(mapVideo).filter((item): item is TrackSummary => Boolean(item));
@@ -350,6 +361,12 @@ export async function searchYouTubeMusicCatalog(query: string): Promise<CatalogS
     tracks: [...new Map(tracks.map((track) => [track.id, track])).values()],
     albums: responsiveItems(albumDocument).map(mapAlbum).filter((item): item is AlbumSummary => Boolean(item)),
     artists: [...new Map(artists.map((artist) => [artist.id, artist])).values()],
+    cursors: {
+      ...(continuationToken(songDocument) ? { songs: continuationToken(songDocument) } : {}),
+      ...(continuationToken(videoDocument) ? { videos: continuationToken(videoDocument) } : {}),
+      ...(continuationToken(albumDocument) ? { albums: continuationToken(albumDocument) } : {}),
+      ...(continuationToken(artistDocument) ? { artists: continuationToken(artistDocument) } : {}),
+    },
   };
 }
 

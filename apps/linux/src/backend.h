@@ -34,10 +34,15 @@ class Backend final : public QObject
     Q_PROPERTY(bool youtubeLinked READ youtubeLinked NOTIFY youtubeAccountChanged)
     Q_PROPERTY(QVariantMap youtubeHub READ youtubeHub NOTIFY youtubeAccountChanged)
     Q_PROPERTY(bool youtubeHubLoading READ youtubeHubLoading NOTIFY youtubeAccountChanged)
+    Q_PROPERTY(bool soundcloudLinked READ soundcloudLinked NOTIFY soundcloudAccountChanged)
+    Q_PROPERTY(QVariantMap soundcloudHub READ soundcloudHub NOTIFY soundcloudAccountChanged)
+    Q_PROPERTY(bool soundcloudHubLoading READ soundcloudHubLoading NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchArtists READ searchArtists NOTIFY searchResultsChanged)
+    Q_PROPERTY(QVariantMap searchCursors READ searchCursors NOTIFY searchResultsChanged)
+    Q_PROPERTY(bool searchMoreLoading READ searchMoreLoading NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantMap catalogPage READ catalogPage NOTIFY catalogPageChanged)
     Q_PROPERTY(bool catalogLoading READ catalogLoading NOTIFY catalogPageChanged)
     Q_PROPERTY(bool catalogMoreLoading READ catalogMoreLoading NOTIFY catalogPageChanged)
@@ -101,10 +106,15 @@ public:
     bool youtubeLinked() const { return m_youtubeLinked; }
     QVariantMap youtubeHub() const { return m_youtubeHub; }
     bool youtubeHubLoading() const { return m_youtubeHubLoading; }
+    bool soundcloudLinked() const { return m_soundcloudLinked; }
+    QVariantMap soundcloudHub() const { return m_soundcloudHub; }
+    bool soundcloudHubLoading() const { return m_soundcloudHubLoading; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList searchAlbums() const { return m_searchAlbums; }
     QVariantList searchArtists() const { return m_searchArtists; }
+    QVariantMap searchCursors() const { return m_searchCursors; }
+    bool searchMoreLoading() const { return m_searchMoreLoading; }
     QVariantMap catalogPage() const { return m_catalogPage; }
     bool catalogLoading() const { return m_catalogLoading; }
     bool catalogMoreLoading() const { return m_catalogMoreLoading; }
@@ -166,9 +176,14 @@ public:
     Q_INVOKABLE void unlinkYouTube();
     Q_INVOKABLE void loadYouTubeHub(bool refresh = false);
     Q_INVOKABLE void openYouTubeSetupGuide();
+    Q_INVOKABLE void connectSoundCloudSession(const QString &request);
+    Q_INVOKABLE void unlinkSoundCloud();
+    Q_INVOKABLE void loadSoundCloudHub(bool refresh = false);
+    Q_INVOKABLE void openSoundCloudSetupGuide();
     Q_INVOKABLE void dismissEntitlementWarning();
     Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
+    Q_INVOKABLE void loadMoreSearch(const QString &provider);
     Q_INVOKABLE void openTrack(const QString &id);
     Q_INVOKABLE void openTrackItem(const QVariantMap &track);
     Q_INVOKABLE void openAlbum(const QString &id);
@@ -245,6 +260,7 @@ signals:
     void entitlementChanged();
     void authDetailsChanged();
     void youtubeAccountChanged();
+    void soundcloudAccountChanged();
     void statusMessageChanged();
     void searchResultsChanged();
     void catalogPageChanged();
@@ -370,6 +386,9 @@ private:
     QVariantList m_searchResults;
     QVariantList m_searchAlbums;
     QVariantList m_searchArtists;
+    QVariantMap m_searchCursors;
+    QString m_searchQuery;
+    bool m_searchMoreLoading = false;
     QVariantMap m_catalogPage;
     QVariantList m_catalogHistory;
     bool m_catalogLoading = false;
@@ -397,6 +416,9 @@ private:
     QVariantMap m_youtubeHub;
     bool m_youtubeHubLoading = false;
     bool m_youtubeLinked = false;
+    QVariantMap m_soundcloudHub;
+    bool m_soundcloudHubLoading = false;
+    bool m_soundcloudLinked = false;
     QVariantMap m_listenStats;
     QList<qint64> m_queueEntryIds;
     QList<qint64> m_playOrderEntryIds;

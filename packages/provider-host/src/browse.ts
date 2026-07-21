@@ -64,6 +64,8 @@ export type UserCollectionPage = {
 };
 
 export type CatalogSearch = { tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[] };
+export type CatalogSearchCursors = { tracks?: string; albums?: string; artists?: string };
+export type CatalogSearchPage = CatalogSearch & { cursors: CatalogSearchCursors };
 export type TrackPage = { kind: "track"; track: TrackSummary; relatedTracks: TrackSummary[] };
 export type AlbumPage = { kind: "album"; album: AlbumSummary; tracks: TrackSummary[]; trackCursor?: string };
 export type PlaylistPage = { kind: "playlist"; playlist: PlaylistSummary; tracks: TrackSummary[]; trackCursor?: string };
@@ -527,19 +529,40 @@ export class BrowseClient {
     return deduplicateTracks(await this.hydrateMissingArtwork(mapTracks(document)));
   }
 
-  async searchCatalog(query: string, limit = 20): Promise<CatalogSearch> {
+  async searchCatalog(query: string, limit = 20, cursors: CatalogSearchCursors = {}): Promise<CatalogSearchPage> {
     const pageLimit = String(Math.max(1, Math.min(limit, 20)));
     const encoded = encodeURIComponent(query);
+    const continuation = Object.keys(cursors).length > 0;
     const [tracksResult, albumsResult, artistsResult] = await Promise.allSettled([
-      this.searchTracks(query, limit),
-      this.get(`searchResults/${encoded}/relationships/albums`, { include: "albums", "page[limit]": pageLimit }),
-      this.get(`searchResults/${encoded}/relationships/artists`, { include: "artists", "page[limit]": pageLimit }),
+      continuation && !cursors.tracks ? Promise.resolve(null) : this.get(`searchResults/${encoded}/relationships/tracks`, {
+        include: "tracks.albums,tracks.artists", collapseBy: "FINGERPRINT", "page[limit]": pageLimit,
+        ...(cursors.tracks ? { "page[cursor]": cursors.tracks } : {}),
+      }),
+      continuation && !cursors.albums ? Promise.resolve(null) : this.get(`searchResults/${encoded}/relationships/albums`, {
+        include: "albums", "page[limit]": pageLimit,
+        ...(cursors.albums ? { "page[cursor]": cursors.albums } : {}),
+      }),
+      continuation && !cursors.artists ? Promise.resolve(null) : this.get(`searchResults/${encoded}/relationships/artists`, {
+        include: "artists", "page[limit]": pageLimit,
+        ...(cursors.artists ? { "page[cursor]": cursors.artists } : {}),
+      }),
     ]);
     if (tracksResult.status === "rejected" && albumsResult.status === "rejected" && artistsResult.status === "rejected") throw tracksResult.reason;
     return {
-      tracks: tracksResult.status === "fulfilled" ? tracksResult.value : [],
-      albums: albumsResult.status === "fulfilled" ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(albumsResult.value))) : [],
-      artists: artistsResult.status === "fulfilled" ? await this.hydrateArtists(mapArtists(artistsResult.value)) : [],
+      tracks: tracksResult.status === "fulfilled" && tracksResult.value
+        ? deduplicateTracks(await this.hydrateMissingArtwork(mapTracks(tracksResult.value))) : [],
+      albums: albumsResult.status === "fulfilled" && albumsResult.value
+        ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(albumsResult.value))) : [],
+      artists: artistsResult.status === "fulfilled" && artistsResult.value
+        ? await this.hydrateArtists(mapArtists(artistsResult.value)) : [],
+      cursors: {
+        ...(tracksResult.status === "fulfilled" && tracksResult.value && cursorFromNextLink(tracksResult.value)
+          ? { tracks: cursorFromNextLink(tracksResult.value)! } : {}),
+        ...(albumsResult.status === "fulfilled" && albumsResult.value && cursorFromNextLink(albumsResult.value)
+          ? { albums: cursorFromNextLink(albumsResult.value)! } : {}),
+        ...(artistsResult.status === "fulfilled" && artistsResult.value && cursorFromNextLink(artistsResult.value)
+          ? { artists: cursorFromNextLink(artistsResult.value)! } : {}),
+      },
     };
   }
 

@@ -32,6 +32,8 @@ shell owns credential persistence. TIDAL uses device authorization and stores
 its refresh token in the platform credential service. Linux YouTube Music
 instead imports a logged-in browser session into Secret Service because Google
 currently rejects custom-client OAuth tokens on its private Music endpoints.
+Linux SoundCloud may import the OAuth header from the user's own logged-in API
+request; only that token is retained in Secret Service.
 An Android implementation will store equivalent provider credentials in
 Keystore while reusing the provider request semantics.
 

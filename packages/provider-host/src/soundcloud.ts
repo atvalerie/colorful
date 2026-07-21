@@ -1,4 +1,4 @@
-import type { AlbumSummary, ArtistSummary, PlaylistSummary, TrackSummary } from "./browse";
+import type { AlbumSummary, ArtistSummary, PlaylistSummary, TrackSummary, UserCollectionPage } from "./browse";
 
 const WEB_ORIGIN = "https://soundcloud.com";
 const API_ORIGIN = "https://api-v2.soundcloud.com";
@@ -8,6 +8,7 @@ type SoundCloudUser = {
   id?: unknown;
   username?: unknown;
   avatar_url?: unknown;
+  permalink_url?: unknown;
 };
 
 type SoundCloudTranscoding = {
@@ -59,6 +60,7 @@ export type SoundCloudBootstrap = {
 };
 
 let bootstrapCache: (SoundCloudBootstrap & { discoveredAt: number }) | null = null;
+let accessToken = "";
 const anonymousUserId = Array.from({ length: 4 }, () => Math.floor(100000 + Math.random() * 900000)).join("-");
 
 function string(value: unknown): string {
@@ -177,6 +179,26 @@ export function parseSoundCloudBootstrap(html: string): SoundCloudBootstrap {
   return { clientId, ...(appVersionMatch?.[1] ? { appVersion: appVersionMatch[1] } : {}) };
 }
 
+export function parseSoundCloudAuthorization(input: string): string {
+  const matches = [...input.matchAll(/(?:^|\s)(?:-H|--header)\s+(?:'([^']*)'|"((?:\\.|[^"])*)")/g)]
+    .map((match) => (match[1] ?? match[2] ?? "").replace(/\\"/g, '"'));
+  const rawLines = input.split(/\r?\n/).map((line) => line.trim());
+  const authorization = [...matches, ...rawLines]
+    .find((header) => /^authorization\s*:/i.test(header));
+  const value = authorization?.replace(/^authorization\s*:\s*/i, "").trim() ?? "";
+  const token = value.replace(/^oauth\s+/i, "").trim();
+  if (!token || /[\r\n]/.test(token)) throw new Error("The pasted request does not contain an Authorization: OAuth header");
+  return token;
+}
+
+export function setSoundCloudAccessToken(token: string | null): void {
+  accessToken = token?.trim() ?? "";
+}
+
+export function soundCloudLinked(): boolean {
+  return Boolean(accessToken);
+}
+
 async function discover(force = false): Promise<SoundCloudBootstrap> {
   if (!force && bootstrapCache && Date.now() - bootstrapCache.discoveredAt < DISCOVERY_TTL_MS) return bootstrapCache;
   const response = await fetch(WEB_ORIGIN, { headers: { accept: "text/html" } });
@@ -199,7 +221,11 @@ function apiUrl(pathOrUrl: string, bootstrap: SoundCloudBootstrap, query: Record
 
 async function api<T>(pathOrUrl: string, query: Record<string, unknown> = {}, retry = true): Promise<T> {
   const bootstrap = await discover();
-  const response = await fetch(apiUrl(pathOrUrl, bootstrap, query), { headers: { accept: "application/json" } });
+  const response = await fetch(apiUrl(pathOrUrl, bootstrap, query), { headers: {
+    accept: "application/json",
+    ...(accessToken ? { authorization: `OAuth ${accessToken}` } : {}),
+  } });
+  if (response.status === 401 && accessToken) throw new Error("The stored SoundCloud session has expired; reconnect it in Settings");
   if ((response.status === 401 || response.status === 403) && retry) {
     await discover(true);
     return api<T>(pathOrUrl, query, false);
@@ -209,6 +235,79 @@ async function api<T>(pathOrUrl: string, query: Record<string, unknown> = {}, re
     throw new Error(`SoundCloud returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
   }
   return response.json() as Promise<T>;
+}
+
+function trackFromActivity(value: unknown): SoundCloudTrack | null {
+  const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  if (item.kind === "track") return item as SoundCloudTrack;
+  return item.track && typeof item.track === "object" ? item.track as SoundCloudTrack : null;
+}
+
+function playlistFromActivity(value: unknown): SoundCloudPlaylist | null {
+  const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  if (item.kind === "playlist") return item as SoundCloudPlaylist;
+  return item.playlist && typeof item.playlist === "object" ? item.playlist as SoundCloudPlaylist : null;
+}
+
+export async function soundCloudAccount(): Promise<Record<string, unknown>> {
+  if (!accessToken) throw new Error("Connect your SoundCloud account first");
+  const user = await api<SoundCloudUser & Record<string, unknown>>("me");
+  const artist = mapSoundCloudArtist(user);
+  if (!artist) throw new Error("SoundCloud did not return an account profile");
+  return {
+    id: artist.id,
+    username: artist.name,
+    avatarUrl: artist.pictureUrl,
+    permalinkUrl: string(user.permalink_url),
+  };
+}
+
+export async function soundCloudCollection(): Promise<UserCollectionPage> {
+  if (!accessToken) throw new Error("Connect your SoundCloud account first");
+  const [trackResult, playlistResult, ownPlaylistResult, followingResult] = await Promise.allSettled([
+    api<SoundCloudCollection>("me/likes/tracks", { limit: 50, offset: 0, linked_partitioning: 1 }),
+    api<SoundCloudCollection>("me/likes/playlists", { limit: 50, offset: 0, linked_partitioning: 1 }),
+    api<SoundCloudCollection>("me/playlists", { limit: 50, offset: 0, linked_partitioning: 1, show_tracks: false }),
+    api<SoundCloudCollection>("me/followings", { limit: 50, offset: 0, linked_partitioning: 1 }),
+  ]);
+  if (trackResult.status === "rejected" && playlistResult.status === "rejected"
+      && ownPlaylistResult.status === "rejected" && followingResult.status === "rejected") {
+    throw trackResult.reason;
+  }
+  const trackPage = trackResult.status === "fulfilled" ? trackResult.value : {};
+  const playlistPage = playlistResult.status === "fulfilled" ? playlistResult.value : {};
+  const ownPlaylistPage = ownPlaylistResult.status === "fulfilled" ? ownPlaylistResult.value : {};
+  const followingPage = followingResult.status === "fulfilled" ? followingResult.value : {};
+  const tracks = array(trackPage.collection).map(trackFromActivity).filter((value): value is SoundCloudTrack => Boolean(value))
+    .map(mapSoundCloudTrack).filter((value): value is TrackSummary => Boolean(value));
+  const albums = [...new Map([...array(playlistPage.collection), ...array(ownPlaylistPage.collection)]
+    .map(playlistFromActivity).filter((value): value is SoundCloudPlaylist => Boolean(value))
+    .map(mapSoundCloudPlaylist).filter((value): value is AlbumSummary => Boolean(value))
+    .map((album) => [album.id, album])).values()];
+  const artists = array(followingPage.collection).map((value) => mapSoundCloudArtist(value as SoundCloudUser))
+    .filter((value): value is ArtistSummary => Boolean(value));
+  return {
+    tracks,
+    albums,
+    artists,
+    playlists: albums.map((album): PlaylistSummary => ({
+      id: album.id,
+      name: album.title,
+      description: null,
+      coverUrl: album.coverUrl,
+      durationMs: album.durationMs,
+      numberOfItems: album.numberOfTracks,
+      playlistType: album.albumType,
+      createdAt: album.releaseDate,
+      lastModifiedAt: null,
+    })),
+    mixes: [],
+    cursors: {
+      ...(nextCursor(trackPage) ? { tracks: nextCursor(trackPage)! } : {}),
+      ...(nextCursor(playlistPage) ? { playlists: nextCursor(playlistPage)! } : {}),
+      ...(nextCursor(followingPage) ? { artists: nextCursor(followingPage)! } : {}),
+    },
+  };
 }
 
 function nextCursor(document: SoundCloudCollection): string | undefined {
@@ -231,12 +330,13 @@ async function hydratedTracks(values: unknown[]): Promise<TrackSummary[]> {
 }
 
 export async function soundCloudSearch(query: string, limit = 20): Promise<{
-  tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[];
+  tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[]; cursor?: string;
 }> {
   const response = await api<SoundCloudCollection>("search", {
     q: query, facet: "model", limit, offset: 0, linked_partitioning: 1, user_id: anonymousUserId,
   });
   const values = array(response.collection);
+  const cursor = nextCursor(response);
   return {
     tracks: values.filter((value) => (value as SoundCloudTrack)?.kind === "track")
       .map((value) => mapSoundCloudTrack(value as SoundCloudTrack)).filter((value): value is TrackSummary => Boolean(value)),
@@ -244,6 +344,24 @@ export async function soundCloudSearch(query: string, limit = 20): Promise<{
       .map((value) => mapSoundCloudPlaylist(value as SoundCloudPlaylist)).filter((value): value is AlbumSummary => Boolean(value)),
     artists: values.filter((value) => (value as SoundCloudUser & { kind?: unknown })?.kind === "user")
       .map((value) => mapSoundCloudArtist(value as SoundCloudUser)).filter((value): value is ArtistSummary => Boolean(value)),
+    ...(cursor ? { cursor } : {}),
+  };
+}
+
+export async function soundCloudSearchMore(cursor: string): Promise<{
+  tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[]; cursor?: string;
+}> {
+  const response = await api<SoundCloudCollection>(cursor);
+  const values = array(response.collection);
+  const next = nextCursor(response);
+  return {
+    tracks: values.map(trackFromActivity).filter((value): value is SoundCloudTrack => Boolean(value))
+      .map(mapSoundCloudTrack).filter((value): value is TrackSummary => Boolean(value)),
+    albums: values.map(playlistFromActivity).filter((value): value is SoundCloudPlaylist => Boolean(value))
+      .map(mapSoundCloudPlaylist).filter((value): value is AlbumSummary => Boolean(value)),
+    artists: values.filter((value) => (value as SoundCloudUser & { kind?: unknown })?.kind === "user")
+      .map((value) => mapSoundCloudArtist(value as SoundCloudUser)).filter((value): value is ArtistSummary => Boolean(value)),
+    ...(next ? { cursor: next } : {}),
   };
 }
 

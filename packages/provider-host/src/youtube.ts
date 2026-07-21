@@ -111,13 +111,15 @@ export function youtubeAvailable(): boolean {
   return Boolean(process.env.COLORFUL_YT_DLP?.trim() || Bun.which("yt-dlp"));
 }
 
-export async function searchYouTubeVideos(query: string, limit = 20): Promise<YouTubeTrackSummary[]> {
+export async function searchYouTubeVideos(query: string, limit = 20, start = 1): Promise<YouTubeTrackSummary[]> {
   const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+  const safeStart = Math.max(1, Math.floor(start));
+  const end = safeStart + safeLimit - 1;
   const document = await runYtDlp([
     "--no-warnings", "--ignore-errors", "--flat-playlist", "--dump-single-json",
-    "--playlist-end", String(safeLimit), `ytsearch${safeLimit}:${query}`,
+    "--playlist-end", String(end), `ytsearch${end}:${query}`,
   ]);
-  return mappedEntries(document).slice(0, safeLimit);
+  return mappedEntries(document).slice(safeStart - 1, end);
 }
 
 export async function youtubeAutomix(videoId: string, limit = 20): Promise<YouTubeTrackSummary[]> {

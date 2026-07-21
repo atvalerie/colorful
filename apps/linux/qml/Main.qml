@@ -26,13 +26,16 @@ ApplicationWindow {
         : colorful.searchAlbums.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
     readonly property var visibleSearchArtists: searchProvider === "all" ? colorful.searchArtists
         : colorful.searchArtists.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
+    readonly property var searchMoreProviders: ["tidal", "youtube", "soundcloud"].filter(function(provider) {
+        if (searchProvider !== "all" && searchProvider !== provider) return false
+        const cursor = colorful.searchCursors[provider]
+        if (typeof cursor === "string") return cursor.length > 0
+        return cursor && Object.keys(cursor).length > 0
+    })
     onCurrentSectionChanged: Qt.callLater(function() { resultsList.positionViewAtBeginning() })
 
     Connections {
         target: colorful
-        function onSearchResultsChanged() {
-            Qt.callLater(function() { resultsList.positionViewAtBeginning() })
-        }
         function onToastRequested(message, kind) {
             toastOverlay.show(message, kind)
         }
@@ -82,6 +85,7 @@ ApplicationWindow {
         submittedQuery = query
         currentSection = "search"
         colorful.closeCatalog()
+        resultsList.positionViewAtBeginning()
         colorful.search(query)
     }
 
@@ -332,6 +336,18 @@ ApplicationWindow {
 
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
+                        iconSource: "icons/soundcloud.svg"
+                        selected: window.currentSection === "soundcloud"
+                        tooltipText: "SoundCloud library"
+                        onClicked: {
+                            window.currentSection = "soundcloud"
+                            colorful.closeCatalog()
+                            colorful.loadSoundCloudHub(false)
+                        }
+                    }
+
+                    IconButton {
+                        Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/tidal.svg"
                         selected: window.currentSection === "tidal"
                         tooltipText: "TIDAL library"
@@ -435,7 +451,8 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: (window.currentSection === "search" || window.currentSection === "library"
-                                      || window.currentSection === "tidal" || window.currentSection === "youtube")
+                                      || window.currentSection === "tidal" || window.currentSection === "youtube"
+                                      || window.currentSection === "soundcloud")
                                      && (colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0)
                             page: colorful.catalogPage
                             loading: colorful.catalogLoading
@@ -452,6 +469,13 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "youtube"
+                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                        }
+
+                        SoundCloudPage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: window.currentSection === "soundcloud"
                                      && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                         }
 
@@ -600,6 +624,26 @@ ApplicationWindow {
                                     color: window.ink
                                     font.bold: true
                                     font.pixelSize: 16
+                                }
+                            }
+
+                            footer: Item {
+                                width: resultsList.width
+                                height: visible ? 62 : 0
+                                visible: window.currentSection === "search" && window.searchMoreProviders.length > 0
+                                Row {
+                                    anchors.centerIn: parent
+                                    spacing: 8
+                                    Repeater {
+                                        model: window.searchMoreProviders
+                                        delegate: ColorButton {
+                                            required property string modelData
+                                            text: colorful.searchMoreLoading ? "Loading…" : "More " + (modelData === "youtube" ? "YouTube" : modelData === "soundcloud" ? "SoundCloud" : "TIDAL")
+                                            quiet: true
+                                            enabled: !colorful.searchMoreLoading
+                                            onClicked: colorful.loadMoreSearch(modelData)
+                                        }
+                                    }
                                 }
                             }
 
