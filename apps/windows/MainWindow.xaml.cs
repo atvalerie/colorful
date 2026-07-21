@@ -23,18 +23,10 @@ public sealed partial class MainWindow : Window
         {
             _core = new CoreBridge();
             using var snapshot = _core.Snapshot();
-            var queueCount = snapshot.RootElement
-                .GetProperty("value")
-                .GetProperty("queue")
-                .GetProperty("entries")
-                .GetArrayLength();
-            CoreStatusText.Text = $"Ready · ABI {_core.AbiVersion}";
-            CoreDetailsText.Text = $"{queueCount} queued · {_core.DatabasePath}";
+            _ = snapshot.RootElement;
         }
-        catch (Exception error)
+        catch
         {
-            CoreStatusText.Text = "Core unavailable";
-            CoreDetailsText.Text = error.Message;
             throw;
         }
 
