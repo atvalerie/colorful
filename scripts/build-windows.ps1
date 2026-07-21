@@ -10,7 +10,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-$env:Path = "$userPath;$machinePath"
+$env:Path = "$userPath;$machinePath;$env:Path"
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 $env:DOTNET_NOLOGO = '1'
 
@@ -38,13 +38,35 @@ foreach ($line in $environmentLines) {
     Set-Item -Path "Env:$name" -Value $value
 }
 
+$cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue
+if (-not $cargo) {
+    # The Windows VM is provisioned through a restricted build account. When
+    # the interactive desktop user launches this checkout, infer the profile
+    # that owns <profile>\src\colorful instead of requiring a second Rust SDK.
+    $sourceRoot = Split-Path -Parent $repoRoot
+    $repoOwnerProfile = Split-Path -Parent $sourceRoot
+    $repoOwnerCargoHome = Join-Path $repoOwnerProfile '.cargo'
+    $repoOwnerRustupHome = Join-Path $repoOwnerProfile '.rustup'
+    $repoOwnerCargo = Join-Path $repoOwnerCargoHome 'bin\cargo.exe'
+
+    if (Test-Path $repoOwnerCargo) {
+        $env:CARGO_HOME = $repoOwnerCargoHome
+        $env:RUSTUP_HOME = $repoOwnerRustupHome
+        $env:Path = "$(Split-Path -Parent $repoOwnerCargo);$env:Path"
+        $cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue
+    }
+}
+if (-not $cargo) {
+    throw 'Rust Cargo was not found. Install Rust with rustup or set CARGO_HOME and RUSTUP_HOME before building.'
+}
+
 Push-Location $repoRoot
 try {
     $cargoArguments = @('build', '-p', 'colorful-core')
     if ($Configuration -eq 'Release') {
         $cargoArguments += '--release'
     }
-    & cargo @cargoArguments
+    & $cargo.Source @cargoArguments
     if ($LASTEXITCODE -ne 0) { throw "Rust build failed with exit code $LASTEXITCODE." }
 
     & dotnet build `
