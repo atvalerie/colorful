@@ -58,7 +58,7 @@ public sealed partial class MainWindow : Window
         var windowHandle = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new Windows.Graphics.SizeInt32(1180, 760));
+        appWindow.Resize(new global::Windows.Graphics.SizeInt32(1180, 760));
 
         if (AppWindowTitleBar.IsCustomizationSupported())
         {
@@ -68,10 +68,10 @@ public sealed partial class MainWindow : Window
             titleBar.InactiveBackgroundColor = Colors.Transparent;
             titleBar.ButtonBackgroundColor = Colors.Transparent;
             titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
-            titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(255, 44, 36, 54);
-            titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(255, 160, 108, 255);
+            titleBar.ButtonHoverBackgroundColor = global::Windows.UI.Color.FromArgb(255, 44, 36, 54);
+            titleBar.ButtonPressedBackgroundColor = global::Windows.UI.Color.FromArgb(255, 160, 108, 255);
             titleBar.ButtonForegroundColor = Colors.White;
-            titleBar.ButtonInactiveForegroundColor = Windows.UI.Color.FromArgb(255, 125, 121, 132);
+            titleBar.ButtonInactiveForegroundColor = global::Windows.UI.Color.FromArgb(255, 125, 121, 132);
         }
     }
 

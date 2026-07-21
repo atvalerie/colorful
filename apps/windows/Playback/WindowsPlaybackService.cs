@@ -73,12 +73,12 @@ internal sealed class WindowsPlaybackService : IDisposable
     {
         var playbackItem = new MediaPlaybackItem(MediaSource.CreateFromUri(item.Source));
         var display = playbackItem.GetDisplayProperties();
-        display.Type = Windows.Media.MediaPlaybackType.Music;
+        display.Type = global::Windows.Media.MediaPlaybackType.Music;
         display.MusicProperties.Title = item.Title;
         display.MusicProperties.Artist = item.Artist;
         if (item.Artwork is not null)
         {
-            display.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference
+            display.Thumbnail = global::Windows.Storage.Streams.RandomAccessStreamReference
                 .CreateFromUri(item.Artwork);
         }
         playbackItem.ApplyDisplayProperties(display);
