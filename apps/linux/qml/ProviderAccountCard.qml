@@ -12,6 +12,7 @@ Rectangle {
     property string secondaryText: "Disconnect"
     property bool secondaryVisible: root.connected
     property bool extraVisible: false
+    property var details: []
     default property alias extraContent: extra.data
     signal primaryRequested()
     signal secondaryRequested()
@@ -67,6 +68,34 @@ Rectangle {
             color: Qt.rgba(1, 1, 1, 0.4)
             wrapMode: Text.WordWrap
             font.pixelSize: 11
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: root.connected && root.details.length > 0
+            spacing: 0
+            Repeater {
+                model: root.details
+                delegate: ColumnLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Text {
+                        Layout.fillWidth: true
+                        text: modelData[0]
+                        color: "#f5f5f5"
+                        font.bold: true
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: modelData[1]
+                        color: Qt.rgba(1, 1, 1, 0.34)
+                        font.pixelSize: 9
+                        elide: Text.ElideRight
+                    }
+                }
+            }
         }
         ColumnLayout {
             id: extra

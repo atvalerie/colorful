@@ -9,6 +9,12 @@ type SoundCloudUser = {
   username?: unknown;
   avatar_url?: unknown;
   permalink_url?: unknown;
+  followers_count?: unknown;
+  followings_count?: unknown;
+  likes_count?: unknown;
+  track_count?: unknown;
+  playlist_count?: unknown;
+  creator_subscription?: { product?: { id?: unknown } };
 };
 
 type SoundCloudTranscoding = {
@@ -308,6 +314,12 @@ export async function soundCloudAccount(): Promise<Record<string, unknown>> {
     username: artist.name,
     avatarUrl: artist.pictureUrl,
     permalinkUrl: string(user.permalink_url),
+    followersCount: number(user.followers_count) ?? 0,
+    followingsCount: number(user.followings_count) ?? 0,
+    likesCount: number(user.likes_count) ?? 0,
+    trackCount: number(user.track_count) ?? 0,
+    playlistCount: number(user.playlist_count) ?? 0,
+    plan: string(user.creator_subscription?.product?.id) || "free",
   };
   return accountCache;
 }

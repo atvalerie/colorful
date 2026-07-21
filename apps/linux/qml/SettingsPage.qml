@@ -26,6 +26,16 @@ Item {
         return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
     }
 
+    function shortDate(value) {
+        if (!value) return "Pending"
+        return String(value).slice(0, 10)
+    }
+
+    function readablePlan(value, fallback) {
+        if (!value) return fallback
+        return String(value).replace(/^creator-/, "").replace(/-/g, " ").replace(/\b\w/g, function(letter) { return letter.toUpperCase() })
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 20
@@ -101,6 +111,14 @@ Item {
                                                          || "account ready")
                                     : "Not connected"
                         description: colorful.linked ? "Search, lossless playback, collection, playlists, and mixes use this account." : "Connect using TIDAL's device authorization flow."
+                        details: {
+                            const account = colorful.tidalHub.account || {}
+                            return [
+                                [root.readablePlan(account.subscriptionType, account.status || "Active"), "Plan"],
+                                [root.shortDate(account.validUntil), "Valid until"],
+                                [account.countryCode || "Pending", "Region"]
+                            ]
+                        }
                         primaryText: colorful.linked ? "View account" : "Connect"
                         onPrimaryRequested: colorful.linked ? colorful.openTidalAccount() : colorful.startLogin()
                         onSecondaryRequested: colorful.unlink()
@@ -115,6 +133,11 @@ Item {
                         description: colorful.youtubeLinked
                                      ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
                                      : "Paste headers from a logged-in /browse request. A fresh private window is recommended; the session stays in the credential service."
+                        details: [
+                            [String((colorful.youtubeHub.tracks || []).length), "Liked tracks"],
+                            [String((colorful.youtubeHub.albums || []).length), "Albums"],
+                            [String((colorful.youtubeHub.playlists || []).length + (colorful.youtubeHub.mixes || []).length), "Playlists & mixes"]
+                        ]
                         primaryText: "Setup guide"
                         extraVisible: !colorful.youtubeLinked
                         onPrimaryRequested: colorful.openYouTubeSetupGuide()
@@ -147,6 +170,14 @@ Item {
                         description: colorful.soundcloudLinked
                                      ? "Liked tracks, sets, and followed profiles use this account. Only the OAuth token is retained."
                                      : "Copy any logged-in api-v2.soundcloud.com or api.soundcloud.com request as cURL. colorful extracts only its Authorization: OAuth header."
+                        details: {
+                            const account = colorful.soundcloudHub.account || {}
+                            return [
+                                [root.readablePlan(account.plan, "Free"), "Plan"],
+                                [String(account.followersCount || 0), "Followers"],
+                                [String(account.likesCount || 0), "Likes"]
+                            ]
+                        }
                         primaryText: "Setup guide"
                         extraVisible: !colorful.soundcloudLinked
                         onPrimaryRequested: colorful.openSoundCloudSetupGuide()
