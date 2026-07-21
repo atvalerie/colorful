@@ -378,7 +378,8 @@ export async function soundCloudCollection(): Promise<SoundCloudLibraryPage> {
     followingIds,
     ...(likedTrackIdsCursor ? { likedTrackIdsCursor } : {}),
     cursors: {
-      ...(nextCursor(trackPage) ? { tracks: nextCursor(trackPage)! } : {}),
+      ...(nextCursor(trackPage) || likedTrackIdsCursor
+        ? { tracks: nextCursor(trackPage) || likedTrackIdsCursor! } : {}),
       ...(nextCursor(playlistPage) ? { albums: nextCursor(playlistPage)! } : {}),
       ...(nextCursor(followingPage) ? { artists: nextCursor(followingPage)! } : {}),
     },
@@ -392,9 +393,12 @@ export async function soundCloudCollectionMore(section: string, cursor: string) 
   if (section === "albums") return { section, albums: array(response.collection).map(playlistFromActivity)
     .filter((value): value is SoundCloudPlaylist => Boolean(value)).map(mapSoundCloudPlaylist)
     .filter((value): value is AlbumSummary => Boolean(value)), cursor: nextCursor(response) };
-  return { section: "tracks", tracks: array(response.collection).map(trackFromActivity)
-    .filter((value): value is SoundCloudTrack => Boolean(value)).map(mapSoundCloudTrack)
-    .filter((value): value is TrackSummary => Boolean(value)), cursor: nextCursor(response) };
+  const values = array(response.collection);
+  const embedded = values.map(trackFromActivity).filter((value): value is SoundCloudTrack => Boolean(value));
+  const tracks = embedded.length
+    ? embedded.map(mapSoundCloudTrack).filter((value): value is TrackSummary => Boolean(value))
+    : await hydratedTracks(values.map((value) => ({ id: identifier(value), kind: "track" })));
+  return { section: "tracks", tracks, cursor: nextCursor(response) };
 }
 
 function nextCursor(document: SoundCloudCollection): string | undefined {

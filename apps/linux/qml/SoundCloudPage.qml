@@ -67,10 +67,10 @@ Item {
                     header: Column {
                         width: homeList.width; spacing: 8
                         visible: (root.hub.suggestedArtists || []).length > 0
-                        height: visible ? 214 : 0
+                        height: visible ? 246 : 0
                         Text { text: "Who to follow"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
                         ListView {
-                            width: parent.width; height: 190; orientation: ListView.Horizontal
+                            width: parent.width; height: 212; orientation: ListView.Horizontal
                             model: root.hub.suggestedArtists || []; spacing: 8; clip: true; pixelAligned: true
                             delegate: CatalogCard {
                                 required property var modelData
@@ -81,10 +81,10 @@ Item {
                     }
                     delegate: Column {
                         required property var modelData
-                        width: homeList.width; height: 220; spacing: 8
+                        width: homeList.width; height: 252; spacing: 8
                         Text { text: modelData.title || "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
                         ListView {
-                            width: parent.width; height: 190; orientation: ListView.Horizontal
+                            width: parent.width; height: 212; orientation: ListView.Horizontal
                             model: modelData.items || []; spacing: 8; clip: true; pixelAligned: true
                             delegate: CatalogCard {
                                 required property var modelData
@@ -93,6 +93,7 @@ Item {
                             }
                         }
                     }
+                    footer: Item { width: homeList.width; height: 36 }
                 }
                 Column {
                     anchors.centerIn: parent; spacing: 8
@@ -113,7 +114,7 @@ Item {
                         visible: !root.libraryEmpty; height: visible ? implicitHeight + 10 : 0
                         Text { visible: (root.hub.artists || []).length > 0; text: "Following"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
                         ListView {
-                            width: parent.width; height: visible ? 190 : 0
+                            width: parent.width; height: visible ? 212 : 0
                             visible: (root.hub.artists || []).length > 0
                             orientation: ListView.Horizontal; model: root.hub.artists || []
                             spacing: 8; clip: true; pixelAligned: true
@@ -131,7 +132,7 @@ Item {
                         }
                         Text { visible: (root.hub.albums || []).length > 0; text: "Sets & playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
                         ListView {
-                            width: parent.width; height: visible ? 206 : 0
+                            width: parent.width; height: visible ? 220 : 0
                             visible: (root.hub.albums || []).length > 0
                             orientation: ListView.Horizontal; model: root.hub.albums || []
                             spacing: 8; clip: true; pixelAligned: true
