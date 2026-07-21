@@ -11,6 +11,11 @@
             <SolidColorBrush x:Key="BorderBrush" Color="#2B2B32" />
             <SolidColorBrush x:Key="MutedBrush" Color="#92929D" />
             <SolidColorBrush x:Key="AccentBrush" Color="#A06CFF" />
+            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#202027" />
+            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#292331" />
+            <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF" />
             <Style TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource ColorfulFont}" />
                 <Setter Property="Foreground" Value="#F5F2FA" />
@@ -24,6 +29,21 @@
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="HorizontalContentAlignment" Value="Center" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+            <Style x:Key="NavButtonStyle" TargetType="Button" BasedOn="{StaticResource SquareButtonStyle}">
+                <Setter Property="Width" Value="44" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+            <Style x:Key="PlayerButtonStyle" TargetType="Button" BasedOn="{StaticResource SquareButtonStyle}">
+                <Setter Property="Width" Value="34" />
+                <Setter Property="Height" Value="34" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+            <Style x:Key="AccentButtonStyle" TargetType="Button" BasedOn="{StaticResource SquareButtonStyle}">
+                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                <Setter Property="Foreground" Value="#0A090C" />
+                <Setter Property="BorderBrush" Value="#D8C5FF" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

@@ -84,10 +84,30 @@ public sealed partial class MainWindow : Window
     private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         _playback.SetVolume(e.NewValue);
+        UpdateVolumeVisual();
     }
 
     private void UpdatePlaybackState()
     {
-        PlayPauseIcon.Symbol = _playback.IsPlaying ? Symbol.Pause : Symbol.Play;
+        PlayPauseImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+            new Uri(_playback.IsPlaying ? "ms-appx:///Assets/icons/pause-dark.svg" : "ms-appx:///Assets/icons/play-dark.svg"));
+    }
+
+    private void VolumeTrack_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateVolumeVisual();
+    }
+
+    private void UpdateVolumeVisual()
+    {
+        if (VolumeTrack is null || VolumeFill is null || VolumeThumb is null)
+        {
+            return;
+        }
+
+        var position = Math.Clamp(VolumeSlider.Value, 0.0, 1.0);
+        var travel = Math.Max(0.0, VolumeTrack.ActualWidth - VolumeThumb.Width);
+        VolumeFill.Width = position * VolumeTrack.ActualWidth;
+        VolumeThumb.Margin = new Thickness(position * travel, 0, 0, 0);
     }
 }
