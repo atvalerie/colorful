@@ -162,6 +162,7 @@ public:
     Q_INVOKABLE void cancelLogin();
     Q_INVOKABLE void unlink();
     Q_INVOKABLE void startYouTubeLogin(const QString &clientId, const QString &clientSecret);
+    Q_INVOKABLE void connectYouTubeBrowserSession(const QString &headers);
     Q_INVOKABLE void unlinkYouTube();
     Q_INVOKABLE void loadYouTubeHub(bool refresh = false);
     Q_INVOKABLE void openYouTubeSetupGuide();

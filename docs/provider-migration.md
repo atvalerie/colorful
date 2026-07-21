@@ -63,7 +63,7 @@ The visual layer derives contrast-safe accents and gradients from the result.
 
 1. TIDAL account link, browse, stream, and Linux offline download — implemented
 2. Public YouTube Music search/catalog, Linux playback/downloads, uploader
-   pages, and real automix — implemented; optional user-owned OAuth credentials
+   pages, and real automix — implemented; optional browser-session credentials
    now add private Music library, playlist, account, and personalized-home data
 3. SoundCloud public OAuth/catalog and stream selection — next provider
 

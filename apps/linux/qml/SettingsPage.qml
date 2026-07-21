@@ -106,7 +106,7 @@ Item {
                         }
                     }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: colorful.youtubeLinked ? 126 : 244
+                        Layout.fillWidth: true; Layout.preferredHeight: colorful.youtubeLinked ? 126 : 294
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         ColumnLayout {
                             anchors.fill: parent; anchors.margins: 16; spacing: 8
@@ -129,30 +129,27 @@ Item {
                                 Layout.fillWidth: true
                                 text: colorful.youtubeLinked
                                       ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
-                                      : "Use OAuth credentials from your own Google Cloud project. Anonymous search and playback continue without an account."
+                                      : "Paste headers from a logged-in /browse request. A fresh private window is recommended; the session stays in the credential service."
                                 color: Qt.rgba(1, 1, 1, 0.4); wrapMode: Text.WordWrap; font.pixelSize: 11
                             }
                             ColumnLayout {
                                 visible: !colorful.youtubeLinked; Layout.fillWidth: true; spacing: 7
-                                TextField {
-                                    id: youtubeClientId
-                                    Layout.fillWidth: true; implicitHeight: 36
-                                    placeholderText: "OAuth client ID"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
-                                    color: "#f5f5f5"; selectByMouse: true; font.pixelSize: 11
-                                    background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeClientId) }
-                                }
                                 RowLayout {
                                     Layout.fillWidth: true; spacing: 8
-                                    TextField {
-                                        id: youtubeClientSecret
-                                        Layout.fillWidth: true; implicitHeight: 36
-                                        placeholderText: "OAuth client secret"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
-                                        color: "#f5f5f5"; selectByMouse: true; font.pixelSize: 11; echoMode: TextInput.Password
-                                        background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeClientSecret) }
+                                    ScrollView {
+                                        Layout.fillWidth: true; Layout.preferredHeight: 118
+                                        clip: true
+                                        TextArea {
+                                            id: youtubeBrowserHeaders
+                                            placeholderText: "Paste request headers here (Cookie, X-Goog-AuthUser, …)"
+                                            placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
+                                            color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
+                                            background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeBrowserHeaders) }
+                                        }
                                     }
                                     ColorButton {
-                                        text: "Connect"; enabled: youtubeClientId.text.trim().length > 0 && youtubeClientSecret.text.trim().length > 0 && !colorful.busy
-                                        onClicked: colorful.startYouTubeLogin(youtubeClientId.text, youtubeClientSecret.text)
+                                        text: "Connect session"; enabled: youtubeBrowserHeaders.text.trim().length > 0 && !colorful.busy
+                                        onClicked: colorful.connectYouTubeBrowserSession(youtubeBrowserHeaders.text)
                                     }
                                 }
                             }

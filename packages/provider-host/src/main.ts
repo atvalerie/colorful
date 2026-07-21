@@ -4,9 +4,9 @@ import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
-import { clearYouTubeAuth, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeLinked } from "./youtube-auth";
+import { clearYouTubeAuth, connectYouTubeBrowser, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
-import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
+import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -120,11 +120,28 @@ async function handle(request: RequestMessage): Promise<void> {
       });
       return;
     }
+    case "youtube.auth.browser": {
+      await connectYouTubeBrowser(String(request.payload?.headers ?? ""));
+      setYouTubeMusicAccessTokenProvider(null);
+      setYouTubeMusicBrowserHeadersProvider(youtubeBrowserHeaders);
+      let account;
+      try {
+        account = await youtubeMusicAccount();
+      } catch (error) {
+        await clearYouTubeAuth();
+        setYouTubeMusicBrowserHeadersProvider(null);
+        throw error;
+      }
+      send({ id: request.id, ok: true, data: { linked: true, account } });
+      send({ event: "youtube.auth.completed", ok: true, data: { linked: true, account } });
+      return;
+    }
     case "youtube.auth.unlink":
       youtubeAuthAbort?.abort();
       youtubeAuthAbort = null;
       await clearYouTubeAuth();
       setYouTubeMusicAccessTokenProvider(null);
+      setYouTubeMusicBrowserHeadersProvider(null);
       send({ id: request.id, ok: true, data: { linked: false } });
       return;
     case "youtube.auth.cancel":
@@ -346,11 +363,15 @@ async function handle(request: RequestMessage): Promise<void> {
 async function restoreAccounts(): Promise<void> {
   await Promise.all([restoreSession(), (async () => {
     if (!await restoreYouTubeAuth()) return;
-    setYouTubeMusicAccessTokenProvider(youtubeAccessToken);
-    send({ event: "youtube.auth.restored", ok: true, data: {
-      linked: true,
-      account: await youtubeMusicAccount().catch(() => null),
-    } });
+    setYouTubeMusicBrowserHeadersProvider(youtubeBrowserHeaders);
+    try {
+      const account = await youtubeMusicAccount();
+      send({ event: "youtube.auth.restored", ok: true, data: { linked: true, account } });
+    } catch (error) {
+      await clearYouTubeAuth();
+      setYouTubeMusicBrowserHeadersProvider(null);
+      send({ event: "warning", ok: false, error: `Stored YouTube Music session expired: ${publicError(error)}` });
+    }
   })()]);
 }
 

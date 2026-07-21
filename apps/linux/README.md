@@ -11,7 +11,8 @@ for durable queue, library, history, settings, and offline-job state.
   collection, playlists, mixes, catalog pages, full-track playback, related
   tracks/radio, and selectable stream quality;
 - public YouTube Music song/video/release/artist/channel search, paginated
-  uploader pages, catalog navigation, playback, downloads, and real automix;
+  uploader pages, catalog navigation, playback, downloads, and real automix,
+  plus browser-session access to private libraries and playlists;
 - persistent queue/library/position, drag reordering, play-next insertion,
   shuffle, three-state repeat, autoplay, prepared-next playback, and gapless
   transitions;

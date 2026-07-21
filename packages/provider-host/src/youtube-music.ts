@@ -1,10 +1,14 @@
+import { createHash } from "node:crypto";
 import type { AlbumPage, AlbumSummary, ArtistCredit, ArtistPage, ArtistSummary, CatalogSearch, PlaylistPage, PlaylistSummary, TrackSummary, UserCollectionPage } from "./browse";
 
 type JsonObject = Record<string, unknown>;
 type Run = { text?: unknown; navigationEndpoint?: unknown };
 
 const MUSIC_ORIGIN = "https://music.youtube.com";
+const MUSIC_API_KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30";
 let accessTokenProvider: (() => Promise<string>) | null = null;
+let browserHeadersProvider: (() => Promise<Record<string, string>>) | null = null;
+let visitorIdPromise: Promise<string> | null = null;
 const SEARCH_FILTERS = {
   songs: "EgWKAQIIAWoMEA4QChADEAQQCRAF",
   videos: "EgWKAQIQAWoMEA4QChADEAQQCRAF",
@@ -223,9 +227,40 @@ export function setYouTubeMusicAccessTokenProvider(provider: (() => Promise<stri
   accessTokenProvider = provider;
 }
 
+export function setYouTubeMusicBrowserHeadersProvider(provider: (() => Promise<Record<string, string>>) | null): void {
+  browserHeadersProvider = provider;
+}
+
+function cookieValue(cookie: string, name: string): string {
+  const prefix = `${name}=`;
+  return cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix))?.slice(prefix.length) ?? "";
+}
+
+function browserAuthorization(cookie: string): string {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const sapisid = cookieValue(cookie, "__Secure-3PAPISID");
+  const digest = createHash("sha1").update(`${timestamp} ${sapisid} ${MUSIC_ORIGIN}`).digest("hex");
+  return `SAPISIDHASH ${timestamp}_${digest}`;
+}
+
+async function visitorId(): Promise<string> {
+  if (!visitorIdPromise) {
+    visitorIdPromise = fetch(MUSIC_ORIGIN, {
+      headers: { "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36" },
+    }).then(async (response) => {
+      if (!response.ok) return "";
+      const html = await response.text();
+      return html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1] ?? "";
+    }).catch(() => "");
+  }
+  return visitorIdPromise;
+}
+
 async function youtubei(endpoint: "search" | "browse" | "next" | "account/account_menu", body: JsonObject,
   accountRequired = false): Promise<JsonObject> {
   let accessToken = "";
+  let browserHeaders: Record<string, string> = {};
+  if (browserHeadersProvider) browserHeaders = await browserHeadersProvider().catch(() => ({}));
   if (accessTokenProvider) {
     try {
       accessToken = await accessTokenProvider();
@@ -233,26 +268,47 @@ async function youtubei(endpoint: "search" | "browse" | "next" | "account/accoun
       if (accountRequired) throw error;
     }
   }
-  const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json`, {
+  const browserCookie = browserHeaders.cookie ?? "";
+  const browserAuthUser = browserHeaders["x-goog-authuser"] ?? "0";
+  if (accountRequired && !browserCookie && !accessToken) throw new Error("Connect your YouTube Music account first");
+  const visitor = browserHeaders["x-goog-visitor-id"] ?? ((accessToken || browserCookie) ? await visitorId() : "");
+  const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json${browserCookie ? `&key=${MUSIC_API_KEY}` : ""}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "Accept": "*/*",
       "Origin": MUSIC_ORIGIN,
       "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
-      "X-Origin": MUSIC_ORIGIN,
-      ...(accessToken ? { "Authorization": `Bearer ${accessToken}`, "X-Goog-Request-Time": String(Math.floor(Date.now() / 1000)) } : {}),
+      ...(browserCookie ? {
+        "Authorization": browserAuthorization(browserCookie),
+        "Cookie": browserCookie,
+        "X-Goog-AuthUser": browserAuthUser,
+        ...(browserHeaders["user-agent"] ? { "User-Agent": browserHeaders["user-agent"] } : {}),
+        ...(browserHeaders["accept-language"] ? { "Accept-Language": browserHeaders["accept-language"] } : {}),
+        ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
+        "X-Origin": MUSIC_ORIGIN,
+      } : accessToken ? {
+        "Authorization": `Bearer ${accessToken}`,
+        "X-Goog-Request-Time": String(Math.floor(Date.now() / 1000)),
+        "Cookie": "SOCS=CAI",
+        ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
+      } : { "X-Origin": MUSIC_ORIGIN }),
     },
     body: JSON.stringify({
       context: { client: { clientName: "WEB_REMIX", clientVersion: clientVersion(), hl: "en", gl: "US" }, user: {} },
       ...body,
     }),
   });
-  if (!response.ok) throw new Error(`YouTube Music returned HTTP ${response.status}`);
-  return object(await response.json());
+  const document = object(await response.json().catch(() => ({})));
+  if (!response.ok) {
+    const detail = string(object(document.error).message);
+    throw new Error(`YouTube Music returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+  }
+  return document;
 }
 
 function requireAccount(): void {
-  if (!accessTokenProvider) throw new Error("Connect your YouTube Music account first");
+  if (!accessTokenProvider && !browserHeadersProvider) throw new Error("Connect your YouTube Music account first");
 }
 
 function responsiveItems(document: JsonObject): JsonObject[] {

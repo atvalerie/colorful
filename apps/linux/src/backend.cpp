@@ -825,6 +825,24 @@ void Backend::startYouTubeLogin(const QString &clientId, const QString &clientSe
     });
 }
 
+void Backend::connectYouTubeBrowserSession(const QString &headers)
+{
+    if (headers.trimmed().isEmpty()) {
+        notify(QStringLiteral("Paste the request headers from a logged-in YouTube Music /browse request"), QStringLiteral("error"));
+        return;
+    }
+    setBusy(true);
+    setStatus(QStringLiteral("Checking YouTube Music browser session…"));
+    request(QStringLiteral("youtube.auth.browser"), {
+        {QStringLiteral("headers"), headers},
+    }, [this](const QJsonObject &message) {
+        setBusy(false);
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+        }
+    });
+}
+
 void Backend::unlinkYouTube()
 {
     request(QStringLiteral("youtube.auth.unlink"), {}, [this](const QJsonObject &message) {

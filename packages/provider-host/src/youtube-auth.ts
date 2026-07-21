@@ -16,6 +16,11 @@ export type YouTubeToken = YouTubeCredentials & {
   expiresAt: number;
 };
 
+export type YouTubeBrowserSession = {
+  mode: "browser";
+  headers: Record<string, string>;
+};
+
 export type YouTubeDeviceCode = {
   deviceCode: string;
   userCode: string;
@@ -25,6 +30,7 @@ export type YouTubeDeviceCode = {
 };
 
 let token: YouTubeToken | null = null;
+let browserSession: YouTubeBrowserSession | null = null;
 let refreshInFlight: Promise<string> | null = null;
 
 function form(values: Record<string, string>): URLSearchParams {
@@ -120,6 +126,43 @@ async function persistYouTubeCredentials(credentials: YouTubeCredentials): Promi
   }));
 }
 
+function parseBrowserHeaders(raw: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const lines = raw.replace(/\r/g, "").split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (!line || line.startsWith(":")) continue;
+    const colon = line.indexOf(":");
+    if (colon > 0) {
+      const value = line.slice(colon + 1).trim();
+      if (value) headers[line.slice(0, colon).trim().toLowerCase()] = value;
+      continue;
+    }
+    const next = lines[index + 1]?.trim() ?? "";
+    if (next && !next.includes(":")) {
+      headers[line.toLowerCase()] = next;
+      index += 1;
+    }
+  }
+  return headers;
+}
+
+export async function connectYouTubeBrowser(raw: string): Promise<void> {
+  const parsed = parseBrowserHeaders(raw.trim());
+  if (!parsed.cookie) throw new Error("The copied request is missing its Cookie header");
+  if (!parsed["x-goog-authuser"]) throw new Error("The copied request is missing X-Goog-AuthUser; copy a logged-in /browse request");
+  if (!/(?:^|;\s*)__Secure-3PAPISID=/.test(parsed.cookie))
+    throw new Error("The copied Cookie header is missing __Secure-3PAPISID");
+  const allowed = ["cookie", "x-goog-authuser", "user-agent", "accept-language", "x-goog-visitor-id"];
+  const headers = Object.fromEntries(allowed.flatMap((name) => parsed[name] ? [[name, parsed[name]]] : []));
+  browserSession = { mode: "browser", headers };
+  token = null;
+  if (!await saveProviderSecret("youtube", "colorful YouTube Music browser session", JSON.stringify(browserSession))) {
+    browserSession = null;
+    throw new Error("Could not store the YouTube Music session in Secret Service");
+  }
+}
+
 async function refresh(credentials: YouTubeCredentials): Promise<YouTubeToken> {
   const document = await oauthPost(TOKEN_URL, {
     client_id: credentials.clientId,
@@ -141,10 +184,18 @@ export async function restoreYouTubeAuth(): Promise<boolean> {
   const raw = await loadProviderSecret("youtube");
   if (!raw) return false;
   try {
-    const credentials = JSON.parse(raw) as Partial<YouTubeCredentials>;
+    const stored = JSON.parse(raw) as Partial<YouTubeCredentials & YouTubeBrowserSession>;
+    if (stored.mode === "browser" && stored.headers?.cookie && stored.headers["x-goog-authuser"]) {
+      browserSession = { mode: "browser", headers: stored.headers };
+      token = null;
+      return true;
+    }
+    const credentials = stored;
     if (!credentials.clientId || !credentials.clientSecret || !credentials.refreshToken) return false;
-    token = await refresh(credentials as YouTubeCredentials);
-    return true;
+    // Google still refreshes legacy OAuth tokens, but YouTube Music's private
+    // Innertube endpoints reject them. Prompt for a browser session instead.
+    token = null;
+    return false;
   } catch {
     token = null;
     return false;
@@ -164,10 +215,16 @@ export async function youtubeAccessToken(): Promise<string> {
   return refreshInFlight;
 }
 
-export function youtubeLinked(): boolean { return token !== null; }
+export function youtubeLinked(): boolean { return browserSession !== null; }
+
+export async function youtubeBrowserHeaders(): Promise<Record<string, string>> {
+  if (!browserSession) throw new Error("Connect your YouTube Music browser session first");
+  return { ...browserSession.headers };
+}
 
 export async function clearYouTubeAuth(): Promise<void> {
   token = null;
+  browserSession = null;
   pendingCredentials = null;
   await clearProviderSecret("youtube");
 }
