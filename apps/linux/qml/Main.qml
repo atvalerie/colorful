@@ -319,6 +319,18 @@ ApplicationWindow {
 
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
+                        iconSource: "icons/youtube.svg"
+                        selected: window.currentSection === "youtube"
+                        tooltipText: "YouTube Music library"
+                        onClicked: {
+                            window.currentSection = "youtube"
+                            colorful.closeCatalog()
+                            colorful.loadYouTubeHub(false)
+                        }
+                    }
+
+                    IconButton {
+                        Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/tidal.svg"
                         selected: window.currentSection === "tidal"
                         tooltipText: "TIDAL library"
@@ -422,7 +434,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: (window.currentSection === "search" || window.currentSection === "library"
-                                      || window.currentSection === "tidal")
+                                      || window.currentSection === "tidal" || window.currentSection === "youtube")
                                      && (colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0)
                             page: colorful.catalogPage
                             loading: colorful.catalogLoading
@@ -432,6 +444,13 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "tidal"
+                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                        }
+
+                        YouTubePage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: window.currentSection === "youtube"
                                      && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
                         }
 
@@ -1273,14 +1292,16 @@ ApplicationWindow {
             spacing: 13
 
             Text {
-                text: "Connect TIDAL"
+                text: colorful.authProvider === "youtube" ? "Connect YouTube Music" : "Connect TIDAL"
                 color: window.ink
                 font.weight: Font.Bold
                 font.pixelSize: 22
             }
             Text {
                 Layout.fillWidth: true
-                text: "Approve colorful in TIDAL, then return here. Your password never touches this app."
+                text: colorful.authProvider === "youtube"
+                      ? "Approve your own Google OAuth application, then return here. Your password never touches colorful."
+                      : "Approve colorful in TIDAL, then return here. Your password never touches this app."
                 color: window.mutedInk
                 wrapMode: Text.WordWrap
                 font.pixelSize: 13
@@ -1317,7 +1338,7 @@ ApplicationWindow {
             }
             ColorButton {
                 Layout.fillWidth: true
-                text: "Open TIDAL to approve"
+                text: colorful.authProvider === "youtube" ? "Open Google to approve" : "Open TIDAL to approve"
                 onClicked: colorful.openVerificationUrl()
             }
             Text {

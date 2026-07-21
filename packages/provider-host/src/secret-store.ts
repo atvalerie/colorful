@@ -1,4 +1,6 @@
-const ATTRIBUTES = ["service", "colorful", "provider", "tidal"] as const;
+function attributes(provider: string): string[] {
+  return ["service", "colorful", "provider", provider];
+}
 
 async function runSecretTool(args: string[], stdin?: string): Promise<{ exitCode: number; stdout: string }> {
   try {
@@ -22,17 +24,28 @@ function processEnvWithoutToken(): Record<string, string> {
 }
 
 export async function loadRefreshToken(): Promise<string | null> {
-  const result = await runSecretTool(["lookup", ...ATTRIBUTES]);
+  return loadProviderSecret("tidal");
+}
+
+export async function loadProviderSecret(provider: string): Promise<string | null> {
+  const result = await runSecretTool(["lookup", ...attributes(provider)]);
   const token = result.stdout.trim();
   return result.exitCode === 0 && token ? token : null;
 }
 
 export async function saveRefreshToken(token: string): Promise<boolean> {
-  const result = await runSecretTool(["store", "--label=colorful TIDAL account", ...ATTRIBUTES], token);
+  return saveProviderSecret("tidal", "colorful TIDAL account", token);
+}
+
+export async function saveProviderSecret(provider: string, label: string, secret: string): Promise<boolean> {
+  const result = await runSecretTool(["store", `--label=${label}`, ...attributes(provider)], secret);
   return result.exitCode === 0;
 }
 
 export async function clearRefreshToken(): Promise<void> {
-  await runSecretTool(["clear", ...ATTRIBUTES]);
+  await clearProviderSecret("tidal");
 }
 
+export async function clearProviderSecret(provider: string): Promise<void> {
+  await runSecretTool(["clear", ...attributes(provider)]);
+}

@@ -31,7 +31,8 @@
 ## About
 
 colorful is a local-first personal streaming and music-library client. TIDAL is
-the primary provider; an early public YouTube Music desktop path is also working.
+the primary provider; public and optionally authenticated YouTube Music desktop
+paths are also working.
 
 - Platform-native playback, media sessions, credentials, and interfaces
 - A shared Rust core for queues, storage, offline-job state, and listening history
@@ -58,6 +59,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - account-country discovery with a cached fallback
 - TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
 - public YouTube Music song, video, release, artist, and uploader-channel search; paginated channel uploads, catalog pages, playback, downloads, and genuine radio/automix on Linux
+- optional user-owned YouTube OAuth login for private library content, playlists, and personalized mixes
 - lossless/adaptive playback with accurate duration and seeking
 - persisted perceptual desktop volume, real mute, and selectable Linux output
 - prepared-next, gapless Linux playback with prefetched autoplay
@@ -102,7 +104,7 @@ Native UI
        settings · offline-job records
 
 Linux provider host (transitional Bun process)
-  └── TIDAL + public YouTube Music catalog/source adapters
+  └── TIDAL + public/authenticated YouTube Music catalog/source adapters
 ```
 
 Playback is intentionally platform-owned. The portable engine does not decode
@@ -138,6 +140,9 @@ set +a
 
 Never commit `.env` or post credentials. Linux stores refresh tokens through
 Secret Service; Android uses Android Keystore.
+
+Authenticated YouTube Music uses credentials from your own Google Cloud
+project. See the [YouTube Music account setup guide](docs/youtube-music-login.md).
 
 colorful is not affiliated with, endorsed by, or sponsored by TIDAL, Discord,
 SoundCloud, YouTube, or their respective owners. Product names belong to their

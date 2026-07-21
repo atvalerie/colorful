@@ -23,5 +23,8 @@ pub use party::{ConnectivityPolicy, NetworkObservation, Transport};
 pub use playback::{
     AudioProcessingSettings, EQUALIZER_FREQUENCIES_HZ, PlaybackCommand, PlaybackState, RepeatMode,
 };
+pub use providers::account::{
+    DeviceAuthorizationChallenge, ProviderAccountState, ProviderCredentialHandle,
+};
 pub use queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
 pub use storage::{Storage, StorageError, StorageResult, StoredPlayback};

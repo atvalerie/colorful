@@ -106,6 +106,59 @@ Item {
                         }
                     }
                     Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: colorful.youtubeLinked ? 126 : 244
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 16; spacing: 8
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 3
+                                    Text { text: "YouTube Music"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                                    Text {
+                                        text: colorful.youtubeLinked
+                                              ? "Connected  ·  " + (((colorful.youtubeHub.account || {}).channelHandle) || ((colorful.youtubeHub.account || {}).accountName) || "account ready")
+                                              : "Anonymous catalog mode"
+                                        color: colorful.youtubeLinked ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11
+                                    }
+                                }
+                                ColorButton { text: "Setup guide"; quiet: true; onClicked: colorful.openYouTubeSetupGuide() }
+                                ColorButton { visible: colorful.youtubeLinked; text: "Disconnect"; quiet: true; onClicked: colorful.unlinkYouTube() }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: colorful.youtubeLinked
+                                      ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
+                                      : "Use OAuth credentials from your own Google Cloud project. Anonymous search and playback continue without an account."
+                                color: Qt.rgba(1, 1, 1, 0.4); wrapMode: Text.WordWrap; font.pixelSize: 11
+                            }
+                            ColumnLayout {
+                                visible: !colorful.youtubeLinked; Layout.fillWidth: true; spacing: 7
+                                TextField {
+                                    id: youtubeClientId
+                                    Layout.fillWidth: true; implicitHeight: 36
+                                    placeholderText: "OAuth client ID"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
+                                    color: "#f5f5f5"; selectByMouse: true; font.pixelSize: 11
+                                    background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeClientId) }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    TextField {
+                                        id: youtubeClientSecret
+                                        Layout.fillWidth: true; implicitHeight: 36
+                                        placeholderText: "OAuth client secret"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
+                                        color: "#f5f5f5"; selectByMouse: true; font.pixelSize: 11; echoMode: TextInput.Password
+                                        background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeClientSecret) }
+                                    }
+                                    ColorButton {
+                                        text: "Connect"; enabled: youtubeClientId.text.trim().length > 0 && youtubeClientSecret.text.trim().length > 0 && !colorful.busy
+                                        onClicked: colorful.startYouTubeLogin(youtubeClientId.text, youtubeClientSecret.text)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 92
                         color: Qt.rgba(1, 1, 1, 0.018); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
                         Column { anchors.left: parent.left; anchors.leftMargin: 16; anchors.verticalCenter: parent.verticalCenter; spacing: 5

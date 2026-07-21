@@ -654,6 +654,11 @@ void Backend::startProviderHost()
         const auto data = message.value(QStringLiteral("data")).toObject();
         setProviderReady(true);
         setLinked(data.value(QStringLiteral("linked")).toBool());
+        const auto youtubeLinked = data.value(QStringLiteral("youtubeLinked")).toBool();
+        if (m_youtubeLinked != youtubeLinked) {
+            m_youtubeLinked = youtubeLinked;
+            emit youtubeAccountChanged();
+        }
         if (!data.value(QStringLiteral("browseConfigured")).toBool()) {
             setStatus(QStringLiteral("TIDAL browse credentials are missing. Launch with scripts/run-linux.sh."));
         } else if (!data.value(QStringLiteral("deviceConfigured")).toBool()) {
@@ -726,6 +731,30 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         m_authPending = false;
         emit authPendingChanged();
         setStatus(message.value(QStringLiteral("error")).toString());
+    } else if (event == QStringLiteral("youtube.auth.restored")
+               || event == QStringLiteral("youtube.auth.completed")) {
+        m_youtubeLinked = true;
+        const auto account = message.value(QStringLiteral("data")).toObject()
+                                 .value(QStringLiteral("account")).toObject();
+        if (!account.isEmpty()) m_youtubeHub.insert(QStringLiteral("account"), account.toVariantMap());
+        if (m_authProvider == QStringLiteral("youtube")) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
+        emit youtubeAccountChanged();
+        setStatus(event.endsWith(QStringLiteral("completed"))
+                      ? QStringLiteral("YouTube Music connected")
+                      : QStringLiteral("YouTube Music account restored securely"));
+        if (event.endsWith(QStringLiteral("completed"))) {
+            emit toastRequested(QStringLiteral("YouTube Music connected"), QStringLiteral("success"));
+            loadYouTubeHub(false);
+        }
+    } else if (event == QStringLiteral("youtube.auth.failed")) {
+        if (m_authProvider == QStringLiteral("youtube")) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
+        setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("warning")) {
         setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("subscription.status")) {
@@ -759,10 +788,122 @@ void Backend::startLogin()
         m_userCode = data.value(QStringLiteral("userCode")).toString();
         m_verificationUrl = data.value(QStringLiteral("verificationUriComplete")).toString();
         if (m_verificationUrl.isEmpty()) m_verificationUrl = data.value(QStringLiteral("verificationUri")).toString();
+        m_authProvider = QStringLiteral("tidal");
         m_authPending = true;
         emit authDetailsChanged();
         emit authPendingChanged();
         setStatus(QStringLiteral("Approve colorful in TIDAL"));
+    });
+}
+
+void Backend::startYouTubeLogin(const QString &clientId, const QString &clientSecret)
+{
+    if (clientId.trimmed().isEmpty() || clientSecret.trimmed().isEmpty()) {
+        notify(QStringLiteral("Enter your Google OAuth client ID and client secret"), QStringLiteral("error"));
+        return;
+    }
+    setBusy(true);
+    setStatus(QStringLiteral("Starting YouTube Music device login…"));
+    request(QStringLiteral("youtube.auth.start"), {
+        {QStringLiteral("clientId"), clientId.trimmed()},
+        {QStringLiteral("clientSecret"), clientSecret.trimmed()},
+    }, [this](const QJsonObject &message) {
+        setBusy(false);
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        m_userCode = data.value(QStringLiteral("userCode")).toString();
+        m_verificationUrl = data.value(QStringLiteral("verificationUriComplete")).toString();
+        if (m_verificationUrl.isEmpty()) m_verificationUrl = data.value(QStringLiteral("verificationUri")).toString();
+        m_authProvider = QStringLiteral("youtube");
+        m_authPending = true;
+        emit authDetailsChanged();
+        emit authPendingChanged();
+        setStatus(QStringLiteral("Approve colorful for YouTube Music"));
+    });
+}
+
+void Backend::unlinkYouTube()
+{
+    request(QStringLiteral("youtube.auth.unlink"), {}, [this](const QJsonObject &message) {
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            return;
+        }
+        m_youtubeLinked = false;
+        m_youtubeHub.clear();
+        emit youtubeAccountChanged();
+        notify(QStringLiteral("YouTube Music account disconnected"));
+    });
+}
+
+void Backend::openYouTubeSetupGuide()
+{
+    QDesktopServices::openUrl(QUrl(QStringLiteral(
+        "https://github.com/atvalerie/colorful/blob/main/docs/youtube-music-login.md")));
+}
+
+void Backend::loadYouTubeHub(bool refresh)
+{
+    if (!m_youtubeLinked || m_youtubeHubLoading) return;
+    if (!refresh && m_youtubeHub.contains(QStringLiteral("tracks"))) return;
+    m_youtubeHubLoading = true;
+    emit youtubeAccountChanged();
+    request(QStringLiteral("youtube.account"), {}, [this](const QJsonObject &message) {
+        if (message.value(QStringLiteral("ok")).toBool()) {
+            m_youtubeHub.insert(QStringLiteral("account"), message.value(QStringLiteral("data")).toObject().toVariantMap());
+            emit youtubeAccountChanged();
+        }
+    });
+    request(QStringLiteral("youtube.collection"), {}, [this](const QJsonObject &message) {
+        m_youtubeHubLoading = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            emit youtubeAccountChanged();
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        const auto tracksFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject(); object.insert(QStringLiteral("provider"), QStringLiteral("youtube"));
+                result.append(jsonTrackToVariant(object));
+            }
+            return result;
+        };
+        const auto albumsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject(); object.insert(QStringLiteral("provider"), QStringLiteral("youtube"));
+                result.append(jsonAlbumToVariant(object));
+            }
+            return result;
+        };
+        const auto artistsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject(); object.insert(QStringLiteral("provider"), QStringLiteral("youtube"));
+                result.append(jsonArtistToVariant(object));
+            }
+            return result;
+        };
+        const auto playlistsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject(); object.insert(QStringLiteral("provider"), QStringLiteral("youtube"));
+                result.append(jsonPlaylistToVariant(object));
+            }
+            return result;
+        };
+        m_youtubeHub.insert(QStringLiteral("tracks"), tracksFrom(data.value(QStringLiteral("tracks")).toArray()));
+        m_youtubeHub.insert(QStringLiteral("albums"), albumsFrom(data.value(QStringLiteral("albums")).toArray()));
+        m_youtubeHub.insert(QStringLiteral("artists"), artistsFrom(data.value(QStringLiteral("artists")).toArray()));
+        m_youtubeHub.insert(QStringLiteral("playlists"), playlistsFrom(data.value(QStringLiteral("playlists")).toArray()));
+        m_youtubeHub.insert(QStringLiteral("mixes"), playlistsFrom(data.value(QStringLiteral("mixes")).toArray()));
+        setStatus(QStringLiteral("YouTube Music library is ready"));
+        emit youtubeAccountChanged();
     });
 }
 
@@ -936,7 +1077,10 @@ void Backend::openArtistItem(const QVariantMap &artist)
     openCatalog(QStringLiteral("artist"), artist.value(QStringLiteral("id")).toString(), true,
                 artist.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString());
 }
-void Backend::openPlaylist(const QString &id) { openCatalog(QStringLiteral("playlist"), id); }
+void Backend::openPlaylist(const QString &id, const QString &provider)
+{
+    openCatalog(QStringLiteral("playlist"), id, true, provider);
+}
 
 void Backend::openTrackArtist(const QVariantMap &track, int artistIndex)
 {

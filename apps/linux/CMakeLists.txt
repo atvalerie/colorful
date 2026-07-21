@@ -76,6 +76,7 @@ qt_add_qml_module(colorful-linux
         qml/CatalogPage.qml
         qml/PlaylistCard.qml
         qml/TidalPage.qml
+        qml/YouTubePage.qml
         qml/DownloadsPage.qml
         qml/ToastOverlay.qml
         qml/AccountCard.qml

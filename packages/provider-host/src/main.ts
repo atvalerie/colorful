@@ -4,8 +4,9 @@ import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
+import { clearYouTubeAuth, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeLinked } from "./youtube-auth";
 import { youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
-import { searchYouTubeMusicCatalog, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicTrackMetadata } from "./youtube-music";
+import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -17,6 +18,7 @@ let account: SubscriptionStatus | null = null;
 let accountLoad: Promise<SubscriptionStatus> | null = null;
 let userBrowse: BrowseClient | null = null;
 let authAbort: AbortController | null = null;
+let youtubeAuthAbort: AbortController | null = null;
 
 function send(message: ResponseMessage): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -86,13 +88,57 @@ async function handle(request: RequestMessage): Promise<void> {
         browseConfigured: Boolean(config.browseClientId && config.browseClientSecret),
         deviceConfigured: Boolean(config.deviceClientId && config.deviceClientSecret),
         youtubeAvailable: youtubeAvailable(),
+        youtubeLinked: youtubeLinked(),
       } });
+      return;
+    case "youtube.auth.status":
+      send({ id: request.id, ok: true, data: {
+        linked: youtubeLinked(),
+        ...(youtubeLinked() ? { account: await youtubeMusicAccount() } : {}),
+      } });
+      return;
+    case "youtube.auth.start": {
+      youtubeAuthAbort?.abort();
+      youtubeAuthAbort = new AbortController();
+      const start = await startYouTubeDeviceAuth(
+        String(request.payload?.clientId ?? ""), String(request.payload?.clientSecret ?? ""));
+      send({ id: request.id, ok: true, data: {
+        provider: "youtube",
+        userCode: start.userCode,
+        verificationUri: start.verificationUri,
+        verificationUriComplete: `${start.verificationUri}?user_code=${encodeURIComponent(start.userCode)}`,
+        expiresIn: start.expiresIn,
+        interval: start.interval,
+      } });
+      void pollYouTubeDeviceAuth(start, youtubeAuthAbort.signal).then(async () => {
+        setYouTubeMusicAccessTokenProvider(youtubeAccessToken);
+        const account = await youtubeMusicAccount();
+        send({ event: "youtube.auth.completed", ok: true, data: { linked: true, account } });
+      }).catch((error) => {
+        if (!youtubeAuthAbort?.signal.aborted)
+          send({ event: "youtube.auth.failed", ok: false, error: publicError(error) });
+      });
+      return;
+    }
+    case "youtube.auth.unlink":
+      youtubeAuthAbort?.abort();
+      youtubeAuthAbort = null;
+      await clearYouTubeAuth();
+      setYouTubeMusicAccessTokenProvider(null);
+      send({ id: request.id, ok: true, data: { linked: false } });
+      return;
+    case "youtube.account":
+      send({ id: request.id, ok: true, data: await youtubeMusicAccount() });
+      return;
+    case "youtube.collection":
+      send({ id: request.id, ok: true, data: await youtubeMusicCollection() });
       return;
     case "auth.start": {
       authAbort?.abort();
       authAbort = new AbortController();
       const start = await startDeviceAuth(config);
       send({ id: request.id, ok: true, data: {
+        provider: "tidal",
         userCode: start.userCode,
         verificationUri: normalizeVerificationUrl(start.verificationUri),
         verificationUriComplete: normalizeVerificationUrl(start.verificationUriComplete),
@@ -186,6 +232,10 @@ async function handle(request: RequestMessage): Promise<void> {
       }
       if (provider === "youtube" && kind === "album") {
         send({ id: request.id, ok: true, data: { ...await youtubeMusicAlbum(resourceId), provider } });
+        return;
+      }
+      if (provider === "youtube" && kind === "playlist") {
+        send({ id: request.id, ok: true, data: { ...await youtubeMusicPlaylist(resourceId), provider } });
         return;
       }
       if (provider !== "tidal") throw new Error(`Catalog pages are not implemented for ${provider}`);
@@ -283,7 +333,18 @@ async function handle(request: RequestMessage): Promise<void> {
   }
 }
 
-void restoreSession().finally(async () => {
+async function restoreAccounts(): Promise<void> {
+  await Promise.all([restoreSession(), (async () => {
+    if (!await restoreYouTubeAuth()) return;
+    setYouTubeMusicAccessTokenProvider(youtubeAccessToken);
+    send({ event: "youtube.auth.restored", ok: true, data: {
+      linked: true,
+      account: await youtubeMusicAccount().catch(() => null),
+    } });
+  })()]);
+}
+
+void restoreAccounts().finally(async () => {
   const reader = Bun.stdin.stream().pipeThrough(new TextDecoderStream()).getReader();
   let buffered = "";
   for (;;) {

@@ -1,9 +1,10 @@
-import type { AlbumPage, AlbumSummary, ArtistCredit, ArtistPage, ArtistSummary, CatalogSearch, TrackSummary } from "./browse";
+import type { AlbumPage, AlbumSummary, ArtistCredit, ArtistPage, ArtistSummary, CatalogSearch, PlaylistPage, PlaylistSummary, TrackSummary, UserCollectionPage } from "./browse";
 
 type JsonObject = Record<string, unknown>;
 type Run = { text?: unknown; navigationEndpoint?: unknown };
 
 const MUSIC_ORIGIN = "https://music.youtube.com";
+let accessTokenProvider: (() => Promise<string>) | null = null;
 const SEARCH_FILTERS = {
   songs: "EgWKAQIIAWoMEA4QChADEAQQCRAF",
   videos: "EgWKAQIQAWoMEA4QChADEAQQCRAF",
@@ -218,7 +219,20 @@ function clientVersion(): string {
   return `1.${date}.01.00`;
 }
 
-async function youtubei(endpoint: "search" | "browse" | "next", body: JsonObject): Promise<JsonObject> {
+export function setYouTubeMusicAccessTokenProvider(provider: (() => Promise<string>) | null): void {
+  accessTokenProvider = provider;
+}
+
+async function youtubei(endpoint: "search" | "browse" | "next" | "account/account_menu", body: JsonObject,
+  accountRequired = false): Promise<JsonObject> {
+  let accessToken = "";
+  if (accessTokenProvider) {
+    try {
+      accessToken = await accessTokenProvider();
+    } catch (error) {
+      if (accountRequired) throw error;
+    }
+  }
   const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json`, {
     method: "POST",
     headers: {
@@ -226,6 +240,7 @@ async function youtubei(endpoint: "search" | "browse" | "next", body: JsonObject
       "Origin": MUSIC_ORIGIN,
       "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
       "X-Origin": MUSIC_ORIGIN,
+      ...(accessToken ? { "Authorization": `Bearer ${accessToken}`, "X-Goog-Request-Time": String(Math.floor(Date.now() / 1000)) } : {}),
     },
     body: JSON.stringify({
       context: { client: { clientName: "WEB_REMIX", clientVersion: clientVersion(), hl: "en", gl: "US" }, user: {} },
@@ -234,6 +249,10 @@ async function youtubei(endpoint: "search" | "browse" | "next", body: JsonObject
   });
   if (!response.ok) throw new Error(`YouTube Music returned HTTP ${response.status}`);
   return object(await response.json());
+}
+
+function requireAccount(): void {
+  if (!accessTokenProvider) throw new Error("Connect your YouTube Music account first");
 }
 
 function responsiveItems(document: JsonObject): JsonObject[] {
@@ -435,4 +454,167 @@ export async function youtubeMusicAlbum(albumId: string): Promise<AlbumPage> {
     }));
   album.numberOfTracks = tracks.length || null;
   return { kind: "album", album, tracks: [...new Map(tracks.map((track) => [track.id, track])).values()] };
+}
+
+function playlistIdFrom(renderer: JsonObject): string {
+  const watchIds = children(renderer, "watchEndpoint").map((endpoint) => string(endpoint.playlistId)).filter(Boolean);
+  const browseIds = children(renderer, "browseEndpoint").map((endpoint) => string(endpoint.browseId)).filter(Boolean);
+  const id = watchIds[0] || browseIds.find((value) => value.startsWith("VL")) || "";
+  return id.startsWith("VL") ? id.slice(2) : id;
+}
+
+function countFromRuns(values: Run[]): number | null {
+  for (const run of values) {
+    const match = string(run.text).replaceAll(",", "").match(/\b(\d+)\s+(?:songs?|tracks?|videos?)\b/i);
+    if (match?.[1]) return Number(match[1]);
+  }
+  return null;
+}
+
+function mapPlaylist(renderer: JsonObject): PlaylistSummary | null {
+  const id = playlistIdFrom(renderer);
+  const title = runText(renderer.title) || columnRuns(renderer, 0).map((run) => string(run.text)).join("").trim();
+  if (!id || !title) return null;
+  const subtitleRuns = [...runs(renderer.subtitle), ...columnRuns(renderer, 1)];
+  return {
+    id,
+    name: title,
+    description: subtitleRuns.map((run) => string(run.text)).join("").trim() || null,
+    coverUrl: thumbnail(renderer),
+    durationMs: null,
+    numberOfItems: countFromRuns(subtitleRuns),
+    playlistType: id.startsWith("RD") ? "Mix" : "YouTube Music",
+    createdAt: null,
+    lastModifiedAt: null,
+  };
+}
+
+function mapTwoRowAlbum(renderer: JsonObject): AlbumSummary | null {
+  const titleRuns = runs(renderer.title);
+  const subtitleRuns = runs(renderer.subtitle);
+  const albumRun = [...titleRuns, ...subtitleRuns].find((run) => browseId(run).startsWith("MPRE"));
+  const id = albumRun ? browseId(albumRun) : rendererBrowseId(renderer);
+  const title = runText(renderer.title);
+  if (!id.startsWith("MPRE") || !title) return null;
+  const artistCredits = creditsFrom(subtitleRuns);
+  const year = subtitleRuns.map((run) => string(run.text)).find((value) => /^\d{4}$/.test(value)) || null;
+  const type = subtitleRuns.map((run) => string(run.text)).find((value) => /^(album|single|ep)$/i.test(value)) || null;
+  return { id, title, version: null, artists: artistCredits.map((artist) => artist.name), artistCredits,
+    coverUrl: thumbnail(renderer), releaseDate: year, durationMs: null, numberOfTracks: null,
+    albumType: type, explicit: explicit(renderer), mediaTags: [] };
+}
+
+function mapTwoRowArtist(renderer: JsonObject): ArtistSummary | null {
+  const titleRuns = runs(renderer.title);
+  const subtitleRuns = runs(renderer.subtitle);
+  const run = [...titleRuns, ...subtitleRuns].find((candidate) => isArtistId(browseId(candidate)));
+  const id = run ? browseId(run) : rendererBrowseId(renderer);
+  const name = runText(renderer.title) || (run ? string(run.text) : "");
+  return isArtistId(id) && name ? { id, name, pictureUrl: thumbnail(renderer), isChannel: id.startsWith("UC") } : null;
+}
+
+function unique<T extends { id: string }>(items: T[]): T[] {
+  return [...new Map(items.map((item) => [item.id, item])).values()];
+}
+
+function tracksFromDocument(document: JsonObject): TrackSummary[] {
+  return unique([
+    ...responsiveItems(document).map(mapTrack),
+    ...children(document, "musicPlaylistShelfRenderer").flatMap((shelf) =>
+      responsiveItems(shelf).map(mapTrack)),
+  ].filter((item): item is TrackSummary => Boolean(item)));
+}
+
+function albumsFromDocument(document: JsonObject): AlbumSummary[] {
+  return unique([
+    ...responsiveItems(document).map(mapAlbum),
+    ...children(document, "musicTwoRowItemRenderer").map(mapTwoRowAlbum),
+  ].filter((item): item is AlbumSummary => Boolean(item)));
+}
+
+function artistsFromDocument(document: JsonObject): ArtistSummary[] {
+  return unique([
+    ...responsiveItems(document).map(mapArtist),
+    ...children(document, "musicTwoRowItemRenderer").map(mapTwoRowArtist),
+  ].filter((item): item is ArtistSummary => Boolean(item)));
+}
+
+function playlistsFromDocument(document: JsonObject): PlaylistSummary[] {
+  return unique([
+    ...children(document, "musicTwoRowItemRenderer").map(mapPlaylist),
+    ...children(document, "musicResponsiveListItemRenderer").map(mapPlaylist),
+  ].filter((item): item is PlaylistSummary => Boolean(item)));
+}
+
+export type YouTubeMusicAccount = {
+  accountName: string;
+  channelHandle: string | null;
+  accountPhotoUrl: string | null;
+};
+
+export async function youtubeMusicAccount(): Promise<YouTubeMusicAccount> {
+  requireAccount();
+  const document = await youtubei("account/account_menu", {}, true);
+  const header = children(document, "activeAccountHeaderRenderer")[0] || {};
+  return {
+    accountName: runText(header.accountName) || "YouTube Music account",
+    channelHandle: runText(header.channelHandle) || null,
+    accountPhotoUrl: thumbnail(header),
+  };
+}
+
+export async function youtubeMusicCollection(): Promise<UserCollectionPage> {
+  requireAccount();
+  const [songDocument, albumDocument, artistDocument, playlistDocument, homeDocument] = await Promise.all([
+    youtubei("browse", { browseId: "FEmusic_liked_videos" }, true),
+    youtubei("browse", { browseId: "FEmusic_liked_albums" }, true),
+    youtubei("browse", { browseId: "FEmusic_library_corpus_track_artists" }, true),
+    youtubei("browse", { browseId: "FEmusic_liked_playlists" }, true),
+    youtubei("browse", { browseId: "FEmusic_home" }, true),
+  ]);
+  return mapYouTubeMusicCollectionDocuments({
+    songs: songDocument, albums: albumDocument, artists: artistDocument,
+    playlists: playlistDocument, home: homeDocument,
+  });
+}
+
+export function mapYouTubeMusicCollectionDocuments(documents: {
+  songs: JsonObject;
+  albums: JsonObject;
+  artists: JsonObject;
+  playlists: JsonObject;
+  home: JsonObject;
+}): UserCollectionPage {
+  const playlists = playlistsFromDocument(documents.playlists);
+  const homePlaylists = playlistsFromDocument(documents.home);
+  return {
+    tracks: tracksFromDocument(documents.songs),
+    albums: albumsFromDocument(documents.albums),
+    artists: artistsFromDocument(documents.artists),
+    playlists,
+    mixes: homePlaylists.filter((playlist) => playlist.id.startsWith("RD") || !playlists.some((item) => item.id === playlist.id)),
+    cursors: {},
+  };
+}
+
+export async function youtubeMusicPlaylist(playlistId: string): Promise<PlaylistPage> {
+  const cleanId = playlistId.replace(/^VL/, "");
+  const document = await youtubei("browse", { browseId: `VL${cleanId}` }, accessTokenProvider !== null);
+  const header = children(document, "musicDetailHeaderRenderer")[0]
+    || children(document, "musicResponsiveHeaderRenderer")[0]
+    || children(document, "musicEditablePlaylistDetailHeaderRenderer")[0] || {};
+  const playlist: PlaylistSummary = {
+    id: cleanId,
+    name: runText(header.title) || "YouTube Music playlist",
+    description: runText(header.description) || null,
+    coverUrl: thumbnail(header),
+    durationMs: null,
+    numberOfItems: null,
+    playlistType: cleanId.startsWith("RD") ? "Mix" : "YouTube Music",
+    createdAt: null,
+    lastModifiedAt: null,
+  };
+  const tracks = tracksFromDocument(document).map((track) => ({ ...track, coverUrl: track.coverUrl || playlist.coverUrl }));
+  playlist.numberOfItems = tracks.length || null;
+  return { kind: "playlist", playlist, tracks };
 }

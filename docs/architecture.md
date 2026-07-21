@@ -27,6 +27,12 @@ its TIDAL authorization, account, search, and source resolution natively and
 plays through Media3. Neither shell sends provider credentials into the Rust
 database.
 
+Provider account commands share a device-authorization challenge and account
+state contract. Each native shell owns credential persistence. The current
+Linux YouTube Music implementation stores user-supplied OAuth client credentials
+and its refresh token in Secret Service; Android will place the equivalent
+bundle in Keystore while reusing the provider request semantics.
+
 The playback adapter is deliberately native. It must expose prepared-next-item
 and transition callbacks so each shell can arrange gapless playback without a
 network request or decoder startup on the track boundary.

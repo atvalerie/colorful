@@ -63,7 +63,8 @@ The visual layer derives contrast-safe accents and gradients from the result.
 
 1. TIDAL account link, browse, stream, and Linux offline download — implemented
 2. Public YouTube Music search/catalog, Linux playback/downloads, uploader
-   pages, and real automix — implemented without authenticated Music home/library
+   pages, and real automix — implemented; optional user-owned OAuth credentials
+   now add private Music library, playlist, account, and personalized-home data
 3. SoundCloud public OAuth/catalog and stream selection — next provider
 
 ## Current boundary
@@ -101,3 +102,10 @@ YouTube Music's ten-item preview through their regular YouTube uploads feed.
 This intentionally avoids permanent Python or third-party Rust client
 dependencies. Android and iOS will use native resolvers rather than shipping
 `yt-dlp`.
+
+YouTube account authorization follows the same provider-neutral device-code
+challenge used by native shells. The Linux host currently performs Google's TV
+device exchange and stores the user-owned client credentials and refresh token
+in Secret Service. Android will implement the exchange natively and store the
+same logical credential bundle in Keystore; tokens never cross through the Rust
+database.

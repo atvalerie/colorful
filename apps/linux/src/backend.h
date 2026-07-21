@@ -30,6 +30,10 @@ class Backend final : public QObject
     Q_PROPERTY(QString entitlementMessage READ entitlementMessage NOTIFY entitlementChanged)
     Q_PROPERTY(QString userCode READ userCode NOTIFY authDetailsChanged)
     Q_PROPERTY(QString verificationUrl READ verificationUrl NOTIFY authDetailsChanged)
+    Q_PROPERTY(QString authProvider READ authProvider NOTIFY authDetailsChanged)
+    Q_PROPERTY(bool youtubeLinked READ youtubeLinked NOTIFY youtubeAccountChanged)
+    Q_PROPERTY(QVariantMap youtubeHub READ youtubeHub NOTIFY youtubeAccountChanged)
+    Q_PROPERTY(bool youtubeHubLoading READ youtubeHubLoading NOTIFY youtubeAccountChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
@@ -93,6 +97,10 @@ public:
     QString entitlementMessage() const { return m_entitlementMessage; }
     QString userCode() const { return m_userCode; }
     QString verificationUrl() const { return m_verificationUrl; }
+    QString authProvider() const { return m_authProvider; }
+    bool youtubeLinked() const { return m_youtubeLinked; }
+    QVariantMap youtubeHub() const { return m_youtubeHub; }
+    bool youtubeHubLoading() const { return m_youtubeHubLoading; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList searchAlbums() const { return m_searchAlbums; }
@@ -152,6 +160,10 @@ public:
     Q_INVOKABLE void startLogin();
     Q_INVOKABLE void openVerificationUrl();
     Q_INVOKABLE void unlink();
+    Q_INVOKABLE void startYouTubeLogin(const QString &clientId, const QString &clientSecret);
+    Q_INVOKABLE void unlinkYouTube();
+    Q_INVOKABLE void loadYouTubeHub(bool refresh = false);
+    Q_INVOKABLE void openYouTubeSetupGuide();
     Q_INVOKABLE void dismissEntitlementWarning();
     Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
@@ -161,7 +173,7 @@ public:
     Q_INVOKABLE void openAlbumItem(const QVariantMap &album);
     Q_INVOKABLE void openArtist(const QString &id);
     Q_INVOKABLE void openArtistItem(const QVariantMap &artist);
-    Q_INVOKABLE void openPlaylist(const QString &id);
+    Q_INVOKABLE void openPlaylist(const QString &id, const QString &provider = QStringLiteral("tidal"));
     Q_INVOKABLE void openTrackArtist(const QVariantMap &track, int artistIndex);
     Q_INVOKABLE void navigateCatalogBack();
     Q_INVOKABLE void closeCatalog();
@@ -230,6 +242,7 @@ signals:
     void busyChanged();
     void entitlementChanged();
     void authDetailsChanged();
+    void youtubeAccountChanged();
     void statusMessageChanged();
     void searchResultsChanged();
     void catalogPageChanged();
@@ -370,6 +383,9 @@ private:
     QVariantMap m_tidalHub;
     bool m_tidalHubLoading = false;
     bool m_tidalMoreLoading = false;
+    QVariantMap m_youtubeHub;
+    bool m_youtubeHubLoading = false;
+    bool m_youtubeLinked = false;
     QVariantMap m_listenStats;
     QList<qint64> m_queueEntryIds;
     QList<qint64> m_playOrderEntryIds;
@@ -383,6 +399,7 @@ private:
     bool m_entitlementWarningVisible = false;
     QString m_userCode;
     QString m_verificationUrl;
+    QString m_authProvider = QStringLiteral("tidal");
     QString m_statusMessage = QStringLiteral("Starting colorful…");
     QString m_entitlementMessage;
     QColor m_accent = QColor(QStringLiteral("#ff4f91"));
