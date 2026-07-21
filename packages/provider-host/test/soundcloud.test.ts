@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mapSoundCloudHome, mapSoundCloudPlaylist, mapSoundCloudTrack, parseSoundCloudAuthorization, parseSoundCloudBootstrap, selectSoundCloudTranscoding } from "../src/soundcloud";
 
 describe("SoundCloud public catalog", () => {
-  test("prefers progressive audio for playback and offline downloads", () => {
+  test("prefers modern AAC 160 HLS over legacy progressive MP3", () => {
     const selected = selectSoundCloudTranscoding([
-      { url: "hls", preset: "opus_0_0", format: { protocol: "hls", mime_type: "audio/ogg; codecs=opus" } },
       { url: "progressive", preset: "mp3_0_1", format: { protocol: "progressive", mime_type: "audio/mpeg" } },
+      { url: "aac", preset: "aac_160k", quality: "sq", format: { protocol: "hls", mime_type: "audio/mp4; codecs=mp4a.40.2" } },
     ]);
-    expect(selected?.url).toBe("progressive");
+    expect(selected?.url).toBe("aac");
   });
 
   test("falls back to HLS when no progressive transcoding exists", () => {

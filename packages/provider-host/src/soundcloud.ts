@@ -23,11 +23,16 @@ export function selectSoundCloudTranscoding(transcodings: SoundCloudTranscoding[
     const protocol = string(transcoding.format?.protocol);
     const mime = string(transcoding.format?.mime_type);
     const preset = string(transcoding.preset);
-    // Progressive input is independently playable and gives offline transfers
-    // a more reliable source. HLS remains the fallback when it is all a track has.
-    return (protocol === "progressive" ? 100 : protocol === "hls" ? 50 : 0)
-      + (mime.includes("opus") ? 20 : mime.includes("mpeg") ? 15 : 0)
-      + (preset.includes("hq") ? 10 : 0);
+    const quality = string(transcoding.quality);
+    // Protocol is not a quality signal. SoundCloud's current preferred stream
+    // is AAC 160 HLS; progressive MP3 is a legacy 128 kbps fallback.
+    if (preset.includes("aac_160")) return 600;
+    if (preset === "abr_sq") return 550;
+    if (preset.includes("aac_96")) return 500;
+    return (quality === "sq" ? 200 : quality === "lq" ? 100 : 0)
+      + (mime.includes("mp4a") || mime.includes("audio/mp4") ? 60
+        : mime.includes("mpeg") ? 40 : mime.includes("opus") ? 30 : 0)
+      + (protocol === "hls" ? 10 : 0);
   };
   return transcodings.filter((value) => string(value.url))
     .sort((left, right) => score(right) - score(left))[0] ?? null;
@@ -42,6 +47,9 @@ type SoundCloudTrack = {
   full_duration?: unknown;
   permalink_url?: unknown;
   streamable?: unknown;
+  downloadable?: unknown;
+  has_downloads_left?: unknown;
+  download_url?: unknown;
   track_authorization?: unknown;
   publisher_metadata?: { album_title?: unknown; isrc?: unknown; explicit?: unknown };
   media?: { transcodings?: unknown };
@@ -533,9 +541,28 @@ export async function soundCloudRelated(id: string, limit = 20): Promise<TrackSu
     .filter((value): value is TrackSummary => Boolean(value));
 }
 
-export async function soundCloudSource(id: string): Promise<Record<string, unknown>> {
+export async function soundCloudSource(id: string, preferOriginal = false): Promise<Record<string, unknown>> {
   const track = await api<SoundCloudTrack>(`tracks/${id}`);
   if (track.streamable === false) throw new Error("This SoundCloud track is not streamable");
+  if (preferOriginal && track.downloadable === true && track.has_downloads_left !== false) {
+    try {
+      const download = await api<{ redirectUri?: unknown; url?: unknown }>(
+        string(track.download_url) || `tracks/${id}/download`,
+      );
+      const originalUri = string(download.redirectUri) || string(download.url);
+      if (originalUri) {
+        return {
+          uri: originalUri,
+          referrer: `${WEB_ORIGIN}/`,
+          webpageUrl: string(track.permalink_url) || `${WEB_ORIGIN}/`,
+          sourceKind: "original",
+        };
+      }
+    } catch {
+      // Download permission and quotas can change between catalog lookup and
+      // transfer. Falling back keeps the offline action useful.
+    }
+  }
   const transcodings = array(track.media?.transcodings).filter((value): value is SoundCloudTranscoding => Boolean(value) && typeof value === "object");
   const selected = selectSoundCloudTranscoding(transcodings);
   if (!selected) throw new Error("SoundCloud did not expose a playable transcoding");
@@ -544,5 +571,11 @@ export async function soundCloudSource(id: string): Promise<Record<string, unkno
   });
   const uri = string(resolved.url);
   if (!uri) throw new Error("SoundCloud returned an empty playback URL");
-  return { uri, referrer: `${WEB_ORIGIN}/`, webpageUrl: string(track.permalink_url) || `${WEB_ORIGIN}/` };
+  return {
+    uri,
+    referrer: `${WEB_ORIGIN}/`,
+    webpageUrl: string(track.permalink_url) || `${WEB_ORIGIN}/`,
+    sourceKind: "transcoding",
+    preset: string(selected.preset),
+  };
 }

@@ -624,7 +624,33 @@ Item {
                         }
                     }
                     Text { text: "Download quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
-                    Text { Layout.fillWidth: true; text: "New downloads follow the stream-quality choice in Playback settings. Per-download quality can be added without changing the stored-file format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { Layout.fillWidth: true; text: "TIDAL downloads follow the stream-quality choice in Playback. SoundCloud normally uses its preferred AAC 160 stream."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 82
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.left: parent.left; anchors.leftMargin: 15
+                            anchors.right: soundcloudOriginalSwitch.left; anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                            Text { text: "Prefer SoundCloud originals"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                            Text {
+                                width: parent.width
+                                text: "Use the uploader's WAV, FLAC, or other original when downloads are enabled. Originals can be hundreds of megabytes; unavailable originals fall back to AAC."
+                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap
+                            }
+                        }
+                        Rectangle {
+                            id: soundcloudOriginalSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 42; height: 22
+                            color: colorful.soundcloudOriginalDownloads ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.soundcloudOriginalDownloads ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.soundcloudOriginalDownloads ? parent.width - width - 3 : 3; color: colorful.soundcloudOriginalDownloads && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.soundcloudOriginalDownloads = !colorful.soundcloudOriginalDownloads }
+                        }
+                    }
                 }
             }
 

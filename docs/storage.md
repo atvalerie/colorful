@@ -40,8 +40,8 @@ local path. Source URLs are deliberately absent from durable storage; only their
 expiry is recorded, so a resumed job re-resolves short-lived provider manifests
 instead of replaying stale credentials.
 
-The Linux client currently downloads TIDAL, YouTube, or SoundCloud audio into independently
-checkpointed Matroska chunks, then asks ffmpeg to concatenate/remux them without
+The Linux client currently downloads TIDAL, YouTube, or SoundCloud audio into
+independently checkpointed Matroska chunks, then asks ffmpeg to concatenate/remux them without
 re-encoding into one standalone `.mka` file. Pausing or restarting preserves
 completed chunks, re-resolves a fresh provider source, validates existing part
 durations, and resumes near the first missing point. Final assembly is written
@@ -49,6 +49,11 @@ to a separate path and atomically promoted only after success. The player
 always prefers the completed local file. Artwork is stored beside it unless
 low-data mode is active, and TIDAL ReplayGain metadata is retained when the
 manifest supplies it.
+
+SoundCloud prefers its current AAC 160 HLS rendition rather than the legacy
+progressive MP3. A local opt-in may instead request an original file when the
+uploader enabled downloads; originals can be substantially larger and fall
+back to the preferred transcoding if permission or quota changes.
 
 Schema migrations are append-only. A released migration is never edited; a new
 numbered migration advances both `schema_migrations` and `PRAGMA user_version`.

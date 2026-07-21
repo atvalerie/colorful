@@ -77,6 +77,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool lowDataMode READ lowDataMode WRITE setLowDataMode NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
+    Q_PROPERTY(bool soundcloudOriginalDownloads READ soundcloudOriginalDownloads WRITE setSoundcloudOriginalDownloads NOTIFY downloadPreferencesChanged)
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantList equalizerBands READ equalizerBands NOTIFY audioProcessingChanged)
     Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
@@ -150,6 +151,7 @@ public:
     bool lowDataMode() const { return m_lowDataMode; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
     QString streamQuality() const { return m_streamQuality; }
+    bool soundcloudOriginalDownloads() const { return m_soundcloudOriginalDownloads; }
     bool normalizationEnabled() const { return m_normalizationEnabled; }
     QVariantList equalizerBands() const { return m_equalizerBands; }
     QString equalizerPreset() const { return m_equalizerPreset; }
@@ -239,6 +241,7 @@ public:
     Q_INVOKABLE void retryPlayback();
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
+    Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
     Q_INVOKABLE void setEqualizerBand(int index, double gainDb);
     Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
@@ -287,6 +290,7 @@ signals:
     void appearanceChanged();
     void autoplayEnabledChanged();
     void streamQualityChanged();
+    void downloadPreferencesChanged();
     void audioProcessingChanged();
     void listenStatsChanged();
     void discordWidgetChanged();
@@ -448,6 +452,7 @@ private:
     QPointer<QNetworkReply> m_accentReply;
     bool m_autoplayEnabled = true;
     QString m_streamQuality = QStringLiteral("best");
+    bool m_soundcloudOriginalDownloads = false;
     QString m_repeatMode = QStringLiteral("off");
     bool m_shuffleEnabled = false;
     QString m_playbackError;

@@ -118,6 +118,7 @@ Backend::Backend(QObject *parent)
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
+    m_soundcloudOriginalDownloads = settings.value(QStringLiteral("downloads/soundcloudOriginal"), false).toBool();
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
@@ -1988,6 +1989,9 @@ void Backend::beginNextDownload()
         {QStringLiteral("trackId"), trackId},
         {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")},
         {QStringLiteral("quality"), m_streamQuality},
+        {QStringLiteral("purpose"), QStringLiteral("download")},
+        {QStringLiteral("preferOriginal"), provider == QStringLiteral("soundcloud")
+                                                   && m_soundcloudOriginalDownloads},
     }, [this, generation, trackId, provider](const QJsonObject &message) {
         if (generation != m_downloadGeneration || m_activeDownloadTrack.isEmpty()
             || m_activeDownloadTrack.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString() != provider
@@ -2981,6 +2985,16 @@ void Backend::setStreamQuality(const QString &quality)
     QSettings().setValue(QStringLiteral("playback/streamQuality"), quality);
     emit streamQualityChanged();
     notify(QStringLiteral("Stream quality will apply to the next track"));
+}
+
+void Backend::setSoundcloudOriginalDownloads(bool enabled)
+{
+    if (m_soundcloudOriginalDownloads == enabled) return;
+    m_soundcloudOriginalDownloads = enabled;
+    QSettings().setValue(QStringLiteral("downloads/soundcloudOriginal"), enabled);
+    emit downloadPreferencesChanged();
+    notify(enabled ? QStringLiteral("SoundCloud downloads will prefer uploader originals")
+                   : QStringLiteral("SoundCloud downloads will use the best streaming format"));
 }
 
 void Backend::setNormalizationEnabled(bool enabled)

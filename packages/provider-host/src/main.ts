@@ -455,7 +455,10 @@ async function handle(request: RequestMessage): Promise<void> {
         return;
       }
       if (provider === "soundcloud") {
-        send({ id: request.id, ok: true, data: await soundCloudSource(trackId) });
+        send({ id: request.id, ok: true, data: await soundCloudSource(
+          trackId,
+          request.payload?.purpose === "download" && request.payload?.preferOriginal === true,
+        ) });
         return;
       }
       if (provider !== "tidal") throw new Error(`Playback is not implemented for ${provider}`);

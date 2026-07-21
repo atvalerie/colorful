@@ -67,8 +67,8 @@ The visual layer derives contrast-safe accents and gradients from the result.
    now add private Music library, playlist, account, and personalized-home data
 3. SoundCloud public search/catalog, profiles, sets, related radio, pagination,
    Linux stream selection, locally imported account library, personalized home
-   shelves, and private-library pagination — implemented; downloads and write
-   actions remain
+   shelves, private-library pagination, quality-aware offline downloads, and
+   optional uploader originals — implemented; write actions remain
 
 ## Current boundary
 

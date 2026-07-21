@@ -82,10 +82,12 @@ not intercept typing in text fields.
 
 TIDAL downloads resolve a fresh stable representation and write resumable media
 chunks. YouTube downloads deliberately use yt-dlp's native bulk-transfer and
-`.part` resume path instead of the latency-oriented playback URL. Both paths
-are remuxed without re-encoding into one `.mka` file. A completed track no
-longer needs its provider manifest or a network connection. TIDAL ReplayGain
-values are retained as standard tags when available.
+`.part` resume path instead of the latency-oriented playback URL. SoundCloud
+prefers AAC 160 HLS by default and can optionally use an uploader-authorized
+WAV, FLAC, or other original. All paths are remuxed without re-encoding into
+one `.mka` file. A completed track no longer needs its provider manifest or a
+network connection. TIDAL ReplayGain values are retained as standard tags when
+available.
 
 **Settings → Appearance → Low data mode** keeps playback unchanged while
 suppressing remote artwork/profile requests in QML, album-color extraction,
