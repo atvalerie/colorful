@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mapYouTubeMusicCollectionDocuments } from "../src/youtube-music";
+import { mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument } from "../src/youtube-music";
 import { parseYouTubeBrowserHeaders } from "../src/youtube-auth";
 
 describe("authenticated YouTube Music mapping", () => {
@@ -35,5 +35,25 @@ describe("authenticated YouTube Music mapping", () => {
     expect(result.mixes).toEqual([expect.objectContaining({
       id: "RDCLAK_MIX", name: "My Mix", playlistType: "Mix",
     })]);
+  });
+
+  test("keeps a playlist's total count instead of the loaded track count", () => {
+    const track = (id: string, title: string) => ({ musicResponsiveListItemRenderer: {
+      flexColumns: [
+        { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{
+          text: title, navigationEndpoint: { watchEndpoint: { videoId: id } },
+        }] } } },
+        { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "Artist" }] } } },
+      ],
+    } });
+    const page = mapYouTubeMusicPlaylistDocument({
+      header: { musicResponsiveHeaderRenderer: {
+        title: { runs: [{ text: "Huge playlist" }] },
+        secondSubtitle: { runs: [{ text: "2,844 tracks" }, { text: " • " }, { text: "99+ hours" }] },
+      } },
+      contents: [track("one", "One"), track("two", "Two")],
+    }, "PL_HUGE");
+    expect(page.playlist.numberOfItems).toBe(2844);
+    expect(page.tracks).toHaveLength(2);
   });
 });

@@ -656,6 +656,11 @@ export function mapYouTubeMusicCollectionDocuments(documents: {
 export async function youtubeMusicPlaylist(playlistId: string): Promise<PlaylistPage> {
   const cleanId = playlistId.replace(/^VL/, "");
   const document = await youtubei("browse", { browseId: `VL${cleanId}` }, accessTokenProvider !== null);
+  return mapYouTubeMusicPlaylistDocument(document, cleanId);
+}
+
+export function mapYouTubeMusicPlaylistDocument(document: JsonObject, playlistId: string): PlaylistPage {
+  const cleanId = playlistId.replace(/^VL/, "");
   const header = children(document, "musicDetailHeaderRenderer")[0]
     || children(document, "musicResponsiveHeaderRenderer")[0]
     || children(document, "musicEditablePlaylistDetailHeaderRenderer")[0] || {};
@@ -671,6 +676,11 @@ export async function youtubeMusicPlaylist(playlistId: string): Promise<Playlist
     lastModifiedAt: null,
   };
   const tracks = tracksFromDocument(document).map((track) => ({ ...track, coverUrl: track.coverUrl || playlist.coverUrl }));
-  playlist.numberOfItems = tracks.length || null;
+  const headerCount = countFromRuns([
+    ...runs(header.secondSubtitle),
+    ...runs(header.subtitle),
+    ...runs(header.straplineTextOne),
+  ]);
+  playlist.numberOfItems = headerCount ?? (tracks.length || null);
   return { kind: "playlist", playlist, tracks };
 }
