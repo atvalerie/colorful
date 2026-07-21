@@ -81,6 +81,7 @@ qt_add_qml_module(colorful-linux
         qml/DownloadsPage.qml
         qml/ToastOverlay.qml
         qml/AccountCard.qml
+        qml/ProviderAccountCard.qml
         qml/SettingsPage.qml
         qml/MetadataLink.qml
         qml/ArtworkImage.qml

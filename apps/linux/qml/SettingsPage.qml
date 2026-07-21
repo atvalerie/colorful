@@ -90,114 +90,80 @@ Item {
                     width: Math.min(parent.width, 820); spacing: 14
                     Text { text: "Accounts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
                     Text { text: "Provider credentials remain on this device and are stored by the system credential service."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                    Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 126
-                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                    ProviderAccountCard {
+                        Layout.fillWidth: true
+                        providerName: "TIDAL"
+                        connected: colorful.linked
+                        statusText: colorful.linked
+                                    ? "Connected  ·  " + (((colorful.tidalHub.account || {}).email)
+                                                         || ((colorful.tidalHub.account || {}).username)
+                                                         || ((colorful.tidalHub.account || {}).countryCode)
+                                                         || "account ready")
+                                    : "Not connected"
+                        description: colorful.linked ? "Search, lossless playback, collection, playlists, and mixes use this account." : "Connect using TIDAL's device authorization flow."
+                        primaryText: colorful.linked ? "View account" : "Connect"
+                        onPrimaryRequested: colorful.linked ? colorful.openTidalAccount() : colorful.startLogin()
+                        onSecondaryRequested: colorful.unlink()
+                    }
+                    ProviderAccountCard {
+                        Layout.fillWidth: true
+                        providerName: "YouTube Music"
+                        connected: colorful.youtubeLinked
+                        statusText: colorful.youtubeLinked
+                                    ? "Connected  ·  " + (((colorful.youtubeHub.account || {}).channelHandle) || ((colorful.youtubeHub.account || {}).accountName) || "account ready")
+                                    : "Anonymous catalog mode"
+                        description: colorful.youtubeLinked
+                                     ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
+                                     : "Paste headers from a logged-in /browse request. A fresh private window is recommended; the session stays in the credential service."
+                        primaryText: "Setup guide"
+                        onPrimaryRequested: colorful.openYouTubeSetupGuide()
+                        onSecondaryRequested: colorful.unlinkYouTube()
                         RowLayout {
-                            anchors.fill: parent; anchors.margins: 16; spacing: 14
-                            ColumnLayout {
-                                Layout.fillWidth: true; spacing: 4
-                                Text { text: "TIDAL"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                                Text { text: colorful.linked ? "Connected  ·  " + ((colorful.tidalHub.account || {}).countryCode || "region pending") : "Not connected"; color: colorful.linked ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
-                                Text { Layout.fillWidth: true; text: colorful.linked ? "Search, lossless playback, collection, playlists, and mixes use this account." : "Connect using TIDAL's device authorization flow."; color: Qt.rgba(1, 1, 1, 0.4); wrapMode: Text.WordWrap; font.pixelSize: 11 }
-                            }
-                            ColorButton { text: colorful.linked ? "View account" : "Connect"; onClicked: colorful.linked ? colorful.openTidalAccount() : colorful.startLogin() }
-                            ColorButton { visible: colorful.linked; text: "Disconnect"; quiet: true; onClicked: colorful.unlink() }
-                        }
-                    }
-                    Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: colorful.youtubeLinked ? 126 : 294
-                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
-                        ColumnLayout {
-                            anchors.fill: parent; anchors.margins: 16; spacing: 8
-                            RowLayout {
-                                Layout.fillWidth: true
-                                ColumnLayout {
-                                    Layout.fillWidth: true; spacing: 3
-                                    Text { text: "YouTube Music"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                                    Text {
-                                        text: colorful.youtubeLinked
-                                              ? "Connected  ·  " + (((colorful.youtubeHub.account || {}).channelHandle) || ((colorful.youtubeHub.account || {}).accountName) || "account ready")
-                                              : "Anonymous catalog mode"
-                                        color: colorful.youtubeLinked ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11
-                                    }
+                            visible: !colorful.youtubeLinked; Layout.fillWidth: true; spacing: 8
+                            ScrollView {
+                                Layout.fillWidth: true; Layout.preferredHeight: 118; clip: true
+                                TextArea {
+                                    id: youtubeBrowserHeaders
+                                    placeholderText: "Paste request headers or Copy as cURL here"
+                                    placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
+                                    color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
+                                    background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeBrowserHeaders) }
                                 }
-                                ColorButton { text: "Setup guide"; quiet: true; onClicked: colorful.openYouTubeSetupGuide() }
-                                ColorButton { visible: colorful.youtubeLinked; text: "Disconnect"; quiet: true; onClicked: colorful.unlinkYouTube() }
                             }
-                            Text {
-                                Layout.fillWidth: true
-                                text: colorful.youtubeLinked
-                                      ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
-                                      : "Paste headers from a logged-in /browse request. A fresh private window is recommended; the session stays in the credential service."
-                                color: Qt.rgba(1, 1, 1, 0.4); wrapMode: Text.WordWrap; font.pixelSize: 11
-                            }
-                            ColumnLayout {
-                                visible: !colorful.youtubeLinked; Layout.fillWidth: true; spacing: 7
-                                RowLayout {
-                                    Layout.fillWidth: true; spacing: 8
-                                    ScrollView {
-                                        Layout.fillWidth: true; Layout.preferredHeight: 118
-                                        clip: true
-                                        TextArea {
-                                            id: youtubeBrowserHeaders
-                                            placeholderText: "Paste request headers or Copy as cURL here"
-                                            placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
-                                            color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
-                                            background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeBrowserHeaders) }
-                                        }
-                                    }
-                                    ColorButton {
-                                        text: "Connect session"; enabled: youtubeBrowserHeaders.text.trim().length > 0 && !colorful.busy
-                                        onClicked: colorful.connectYouTubeBrowserSession(youtubeBrowserHeaders.text)
-                                    }
-                                }
+                            ColorButton {
+                                text: "Connect session"; enabled: youtubeBrowserHeaders.text.trim().length > 0 && !colorful.busy
+                                onClicked: colorful.connectYouTubeBrowserSession(youtubeBrowserHeaders.text)
                             }
                         }
                     }
-                    Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: colorful.soundcloudLinked ? 126 : 294
-                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
-                        ColumnLayout {
-                            anchors.fill: parent; anchors.margins: 16; spacing: 8
-                            RowLayout {
-                                Layout.fillWidth: true
-                                ColumnLayout {
-                                    Layout.fillWidth: true; spacing: 3
-                                    Text { text: "SoundCloud"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                                    Text {
-                                        text: colorful.soundcloudLinked
-                                              ? "Connected  ·  " + (((colorful.soundcloudHub.account || {}).username) || "account ready")
-                                              : "Public catalog mode"
-                                        color: colorful.soundcloudLinked ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11
-                                    }
+                    ProviderAccountCard {
+                        Layout.fillWidth: true
+                        providerName: "SoundCloud"
+                        connected: colorful.soundcloudLinked
+                        statusText: colorful.soundcloudLinked
+                                    ? "Connected  ·  " + (((colorful.soundcloudHub.account || {}).username) || "account ready")
+                                    : "Public catalog mode"
+                        description: colorful.soundcloudLinked
+                                     ? "Liked tracks, sets, and followed profiles use this account. Only the OAuth token is retained."
+                                     : "Copy any logged-in api-v2.soundcloud.com or api.soundcloud.com request as cURL. colorful extracts only its Authorization: OAuth header."
+                        primaryText: "Setup guide"
+                        onPrimaryRequested: colorful.openSoundCloudSetupGuide()
+                        onSecondaryRequested: colorful.unlinkSoundCloud()
+                        RowLayout {
+                            visible: !colorful.soundcloudLinked; Layout.fillWidth: true; spacing: 8
+                            ScrollView {
+                                Layout.fillWidth: true; Layout.preferredHeight: 118; clip: true
+                                TextArea {
+                                    id: soundcloudCurl
+                                    placeholderText: "Paste a logged-in SoundCloud request copied as cURL"
+                                    placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
+                                    color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
+                                    background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(soundcloudCurl) }
                                 }
-                                ColorButton { text: "Setup guide"; quiet: true; onClicked: colorful.openSoundCloudSetupGuide() }
-                                ColorButton { visible: colorful.soundcloudLinked; text: "Disconnect"; quiet: true; onClicked: colorful.unlinkSoundCloud() }
                             }
-                            Text {
-                                Layout.fillWidth: true
-                                text: colorful.soundcloudLinked
-                                      ? "Liked tracks, sets, and followed profiles use this account. Only the OAuth token is retained."
-                                      : "Copy any logged-in api-v2.soundcloud.com or api.soundcloud.com request as cURL. colorful extracts only its Authorization: OAuth header."
-                                color: Qt.rgba(1, 1, 1, 0.4); wrapMode: Text.WordWrap; font.pixelSize: 11
-                            }
-                            RowLayout {
-                                visible: !colorful.soundcloudLinked; Layout.fillWidth: true; spacing: 8
-                                ScrollView {
-                                    Layout.fillWidth: true; Layout.preferredHeight: 118; clip: true
-                                    TextArea {
-                                        id: soundcloudCurl
-                                        placeholderText: "Paste a logged-in SoundCloud request copied as cURL"
-                                        placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
-                                        color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
-                                        background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(soundcloudCurl) }
-                                    }
-                                }
-                                ColorButton {
-                                    text: "Connect session"; enabled: soundcloudCurl.text.trim().length > 0 && !colorful.busy
-                                    onClicked: colorful.connectSoundCloudSession(soundcloudCurl.text)
-                                }
+                            ColorButton {
+                                text: "Connect session"; enabled: soundcloudCurl.text.trim().length > 0 && !colorful.busy
+                                onClicked: colorful.connectSoundCloudSession(soundcloudCurl.text)
                             }
                         }
                     }
