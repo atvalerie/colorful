@@ -7,7 +7,7 @@
     mc:Ignorable="d"
     Title="colorful">
 
-    <Grid Background="{StaticResource AppBackgroundBrush}" FontFamily="{StaticResource ColorfulFont}">
+    <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />
             <RowDefinition Height="*" />
