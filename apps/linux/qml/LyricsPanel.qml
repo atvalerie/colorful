@@ -25,13 +25,40 @@ Rectangle {
         return selected
     }
 
+    function centerActiveLine(animated) {
+        if (!synced || activeIndex < 0 || !lyricsList.visible || lyricsList.count === 0) return
+        if (!animated) {
+            lyricsList.positionViewAtIndex(activeIndex, ListView.Center)
+            return
+        }
+        const item = lyricsList.itemAtIndex(activeIndex)
+        if (!item) {
+            lyricsList.positionViewAtIndex(activeIndex, ListView.Center)
+            return
+        }
+        const maximum = Math.max(lyricsList.originY, lyricsList.contentHeight - lyricsList.height)
+        lineScroll.to = Math.max(lyricsList.originY,
+            Math.min(maximum, item.y + item.height / 2 - lyricsList.height / 2))
+        lineScroll.restart()
+    }
+
     color: Qt.rgba(0.032, 0.032, 0.038, 0.96)
     border.width: 1
     border.color: Qt.rgba(1, 1, 1, 0.09)
 
     onActiveIndexChanged: {
         if (synced && lyricsList.visible && activeIndex >= 0)
-            lyricsList.positionViewAtIndex(activeIndex, ListView.Center)
+            centerActiveLine(true)
+    }
+    onVisibleChanged: if (visible) Qt.callLater(function() { root.centerActiveLine(false) })
+    onLyricsChanged: Qt.callLater(function() { root.centerActiveLine(false) })
+
+    NumberAnimation {
+        id: lineScroll
+        target: lyricsList
+        property: "contentY"
+        duration: 380
+        easing.type: Easing.OutCubic
     }
 
     ColumnLayout {
@@ -92,17 +119,22 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
             pixelAligned: true
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            onCountChanged: if (count > 0) Qt.callLater(function() { root.centerActiveLine(false) })
             delegate: Text {
                 required property var modelData
                 required property int index
                 width: ListView.view.width - 8
                 text: modelData.text || " "
-                color: root.synced && index === root.activeIndex ? "#ffffff" : Qt.rgba(1, 1, 1, root.synced ? 0.42 : 0.78)
-                font.pixelSize: root.synced ? (index === root.activeIndex ? 18 : 15) : 14
+                color: "#ffffff"
+                opacity: root.synced ? (index === root.activeIndex ? 1 : 0.42) : 0.78
+                scale: root.synced && index === root.activeIndex ? 1.055 : 1
+                transformOrigin: Item.Left
+                font.pixelSize: root.synced ? 16 : 14
                 font.weight: root.synced && index === root.activeIndex ? Font.DemiBold : Font.Normal
                 wrapMode: Text.WordWrap
                 lineHeight: 1.15
-                Behavior on color { ColorAnimation { duration: 180 } }
+                Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
             }
         }
 
