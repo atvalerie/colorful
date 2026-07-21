@@ -60,6 +60,9 @@ export type UserCollectionPage = {
   albums: AlbumSummary[];
   artists: ArtistSummary[];
   playlists: PlaylistSummary[];
+  dailyMixes?: PlaylistSummary[];
+  discoveryMixes?: PlaylistSummary[];
+  newReleaseMixes?: PlaylistSummary[];
   mixes: PlaylistSummary[];
   cursors: Record<string, string>;
 };
@@ -414,13 +417,14 @@ export class BrowseClient {
 
   async userCollection(userId: string): Promise<UserCollectionPage> {
     const root = `userCollections/${encodeURIComponent(userId)}/relationships`;
-    const [tracks, albums, artists, playlists, myMixes, discoveryMixes] = await Promise.allSettled([
+    const [tracks, albums, artists, playlists, myMixes, discoveryMixes, newArrivalMixes] = await Promise.allSettled([
       this.userRelationship(`${root}/tracks`, "tracks"),
       this.userRelationship(`${root}/albums`, "albums"),
       this.userRelationship(`${root}/artists`, "artists"),
       this.userRelationship(`${root}/playlists`, "playlists"),
       this.userRelationship("userRecommendations/me/relationships/myMixes", "myMixes"),
       this.userRelationship("userRecommendations/me/relationships/discoveryMixes", "discoveryMixes"),
+      this.userRelationship("userRecommendations/me/relationships/newArrivalMixes", "newArrivalMixes"),
     ]);
     const collectionResults = [tracks, albums, artists, playlists];
     if (collectionResults.every((result) => result.status === "rejected")) {
@@ -433,25 +437,46 @@ export class BrowseClient {
       if (cursor) cursors[section] = cursor;
     };
     remember("tracks", tracks); remember("albums", albums); remember("artists", artists); remember("playlists", playlists);
-    const mixDocuments = [myMixes, discoveryMixes].flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-    const mixValues = await this.hydratePlaylists([...new Map(mixDocuments.flatMap(mapPlaylists).map((item) => [item.id, item])).values()]);
+    remember("dailyMixes", myMixes);
+    remember("discoveryMixes", discoveryMixes);
+    remember("newReleaseMixes", newArrivalMixes);
+    const hydrateMixResult = async (result: PromiseSettledResult<any>): Promise<PlaylistSummary[]> =>
+      result.status === "fulfilled" ? this.hydratePlaylists(mapPlaylists(result.value)) : [];
+    const [dailyMixValues, discoveryMixValues, newReleaseMixValues] = await Promise.all([
+      hydrateMixResult(myMixes), hydrateMixResult(discoveryMixes), hydrateMixResult(newArrivalMixes),
+    ]);
+    const mixValues = [...new Map(
+      [...dailyMixValues, ...discoveryMixValues, ...newReleaseMixValues].map((item) => [item.id, item]),
+    ).values()];
     return {
       tracks: tracks.status === "fulfilled" ? await this.hydrateTracks(mapTracks(tracks.value)) : [],
       albums: albums.status === "fulfilled" ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(albums.value))) : [],
       artists: artists.status === "fulfilled" ? await this.hydrateArtists(mapArtists(artists.value)) : [],
       playlists: playlists.status === "fulfilled" ? await this.hydratePlaylists(mapPlaylists(playlists.value)) : [],
+      dailyMixes: dailyMixValues,
+      discoveryMixes: discoveryMixValues,
+      newReleaseMixes: newReleaseMixValues,
       mixes: mixValues,
       cursors,
     };
   }
 
   async userCollectionMore(userId: string, section: string, cursor: string): Promise<{ section: string; items: unknown[]; cursor?: string }> {
-    if (!["tracks", "albums", "artists", "playlists"].includes(section)) throw new Error(`Cannot paginate collection ${section}`);
-    const document = await this.userRelationship(
-      `userCollections/${encodeURIComponent(userId)}/relationships/${section}`,
-      section,
-      cursor,
-    );
+    const recommendationRelationships: Record<string, string> = {
+      dailyMixes: "myMixes",
+      discoveryMixes: "discoveryMixes",
+      newReleaseMixes: "newArrivalMixes",
+    };
+    const recommendation = recommendationRelationships[section];
+    if (!["tracks", "albums", "artists", "playlists"].includes(section) && !recommendation)
+      throw new Error(`Cannot paginate collection ${section}`);
+    const document = recommendation
+      ? await this.userRelationship(`userRecommendations/me/relationships/${recommendation}`, recommendation, cursor)
+      : await this.userRelationship(
+        `userCollections/${encodeURIComponent(userId)}/relationships/${section}`,
+        section,
+        cursor,
+      );
     const items = section === "tracks" ? await this.hydrateTracks(mapTracks(document))
       : section === "albums" ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(document)))
       : section === "artists" ? await this.hydrateArtists(mapArtists(document))

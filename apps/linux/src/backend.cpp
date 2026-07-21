@@ -1303,6 +1303,9 @@ void Backend::loadTidalHub(bool refresh)
         m_tidalHub.insert(QStringLiteral("albums"), albumsFrom(data.value(QStringLiteral("albums")).toArray()));
         m_tidalHub.insert(QStringLiteral("artists"), artistsFrom(data.value(QStringLiteral("artists")).toArray()));
         m_tidalHub.insert(QStringLiteral("playlists"), playlistsFrom(data.value(QStringLiteral("playlists")).toArray()));
+        m_tidalHub.insert(QStringLiteral("dailyMixes"), playlistsFrom(data.value(QStringLiteral("dailyMixes")).toArray()));
+        m_tidalHub.insert(QStringLiteral("discoveryMixes"), playlistsFrom(data.value(QStringLiteral("discoveryMixes")).toArray()));
+        m_tidalHub.insert(QStringLiteral("newReleaseMixes"), playlistsFrom(data.value(QStringLiteral("newReleaseMixes")).toArray()));
         m_tidalHub.insert(QStringLiteral("mixes"), playlistsFrom(data.value(QStringLiteral("mixes")).toArray()));
         m_tidalHub.insert(QStringLiteral("cursors"), data.value(QStringLiteral("cursors")).toObject().toVariantMap());
         setStatus(QStringLiteral("TIDAL collection is ready"));

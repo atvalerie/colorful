@@ -8,8 +8,9 @@ for durable queue, library, history, settings, and offline-job state.
 ## What works
 
 - TIDAL device linking, cached account country, subscription checks, search,
-  collection, playlists, mixes, catalog pages, full-track playback, related
-  tracks/radio, and selectable stream quality;
+  collection, playlists, personalized daily/discovery/new-release shelves,
+  catalog pages, full-track playback, related tracks/radio, and selectable
+  stream quality;
 - public YouTube Music song/video/release/artist/channel search, paginated
   uploader pages, catalog navigation, playback, downloads, and real automix,
   plus browser-session access to private libraries and playlists with lazy

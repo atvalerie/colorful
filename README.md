@@ -57,7 +57,8 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 - TIDAL device linking and subscription-aware full-track playback
 - account-country discovery with a cached fallback
-- TIDAL collection, playlists, mixes, catalog pages, and account/subscription details
+- TIDAL collection, playlists, personalized daily/discovery/new-release shelves,
+  catalog pages, and account/subscription details
 - public YouTube Music song, video, release, artist, and uploader-channel search; paginated channel uploads, catalog pages, playback, downloads, and genuine radio/automix on Linux
 - optional locally stored YouTube Music browser session for private library content, playlists, and personalized mixes
 - public SoundCloud mixed search, tracks, profiles, sets, related radio, catalog pagination, playback, quality-aware downloads, and optional uploader originals on Linux
@@ -88,7 +89,6 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 ### On the roadmap
 
-- broader TIDAL home/recommendation surfaces
 - Android EQ and normalization using the shared audio-processing contract
 - Android offline downloads and YouTube Music support
 - encrypted multi-device library sync and playback handoff

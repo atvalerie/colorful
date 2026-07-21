@@ -5,6 +5,9 @@ import QtQuick.Layouts
 Item {
     id: root
     property int tab: 0
+    readonly property bool homeEmpty: (colorful.tidalHub.dailyMixes || []).length === 0
+                                      && (colorful.tidalHub.discoveryMixes || []).length === 0
+                                      && (colorful.tidalHub.newReleaseMixes || []).length === 0
     readonly property bool collectionEmpty: (colorful.tidalHub.tracks || []).length === 0
                                             && (colorful.tidalHub.albums || []).length === 0
                                             && (colorful.tidalHub.artists || []).length === 0
@@ -17,6 +20,45 @@ Item {
         return value === undefined || value === null || value === "" ? fallback : value
     }
 
+    component MixShelf: Column {
+        required property string shelfTitle
+        required property var entries
+        required property string cursorSection
+        width: parent ? parent.width : 0
+        height: visible ? implicitHeight : 0
+        visible: entries.length > 0
+        spacing: 9
+
+        Text {
+            text: parent.shelfTitle
+            color: "#f5f5f5"
+            font.bold: true
+            font.pixelSize: 17
+        }
+        ListView {
+            width: parent.width
+            height: 204
+            orientation: ListView.Horizontal
+            model: parent.entries
+            spacing: 8
+            clip: true
+            pixelAligned: true
+            boundsBehavior: Flickable.StopAtBounds
+            delegate: PlaylistCard {
+                required property var modelData
+                entry: modelData
+                onOpenRequested: colorful.openPlaylist(modelData.id)
+            }
+        }
+        ColorButton {
+            visible: Boolean((colorful.tidalHub.cursors || {})[parent.cursorSection])
+            text: colorful.tidalMoreLoading ? "Loading…" : "Show more"
+            quiet: true
+            enabled: !colorful.tidalMoreLoading
+            onClicked: colorful.loadMoreTidal(parent.cursorSection)
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 16
@@ -25,7 +67,7 @@ Item {
             Layout.fillWidth: true
             spacing: 8
             Text {
-                text: "TIDAL library"
+                text: "TIDAL"
                 color: "#f5f5f5"
                 font.bold: true
                 font.pixelSize: 24
@@ -50,7 +92,7 @@ Item {
             Layout.fillWidth: true
             spacing: 0
             Repeater {
-                model: ["Collection", "Playlists & mixes"]
+                model: ["Home", "Collection", "Playlists & mixes"]
                 delegate: Rectangle {
                     required property string modelData
                     required property int index
@@ -77,6 +119,50 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             currentIndex: root.tab
+
+            Item {
+                Flickable {
+                    anchors.fill: parent
+                    clip: true
+                    contentWidth: width
+                    contentHeight: homeColumn.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    Column {
+                        id: homeColumn
+                        width: parent.width
+                        spacing: 18
+                        topPadding: 2
+                        bottomPadding: 24
+
+                        MixShelf {
+                            shelfTitle: "Your daily mixes"
+                            entries: colorful.tidalHub.dailyMixes || []
+                            cursorSection: "dailyMixes"
+                        }
+                        MixShelf {
+                            shelfTitle: "Daily discovery"
+                            entries: colorful.tidalHub.discoveryMixes || []
+                            cursorSection: "discoveryMixes"
+                        }
+                        MixShelf {
+                            shelfTitle: "New releases for you"
+                            entries: colorful.tidalHub.newReleaseMixes || []
+                            cursorSection: "newReleaseMixes"
+                        }
+                    }
+                }
+                Column {
+                    anchors.centerIn: parent
+                    width: Math.min(420, parent.width - 48)
+                    spacing: 10
+                    visible: colorful.linked && !colorful.tidalHubLoading && root.homeEmpty
+                    AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/home.svg"; opacity: 0.28 }
+                    Text { width: parent.width; text: "No recommendations yet"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: 16 }
+                    Text { width: parent.width; text: "TIDAL will place daily mixes, discovery, and new releases here when they become available for this account."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 12 }
+                }
+            }
 
             Item {
                 ListView {
