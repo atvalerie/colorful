@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Colorful.Windows.Core;
 
-internal sealed class CoreBridge : IDisposable
+internal sealed partial class CoreBridge : IDisposable
 {
     private const string LibraryName = "colorful_core";
     private ulong _handle;
