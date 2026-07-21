@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Linux · Android · Windows (planned) · iOS (planned)</strong>
+  <strong>Linux · Android · Windows · iOS (planned)</strong>
 </p>
 
 > [!IMPORTANT]
@@ -49,7 +49,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 | --- | --- | --- |
 | Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL, YouTube Music, and public SoundCloud playback, persistent queue/library |
 | Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking/search/playback, and Rust/SQLite queue persistence |
-| Windows | Planned | WinUI, Media Foundation/WASAPI, System Media Transport Controls |
+| Windows | Native foundation | WinUI 3, Rust/SQLite ABI bridge, Windows `MediaPlayer` playback boundary, and system media commands |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
 | macOS | Not targeted | No first-party target is planned |
 
