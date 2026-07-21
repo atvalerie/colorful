@@ -684,3 +684,35 @@ export function mapYouTubeMusicPlaylistDocument(document: JsonObject, playlistId
   playlist.numberOfItems = headerCount ?? (tracks.length || null);
   return { kind: "playlist", playlist, tracks };
 }
+
+function continuationToken(document: JsonObject): string {
+  const playlistRoots = [
+    ...children(document, "musicPlaylistShelfRenderer"),
+    ...children(document, "musicPlaylistShelfContinuation"),
+    ...children(document, "appendContinuationItemsAction")
+      .filter((action) => children(action, "musicResponsiveListItemRenderer").length > 0),
+  ];
+  for (const root of playlistRoots) {
+    const token = children(root, "nextContinuationData").map((item) => string(item.continuation)).find(Boolean)
+      || children(root, "reloadContinuationData").map((item) => string(item.continuation)).find(Boolean);
+    if (token) return token;
+  }
+  return "";
+}
+
+export async function youtubeMusicAllPlaylistTracks(playlistId: string): Promise<TrackSummary[]> {
+  const cleanId = playlistId.replace(/^VL/, "");
+  let document = await youtubei("browse", { browseId: `VL${cleanId}` });
+  const tracks = [...mapYouTubeMusicPlaylistDocument(document, cleanId).tracks];
+  const seenContinuations = new Set<string>();
+  for (;;) {
+    const continuation = continuationToken(document);
+    if (!continuation || seenContinuations.has(continuation)) break;
+    seenContinuations.add(continuation);
+    document = await youtubei("browse", { continuation });
+    tracks.push(...tracksFromDocument(document));
+    // Protect against a malformed endpoint cycling through unique tokens forever.
+    if (seenContinuations.size >= 500) throw new Error("YouTube Music playlist pagination exceeded its safety limit");
+  }
+  return tracks;
+}

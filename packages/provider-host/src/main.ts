@@ -6,7 +6,7 @@ import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./secret-
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
 import { clearYouTubeAuth, connectYouTubeBrowser, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
-import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
+import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicAllPlaylistTracks, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -311,6 +311,12 @@ async function handle(request: RequestMessage): Promise<void> {
       const resourceId = String(request.payload?.id ?? "").trim();
       if (!resourceId) throw new Error("Album ID is empty");
       send({ id: request.id, ok: true, data: { tracks: await browse.allAlbumTracks(resourceId) } });
+      return;
+    }
+    case "detail.youtubePlaylistTracks": {
+      const resourceId = String(request.payload?.id ?? "").trim();
+      if (!resourceId) throw new Error("Playlist ID is empty");
+      send({ id: request.id, ok: true, data: { tracks: await youtubeMusicAllPlaylistTracks(resourceId) } });
       return;
     }
     case "related": {

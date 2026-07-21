@@ -1364,6 +1364,45 @@ void Backend::playCatalogCollection()
         playSingleTrack(m_catalogPage.value(QStringLiteral("track")).toMap());
         return;
     }
+    const auto pageProvider = m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto totalItems = m_catalogPage.value(QStringLiteral("playlist")).toMap()
+                                .value(QStringLiteral("numberOfItems")).toLongLong();
+    if (kind == QStringLiteral("playlist") && pageProvider == QStringLiteral("youtube")
+        && totalItems > tracks.size()
+        && !m_catalogPage.value(QStringLiteral("allPlaylistTracksLoaded")).toBool()) {
+        const auto generation = m_catalogGeneration;
+        m_catalogMoreLoading = true;
+        emit catalogPageChanged();
+        setStatus(QStringLiteral("Loading all %1 playlist tracks…").arg(totalItems));
+        request(QStringLiteral("detail.youtubePlaylistTracks"), {
+            {QStringLiteral("id"), m_catalogPage.value(QStringLiteral("resourceId")).toString()},
+        }, [this, generation](const QJsonObject &message) {
+            if (generation != m_catalogGeneration) return;
+            m_catalogMoreLoading = false;
+            if (!message.value(QStringLiteral("ok")).toBool()) {
+                const auto error = message.value(QStringLiteral("error")).toString();
+                setStatus(error);
+                notify(error, QStringLiteral("error"));
+                emit catalogPageChanged();
+                return;
+            }
+            QVariantList allTracks;
+            for (const auto &value : message.value(QStringLiteral("data")).toObject()
+                                         .value(QStringLiteral("tracks")).toArray()) {
+                auto document = value.toObject();
+                document.insert(QStringLiteral("provider"), QStringLiteral("youtube"));
+                allTracks.append(jsonTrackToVariant(document));
+            }
+            m_catalogPage.insert(QStringLiteral("tracks"), allTracks);
+            m_catalogPage.insert(QStringLiteral("allPlaylistTracksLoaded"), true);
+            emit catalogPageChanged();
+            if (!allTracks.isEmpty()) {
+                setStatus(QStringLiteral("Queued %1 playlist tracks").arg(allTracks.size()));
+                playTracks(allTracks);
+            }
+        });
+        return;
+    }
     if (kind == QStringLiteral("album") && !m_catalogPage.value(QStringLiteral("trackCursor")).toString().isEmpty()) {
         const auto generation = m_catalogGeneration;
         m_catalogMoreLoading = true;
