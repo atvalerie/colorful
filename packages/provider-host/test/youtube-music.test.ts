@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument } from "../src/youtube-music";
+import { mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument, youtubeMusicPremiumStatusFromHtml } from "../src/youtube-music";
 import { parseYouTubeBrowserHeaders, selectYouTubeBrowserHeaders } from "../src/youtube-auth";
 
 describe("authenticated YouTube Music mapping", () => {
+  test("reads premium membership status from YouTube Music bootstrap data", () => {
+    expect(youtubeMusicPremiumStatusFromHtml('<script>ytcfg.set({"IS_SUBSCRIBER":true})</script>')).toBe("Premium");
+    expect(youtubeMusicPremiumStatusFromHtml('{\\"IS_SUBSCRIBER\\":false}')).toBe("Free");
+    expect(youtubeMusicPremiumStatusFromHtml("no membership state here")).toBe("Unknown");
+  });
+
   test("reads browser authentication from Chromium Copy as cURL", () => {
     const headers = parseYouTubeBrowserHeaders(String.raw`curl 'https://music.youtube.com/youtubei/v1/browse' \
       -H 'x-goog-authuser: 0' \

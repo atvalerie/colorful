@@ -134,8 +134,8 @@ Item {
                                      ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
                                      : "Paste headers from a logged-in /browse request. A fresh private window is recommended; the session stays in the credential service."
                         details: [
+                            [((colorful.youtubeHub.account || {}).premiumStatus) || "Unknown", "Plan"],
                             [String((colorful.youtubeHub.tracks || []).length), "Liked tracks"],
-                            [String((colorful.youtubeHub.albums || []).length), "Albums"],
                             [String((colorful.youtubeHub.playlists || []).length + (colorful.youtubeHub.mixes || []).length), "Playlists & mixes"]
                         ]
                         primaryText: "Setup guide"

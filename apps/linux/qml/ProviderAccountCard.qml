@@ -69,7 +69,7 @@ Rectangle {
             wrapMode: Text.WordWrap
             font.pixelSize: 11
         }
-        RowLayout {
+        Row {
             Layout.fillWidth: true
             visible: root.connected && root.details.length > 0
             spacing: 0
@@ -77,7 +77,7 @@ Rectangle {
                 model: root.details
                 delegate: ColumnLayout {
                     required property var modelData
-                    Layout.fillWidth: true
+                    width: root.details.length > 0 ? parent.width / root.details.length : 0
                     spacing: 2
                     Text {
                         Layout.fillWidth: true

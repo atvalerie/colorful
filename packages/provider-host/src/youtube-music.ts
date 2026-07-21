@@ -630,11 +630,37 @@ export type YouTubeMusicAccount = {
   accountName: string;
   channelHandle: string | null;
   accountPhotoUrl: string | null;
+  premiumStatus: "Premium" | "Free" | "Unknown";
 };
+
+export function youtubeMusicPremiumStatusFromHtml(html: string): YouTubeMusicAccount["premiumStatus"] {
+  const match = html.match(/\\?"IS_SUBSCRIBER\\?"\s*:\s*(true|false)/i);
+  if (!match) return "Unknown";
+  return match[1]?.toLowerCase() === "true" ? "Premium" : "Free";
+}
+
+async function youtubeMusicPremiumStatus(): Promise<YouTubeMusicAccount["premiumStatus"]> {
+  if (!browserHeadersProvider) return "Unknown";
+  try {
+    const headers = await browserHeadersProvider();
+    const response = await fetch(MUSIC_ORIGIN, { headers: {
+      "Cookie": headers.cookie ?? "",
+      "User-Agent": headers["user-agent"] ?? "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+      ...(headers["accept-language"] ? { "Accept-Language": headers["accept-language"] } : {}),
+    } });
+    if (!response.ok) return "Unknown";
+    return youtubeMusicPremiumStatusFromHtml(await response.text());
+  } catch {
+    return "Unknown";
+  }
+}
 
 export async function youtubeMusicAccount(): Promise<YouTubeMusicAccount> {
   requireAccount();
-  const document = await youtubei("account/account_menu", {}, true);
+  const [document, premiumStatus] = await Promise.all([
+    youtubei("account/account_menu", {}, true),
+    youtubeMusicPremiumStatus(),
+  ]);
   const header = children(document, "activeAccountHeaderRenderer")[0] || {};
   const accountName = runText(header.accountName);
   const channelHandle = runText(header.channelHandle);
@@ -644,6 +670,7 @@ export async function youtubeMusicAccount(): Promise<YouTubeMusicAccount> {
     accountName: accountName || "YouTube Music account",
     channelHandle: channelHandle || null,
     accountPhotoUrl: thumbnail(header),
+    premiumStatus,
   };
 }
 
