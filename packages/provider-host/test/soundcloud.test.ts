@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mapSoundCloudPlaylist, mapSoundCloudTrack, parseSoundCloudAuthorization, parseSoundCloudBootstrap } from "../src/soundcloud";
+import { mapSoundCloudHome, mapSoundCloudPlaylist, mapSoundCloudTrack, parseSoundCloudAuthorization, parseSoundCloudBootstrap } from "../src/soundcloud";
 
 describe("SoundCloud public catalog", () => {
   test("discovers the public API client from homepage hydration", () => {
@@ -62,5 +62,30 @@ describe("SoundCloud public catalog", () => {
       numberOfTracks: 84,
       albumType: "PLAYLIST",
     }));
+  });
+
+  test("maps personalized home shelves and system playlists", () => {
+    expect(mapSoundCloudHome({ collection: [{
+      title: "Made for you",
+      items: { collection: [{
+        id: "soundcloud:system-playlists:weekly:42",
+        kind: "system-playlist",
+        title: "Weekly Wave",
+        short_description: "Updated every Monday",
+        calculated_artwork_url: "https://i1.sndcdn.com/artworks-test-large.jpg",
+        playlist_type: "PLAYLIST",
+        tracks: [{ id: 1 }, { id: 2 }],
+        user: { id: 193, username: "SoundCloud" },
+      }] },
+    }] } as any)).toEqual([{
+      title: "Made for you",
+      items: [expect.objectContaining({
+        id: "soundcloud:system-playlists:weekly:42",
+        title: "Weekly Wave",
+        artists: ["Updated every Monday"],
+        coverUrl: "https://i1.sndcdn.com/artworks-test-t500x500.jpg",
+        numberOfTracks: 2,
+      })],
+    }]);
   });
 });

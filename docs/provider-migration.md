@@ -66,8 +66,9 @@ The visual layer derives contrast-safe accents and gradients from the result.
    pages, and real automix — implemented; optional browser-session credentials
    now add private Music library, playlist, account, and personalized-home data
 3. SoundCloud public search/catalog, profiles, sets, related radio, pagination,
-   Linux stream selection, and locally imported account library — implemented;
-   downloads and deeper private-library pagination remain
+   Linux stream selection, locally imported account library, personalized home
+   shelves, and private-library pagination — implemented; downloads and write
+   actions remain
 
 ## Current boundary
 
@@ -127,3 +128,8 @@ progressive or HLS transcoding URL. No SoundCloud login credential is required
 for public playback. When the user explicitly imports a copied API request,
 only its OAuth token is retained in Secret Service; copied URLs, cookies,
 DataDome identifiers, and browser fingerprint headers are discarded.
+Authenticated home data comes from SoundCloud's mixed-selection shelves.
+System-playlist URNs are retained as stable catalog identities and resolved to
+their complete track lists only when opened. The first liked-track ID page and
+the account's following IDs are cached with the loaded hub for future action
+state without issuing one request per visible row.

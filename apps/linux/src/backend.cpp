@@ -981,7 +981,61 @@ void Backend::loadSoundCloudHub(bool refresh)
         m_soundcloudHub.insert(QStringLiteral("tracks"), tracksFrom(data.value(QStringLiteral("tracks")).toArray()));
         m_soundcloudHub.insert(QStringLiteral("albums"), albumsFrom(data.value(QStringLiteral("albums")).toArray()));
         m_soundcloudHub.insert(QStringLiteral("artists"), artistsFrom(data.value(QStringLiteral("artists")).toArray()));
-        setStatus(QStringLiteral("SoundCloud library is ready"));
+        m_soundcloudHub.insert(QStringLiteral("suggestedArtists"), artistsFrom(data.value(QStringLiteral("suggestedArtists")).toArray()));
+        m_soundcloudHub.insert(QStringLiteral("likedTrackIds"), data.value(QStringLiteral("likedTrackIds")).toArray().toVariantList());
+        m_soundcloudHub.insert(QStringLiteral("followingIds"), data.value(QStringLiteral("followingIds")).toArray().toVariantList());
+        m_soundcloudHub.insert(QStringLiteral("likedTrackIdsCursor"), data.value(QStringLiteral("likedTrackIdsCursor")).toString());
+        QVariantList homeSections;
+        for (const auto &sectionValue : data.value(QStringLiteral("homeSections")).toArray()) {
+            const auto sectionObject = sectionValue.toObject();
+            QVariantMap section;
+            section.insert(QStringLiteral("title"), sectionObject.value(QStringLiteral("title")).toString());
+            section.insert(QStringLiteral("items"), albumsFrom(sectionObject.value(QStringLiteral("items")).toArray()));
+            homeSections.append(section);
+        }
+        m_soundcloudHub.insert(QStringLiteral("homeSections"), homeSections);
+        m_soundcloudHub.insert(QStringLiteral("cursors"), data.value(QStringLiteral("cursors")).toObject().toVariantMap());
+        setStatus(QStringLiteral("SoundCloud home and library are ready"));
+        emit soundcloudAccountChanged();
+    });
+}
+
+void Backend::loadMoreSoundCloud(const QString &section)
+{
+    if (m_soundcloudMoreLoading) return;
+    const auto cursors = m_soundcloudHub.value(QStringLiteral("cursors")).toMap();
+    const auto cursor = cursors.value(section).toString();
+    if (cursor.isEmpty()) return;
+    m_soundcloudMoreLoading = true;
+    emit soundcloudAccountChanged();
+    request(QStringLiteral("soundcloud.collection.more"), {
+        {QStringLiteral("section"), section}, {QStringLiteral("cursor"), cursor},
+    }, [this, section](const QJsonObject &message) {
+        m_soundcloudMoreLoading = false;
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            emit soundcloudAccountChanged();
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        auto entries = m_soundcloudHub.value(section).toList();
+        QSet<QString> ids;
+        for (const auto &entry : entries) ids.insert(entry.toMap().value(QStringLiteral("id")).toString());
+        const auto values = data.value(section).toArray();
+        for (const auto &value : values) {
+            auto object = value.toObject();
+            object.insert(QStringLiteral("provider"), QStringLiteral("soundcloud"));
+            QVariantMap mapped;
+            if (section == QStringLiteral("tracks")) mapped = jsonTrackToVariant(object);
+            else if (section == QStringLiteral("albums")) mapped = jsonAlbumToVariant(object);
+            else mapped = jsonArtistToVariant(object);
+            const auto id = mapped.value(QStringLiteral("id")).toString();
+            if (!id.isEmpty() && !ids.contains(id)) { ids.insert(id); entries.append(mapped); }
+        }
+        m_soundcloudHub.insert(section, entries);
+        auto cursors = m_soundcloudHub.value(QStringLiteral("cursors")).toMap();
+        cursors.insert(section, data.value(QStringLiteral("cursor")).toString());
+        m_soundcloudHub.insert(QStringLiteral("cursors"), cursors);
         emit soundcloudAccountChanged();
     });
 }

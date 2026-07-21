@@ -4,7 +4,7 @@ import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
 import { clearProviderSecret, clearRefreshToken, loadProviderSecret, loadRefreshToken, saveProviderSecret, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
-import { parseSoundCloudAuthorization, setSoundCloudAccessToken, soundCloudAccount, soundCloudArtistPage, soundCloudCollection, soundCloudLinked, soundCloudMore, soundCloudPlaylistPage, soundCloudRelated, soundCloudSearch, soundCloudSearchMore, soundCloudSource, soundCloudTrackPage } from "./soundcloud";
+import { parseSoundCloudAuthorization, setSoundCloudAccessToken, soundCloudAccount, soundCloudArtistPage, soundCloudCollection, soundCloudCollectionMore, soundCloudLinked, soundCloudMore, soundCloudPlaylistPage, soundCloudRelated, soundCloudSearch, soundCloudSearchMore, soundCloudSource, soundCloudTrackPage } from "./soundcloud";
 import { clearYouTubeAuth, connectYouTubeBrowser, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { searchYouTubeVideos, youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
 import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
@@ -187,6 +187,14 @@ async function handle(request: RequestMessage): Promise<void> {
     case "soundcloud.collection":
       send({ id: request.id, ok: true, data: await soundCloudCollection() });
       return;
+    case "soundcloud.collection.more": {
+      const section = String(request.payload?.section ?? "");
+      const cursor = String(request.payload?.cursor ?? "").trim();
+      if (!cursor || !["tracks", "albums", "artists"].includes(section))
+        throw new Error("SoundCloud library pagination state is incomplete");
+      send({ id: request.id, ok: true, data: await soundCloudCollectionMore(section, cursor) });
+      return;
+    }
     case "auth.start": {
       authAbort?.abort();
       authAbort = new AbortController();

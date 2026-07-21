@@ -37,6 +37,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool soundcloudLinked READ soundcloudLinked NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(QVariantMap soundcloudHub READ soundcloudHub NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool soundcloudHubLoading READ soundcloudHubLoading NOTIFY soundcloudAccountChanged)
+    Q_PROPERTY(bool soundcloudMoreLoading READ soundcloudMoreLoading NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
@@ -109,6 +110,7 @@ public:
     bool soundcloudLinked() const { return m_soundcloudLinked; }
     QVariantMap soundcloudHub() const { return m_soundcloudHub; }
     bool soundcloudHubLoading() const { return m_soundcloudHubLoading; }
+    bool soundcloudMoreLoading() const { return m_soundcloudMoreLoading; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList searchAlbums() const { return m_searchAlbums; }
@@ -179,6 +181,7 @@ public:
     Q_INVOKABLE void connectSoundCloudSession(const QString &request);
     Q_INVOKABLE void unlinkSoundCloud();
     Q_INVOKABLE void loadSoundCloudHub(bool refresh = false);
+    Q_INVOKABLE void loadMoreSoundCloud(const QString &section);
     Q_INVOKABLE void openSoundCloudSetupGuide();
     Q_INVOKABLE void dismissEntitlementWarning();
     Q_INVOKABLE void openTidalAccount();
@@ -418,6 +421,7 @@ private:
     bool m_youtubeLinked = false;
     QVariantMap m_soundcloudHub;
     bool m_soundcloudHubLoading = false;
+    bool m_soundcloudMoreLoading = false;
     bool m_soundcloudLinked = false;
     QVariantMap m_listenStats;
     QList<qint64> m_queueEntryIds;

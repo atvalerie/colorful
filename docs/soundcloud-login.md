@@ -1,8 +1,9 @@
 # SoundCloud account setup
 
 colorful can search and play public SoundCloud without an account. Connecting
-adds liked tracks, liked sets, your own sets, followed profiles, and access to
-resources visible to your account.
+adds personalized home shelves, liked tracks, liked sets, your own sets,
+followed profiles, profile recommendations, and access to resources visible to
+your account.
 
 ## Connect
 

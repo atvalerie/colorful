@@ -14,6 +14,9 @@ for durable queue, library, history, settings, and offline-job state.
   uploader pages, catalog navigation, playback, downloads, and real automix,
   plus browser-session access to private libraries and playlists with lazy
   continuation loading and YouTube's server-side playlist shuffle;
+- public SoundCloud search, profiles, sets, playback, related stations, and
+  optional OAuth-session access to personalized home shelves, liked tracks,
+  followed profiles, owned sets, and account recommendations;
 - persistent queue/library/position, drag reordering, play-next insertion,
   shuffle, three-state repeat, autoplay, prepared-next playback, and gapless
   transitions;
@@ -30,8 +33,7 @@ for durable queue, library, history, settings, and offline-job state.
 - action toasts, settings/storage/account views, qualified listening history,
   and the optional owner-only Discord statistics widget.
 
-SoundCloud, encrypted device sync, parties, and packaged releases are not
-implemented yet.
+Encrypted device sync, parties, and packaged releases are not implemented yet.
 
 ## Requirements and launch
 

@@ -38,6 +38,11 @@ type SoundCloudPlaylist = {
   kind?: unknown;
   title?: unknown;
   artwork_url?: unknown;
+  calculated_artwork_url?: unknown;
+  short_title?: unknown;
+  short_description?: unknown;
+  description?: unknown;
+  playlist_type?: unknown;
   duration?: unknown;
   track_count?: unknown;
   is_album?: unknown;
@@ -54,6 +59,24 @@ type SoundCloudCollection = {
   next_href?: unknown;
 };
 
+type SoundCloudSelection = {
+  title?: unknown;
+  items?: SoundCloudCollection;
+};
+
+export type SoundCloudHomeSection = {
+  title: string;
+  items: AlbumSummary[];
+};
+
+export type SoundCloudLibraryPage = UserCollectionPage & {
+  homeSections: SoundCloudHomeSection[];
+  suggestedArtists: ArtistSummary[];
+  likedTrackIds: string[];
+  followingIds: string[];
+  likedTrackIdsCursor?: string;
+};
+
 export type SoundCloudBootstrap = {
   clientId: string;
   appVersion?: string;
@@ -61,6 +84,7 @@ export type SoundCloudBootstrap = {
 
 let bootstrapCache: (SoundCloudBootstrap & { discoveredAt: number }) | null = null;
 let accessToken = "";
+let accountCache: Record<string, unknown> | null = null;
 const anonymousUserId = Array.from({ length: 4 }, () => Math.floor(100000 + Math.random() * 900000)).join("-");
 
 function string(value: unknown): string {
@@ -121,8 +145,8 @@ export function mapSoundCloudPlaylist(raw: SoundCloudPlaylist): AlbumSummary | n
   const id = identifier(raw.id);
   const title = string(raw.title);
   if (!id || !title) return null;
-  const artist = userArtist(raw.user);
-  const artistName = artist?.name ?? "SoundCloud";
+  const artist = string(raw.kind) === "system-playlist" ? null : userArtist(raw.user);
+  const artistName = string(raw.short_description) || artist?.name || "SoundCloud";
   const artistId = artist?.id ?? "";
   return {
     provider: "soundcloud" as any,
@@ -131,11 +155,11 @@ export function mapSoundCloudPlaylist(raw: SoundCloudPlaylist): AlbumSummary | n
     version: null,
     artists: [artistName],
     artistCredits: artistId ? [{ id: artistId, name: artistName }] : [],
-    coverUrl: artwork(raw.artwork_url ?? raw.user?.avatar_url),
+    coverUrl: artwork(raw.artwork_url ?? raw.calculated_artwork_url ?? raw.user?.avatar_url),
     releaseDate: string(raw.release_date) || string(raw.created_at) || null,
     durationMs: number(raw.duration),
     numberOfTracks: number(raw.track_count) ?? array(raw.tracks).length,
-    albumType: raw.is_album === true ? "ALBUM" : "PLAYLIST",
+    albumType: raw.is_album === true ? "ALBUM" : string(raw.playlist_type) || "PLAYLIST",
     explicit: false,
     mediaTags: [],
   } as AlbumSummary;
@@ -193,6 +217,7 @@ export function parseSoundCloudAuthorization(input: string): string {
 
 export function setSoundCloudAccessToken(token: string | null): void {
   accessToken = token?.trim() ?? "";
+  accountCache = null;
 }
 
 export function soundCloudLinked(): boolean {
@@ -251,24 +276,55 @@ function playlistFromActivity(value: unknown): SoundCloudPlaylist | null {
 
 export async function soundCloudAccount(): Promise<Record<string, unknown>> {
   if (!accessToken) throw new Error("Connect your SoundCloud account first");
+  if (accountCache) return accountCache;
   const user = await api<SoundCloudUser & Record<string, unknown>>("me");
   const artist = mapSoundCloudArtist(user);
   if (!artist) throw new Error("SoundCloud did not return an account profile");
-  return {
+  accountCache = {
     id: artist.id,
     username: artist.name,
     avatarUrl: artist.pictureUrl,
     permalinkUrl: string(user.permalink_url),
   };
+  return accountCache;
 }
 
-export async function soundCloudCollection(): Promise<UserCollectionPage> {
+function idsFrom(document: SoundCloudCollection): string[] {
+  return array(document.collection).map(identifier).filter(Boolean);
+}
+
+function suggestedUser(value: unknown): SoundCloudUser | null {
+  const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return item.user && typeof item.user === "object" ? item.user as SoundCloudUser : null;
+}
+
+export function mapSoundCloudHome(document: SoundCloudCollection): SoundCloudHomeSection[] {
+  return array(document.collection).map((value) => {
+    const selection = value && typeof value === "object" ? value as SoundCloudSelection : {};
+    const title = string(selection.title);
+    const items = array(selection.items?.collection)
+      .map((item) => mapSoundCloudPlaylist(item as SoundCloudPlaylist))
+      .filter((item): item is AlbumSummary => Boolean(item));
+    return { title, items: [...new Map(items.map((item) => [item.id, item])).values()] };
+  }).filter((section) => section.title && section.items.length);
+}
+
+export async function soundCloudCollection(): Promise<SoundCloudLibraryPage> {
   if (!accessToken) throw new Error("Connect your SoundCloud account first");
-  const [trackResult, playlistResult, ownPlaylistResult, followingResult] = await Promise.allSettled([
+  const account = await soundCloudAccount();
+  const accountId = identifier(account.id);
+  const [trackResult, playlistResult, ownPlaylistResult, followingResult, homeResult,
+    likedIdsResult, followingIdsResult, suggestedResult] = await Promise.allSettled([
     api<SoundCloudCollection>("me/likes/tracks", { limit: 50, offset: 0, linked_partitioning: 1 }),
     api<SoundCloudCollection>("me/likes/playlists", { limit: 50, offset: 0, linked_partitioning: 1 }),
     api<SoundCloudCollection>("me/playlists", { limit: 50, offset: 0, linked_partitioning: 1, show_tracks: false }),
     api<SoundCloudCollection>("me/followings", { limit: 50, offset: 0, linked_partitioning: 1 }),
+    api<SoundCloudCollection>("mixed-selections", { limit: 10, offset: 0, linked_partitioning: 1 }),
+    api<SoundCloudCollection>("me/track_likes/ids", { limit: 200 }),
+    accountId ? api<SoundCloudCollection>(`users/${accountId}/followings/ids`, { limit: 5000, linked_partitioning: 1 }) : Promise.resolve({}),
+    api<SoundCloudCollection>("me/suggested/users/who_to_follow", {
+      view: "recommended-first", limit: 21, offset: 0, linked_partitioning: 1,
+    }),
   ]);
   if (trackResult.status === "rejected" && playlistResult.status === "rejected"
       && ownPlaylistResult.status === "rejected" && followingResult.status === "rejected") {
@@ -278,6 +334,10 @@ export async function soundCloudCollection(): Promise<UserCollectionPage> {
   const playlistPage = playlistResult.status === "fulfilled" ? playlistResult.value : {};
   const ownPlaylistPage = ownPlaylistResult.status === "fulfilled" ? ownPlaylistResult.value : {};
   const followingPage = followingResult.status === "fulfilled" ? followingResult.value : {};
+  const homePage = homeResult.status === "fulfilled" ? homeResult.value : {};
+  const likedIdsPage = likedIdsResult.status === "fulfilled" ? likedIdsResult.value : {};
+  const followingIdsPage = followingIdsResult.status === "fulfilled" ? followingIdsResult.value : {};
+  const suggestedPage = suggestedResult.status === "fulfilled" ? suggestedResult.value : {};
   const tracks = array(trackPage.collection).map(trackFromActivity).filter((value): value is SoundCloudTrack => Boolean(value))
     .map(mapSoundCloudTrack).filter((value): value is TrackSummary => Boolean(value));
   const albums = [...new Map([...array(playlistPage.collection), ...array(ownPlaylistPage.collection)]
@@ -286,6 +346,10 @@ export async function soundCloudCollection(): Promise<UserCollectionPage> {
     .map((album) => [album.id, album])).values()];
   const artists = array(followingPage.collection).map((value) => mapSoundCloudArtist(value as SoundCloudUser))
     .filter((value): value is ArtistSummary => Boolean(value));
+  const suggestedArtists = array(suggestedPage.collection).map(suggestedUser)
+    .filter((value): value is SoundCloudUser => Boolean(value)).map(mapSoundCloudArtist)
+    .filter((value): value is ArtistSummary => Boolean(value));
+  const likedTrackIdsCursor = nextCursor(likedIdsPage);
   return {
     tracks,
     albums,
@@ -302,12 +366,29 @@ export async function soundCloudCollection(): Promise<UserCollectionPage> {
       lastModifiedAt: null,
     })),
     mixes: [],
+    homeSections: mapSoundCloudHome(homePage),
+    suggestedArtists,
+    likedTrackIds: idsFrom(likedIdsPage),
+    followingIds: idsFrom(followingIdsPage),
+    ...(likedTrackIdsCursor ? { likedTrackIdsCursor } : {}),
     cursors: {
       ...(nextCursor(trackPage) ? { tracks: nextCursor(trackPage)! } : {}),
-      ...(nextCursor(playlistPage) ? { playlists: nextCursor(playlistPage)! } : {}),
+      ...(nextCursor(playlistPage) ? { albums: nextCursor(playlistPage)! } : {}),
       ...(nextCursor(followingPage) ? { artists: nextCursor(followingPage)! } : {}),
     },
   };
+}
+
+export async function soundCloudCollectionMore(section: string, cursor: string) {
+  const response = await api<SoundCloudCollection>(cursor);
+  if (section === "artists") return { section, artists: array(response.collection)
+    .map((value) => mapSoundCloudArtist(value as SoundCloudUser)).filter((value): value is ArtistSummary => Boolean(value)), cursor: nextCursor(response) };
+  if (section === "albums") return { section, albums: array(response.collection).map(playlistFromActivity)
+    .filter((value): value is SoundCloudPlaylist => Boolean(value)).map(mapSoundCloudPlaylist)
+    .filter((value): value is AlbumSummary => Boolean(value)), cursor: nextCursor(response) };
+  return { section: "tracks", tracks: array(response.collection).map(trackFromActivity)
+    .filter((value): value is SoundCloudTrack => Boolean(value)).map(mapSoundCloudTrack)
+    .filter((value): value is TrackSummary => Boolean(value)), cursor: nextCursor(response) };
 }
 
 function nextCursor(document: SoundCloudCollection): string | undefined {
@@ -373,7 +454,9 @@ export async function soundCloudTrackPage(id: string) {
 }
 
 export async function soundCloudPlaylistPage(id: string) {
-  const raw = await api<SoundCloudPlaylist>(`playlists/${id}`, { representation: "full" });
+  const raw = id.startsWith("soundcloud:system-playlists:")
+    ? await api<SoundCloudPlaylist>(`system-playlists/${encodeURIComponent(id)}`)
+    : await api<SoundCloudPlaylist>(`playlists/${id}`, { representation: "full" });
   const album = mapSoundCloudPlaylist(raw);
   if (!album) throw new Error("SoundCloud playlist could not be resolved");
   return { kind: "album" as const, provider: "soundcloud" as const, album,
