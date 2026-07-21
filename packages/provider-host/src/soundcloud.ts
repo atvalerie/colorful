@@ -326,9 +326,10 @@ export async function soundCloudCollection(): Promise<SoundCloudLibraryPage> {
       view: "recommended-first", limit: 21, offset: 0, linked_partitioning: 1,
     }),
   ]);
-  if (trackResult.status === "rejected" && playlistResult.status === "rejected"
-      && ownPlaylistResult.status === "rejected" && followingResult.status === "rejected") {
-    throw trackResult.reason;
+  const results = [trackResult, playlistResult, ownPlaylistResult, followingResult, homeResult,
+    likedIdsResult, followingIdsResult, suggestedResult];
+  if (results.every((result) => result.status === "rejected")) {
+    throw (homeResult.status === "rejected" ? homeResult.reason : trackResult.status === "rejected" ? trackResult.reason : new Error("SoundCloud account data is unavailable"));
   }
   const trackPage = trackResult.status === "fulfilled" ? trackResult.value : {};
   const playlistPage = playlistResult.status === "fulfilled" ? playlistResult.value : {};
@@ -338,14 +339,19 @@ export async function soundCloudCollection(): Promise<SoundCloudLibraryPage> {
   const likedIdsPage = likedIdsResult.status === "fulfilled" ? likedIdsResult.value : {};
   const followingIdsPage = followingIdsResult.status === "fulfilled" ? followingIdsResult.value : {};
   const suggestedPage = suggestedResult.status === "fulfilled" ? suggestedResult.value : {};
-  const tracks = array(trackPage.collection).map(trackFromActivity).filter((value): value is SoundCloudTrack => Boolean(value))
+  const directTracks = array(trackPage.collection).map(trackFromActivity).filter((value): value is SoundCloudTrack => Boolean(value))
     .map(mapSoundCloudTrack).filter((value): value is TrackSummary => Boolean(value));
+  const likedTrackIds = idsFrom(likedIdsPage);
+  const tracks = directTracks.length ? directTracks
+    : await hydratedTracks(likedTrackIds.map((id) => ({ id, kind: "track" })));
   const albums = [...new Map([...array(playlistPage.collection), ...array(ownPlaylistPage.collection)]
     .map(playlistFromActivity).filter((value): value is SoundCloudPlaylist => Boolean(value))
     .map(mapSoundCloudPlaylist).filter((value): value is AlbumSummary => Boolean(value))
     .map((album) => [album.id, album])).values()];
-  const artists = array(followingPage.collection).map((value) => mapSoundCloudArtist(value as SoundCloudUser))
+  const directArtists = array(followingPage.collection).map((value) => mapSoundCloudArtist(value as SoundCloudUser))
     .filter((value): value is ArtistSummary => Boolean(value));
+  const followingIds = idsFrom(followingIdsPage);
+  const artists = directArtists.length ? directArtists : await hydratedArtists(followingIds);
   const suggestedArtists = array(suggestedPage.collection).map(suggestedUser)
     .filter((value): value is SoundCloudUser => Boolean(value)).map(mapSoundCloudArtist)
     .filter((value): value is ArtistSummary => Boolean(value));
@@ -368,8 +374,8 @@ export async function soundCloudCollection(): Promise<SoundCloudLibraryPage> {
     mixes: [],
     homeSections: mapSoundCloudHome(homePage),
     suggestedArtists,
-    likedTrackIds: idsFrom(likedIdsPage),
-    followingIds: idsFrom(followingIdsPage),
+    likedTrackIds,
+    followingIds,
     ...(likedTrackIdsCursor ? { likedTrackIdsCursor } : {}),
     cursors: {
       ...(nextCursor(trackPage) ? { tracks: nextCursor(trackPage)! } : {}),
@@ -408,6 +414,16 @@ async function hydratedTracks(values: unknown[]): Promise<TrackSummary[]> {
   return ids.map((id, index) => byId.get(id) ?? embedded[index])
     .map((value) => value ? mapSoundCloudTrack(value) : null)
     .filter((value): value is TrackSummary => Boolean(value));
+}
+
+async function hydratedArtists(ids: string[]): Promise<ArtistSummary[]> {
+  if (!ids.length) return [];
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += 50) chunks.push(ids.slice(index, index + 50));
+  const fetched = await Promise.all(chunks.map((chunk) => api<unknown[]>("users", { ids: chunk.join(",") })))
+    .then((pages) => pages.flat()).catch(() => []);
+  return fetched.map((value) => mapSoundCloudArtist(value as SoundCloudUser))
+    .filter((value): value is ArtistSummary => Boolean(value));
 }
 
 export async function soundCloudSearch(query: string, limit = 20): Promise<{
