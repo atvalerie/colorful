@@ -47,6 +47,7 @@ public:
     void clearSource();
     void play();
     void pause();
+    void suspendForSourceChange();
     void stop();
     bool seek(qint64 positionMs);
     void setVolume(double volume);

@@ -292,6 +292,8 @@ private:
     void playTrackAt(int index);
     void playSingleTrack(const QVariantMap &track);
     void playTracks(const QVariantList &tracks, bool preserveProvidedOrder = false);
+    void advanceToNext(bool coalesceSourceResolution);
+    void scheduleCurrentSourceAfterSkip(bool autoplay);
     void clearPlaylistContinuation();
     void activatePlaylistContinuation(const QString &playlistId, const QString &cursor);
     void requestPlaylistContinuation(bool continueWhenReady);
@@ -353,6 +355,8 @@ private:
 
     LinuxPlayback m_playback;
     QTimer m_checkpointTimer;
+    QTimer m_manualSkipTimer;
+    bool m_manualSkipAutoplay = true;
     quint64 m_sourceGeneration = 0;
     quint64 m_prepareGeneration = 0;
     qint64 m_preparedEntryId = -1;

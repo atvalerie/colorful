@@ -159,6 +159,15 @@ Backend::Backend(QObject *parent)
     });
     m_checkpointTimer.start();
 
+    // YouTube source resolution may launch yt-dlp and cannot be cancelled once
+    // it has entered the provider host. Collapse a burst of manual Next clicks
+    // into one final resolver instead of spawning one process per skipped item.
+    m_manualSkipTimer.setSingleShot(true);
+    m_manualSkipTimer.setInterval(140);
+    connect(&m_manualSkipTimer, &QTimer::timeout, this, [this] {
+        resolveCurrentSource(0, m_manualSkipAutoplay && playing());
+    });
+
     connect(&m_discordWidget, &DiscordWidgetExporter::stateChanged,
             this, &Backend::discordWidgetChanged);
     connect(&m_discordPresence, &DiscordPresence::userIdResolved,
@@ -293,7 +302,7 @@ Backend::Backend(QObject *parent)
         emit positionChanged();
         resumeListeningSession();
     });
-    connect(&m_playback, &LinuxPlayback::endOfMedia, this, &Backend::next);
+    connect(&m_playback, &LinuxPlayback::endOfMedia, this, [this] { advanceToNext(false); });
     connect(&m_playback, &LinuxPlayback::preparedNextStarted, this, &Backend::advancePreparedTrack);
     connect(&m_playback, &LinuxPlayback::preparedNextFailed, this, [this](const QString &) {
         ++m_prepareGeneration;
@@ -2322,7 +2331,7 @@ void Backend::requestPlaylistContinuation(bool continueWhenReady)
             }
         }
         if (continueWhenReady) {
-            if (canGoNext()) next();
+            if (canGoNext()) advanceToNext(false);
             else requestPlaylistContinuation(true);
         } else {
             prepareNextSource();
@@ -2332,6 +2341,7 @@ void Backend::requestPlaylistContinuation(bool continueWhenReady)
 
 void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
 {
+    m_manualSkipTimer.stop();
     const auto track = currentTrack();
     if (track.isEmpty()) return;
     const auto requestedTrackId = track.value(QStringLiteral("id")).toString();
@@ -2465,7 +2475,7 @@ void Backend::prepareNextSource()
 void Backend::advancePreparedTrack()
 {
     if (m_preparedEntryId < 0) {
-        next();
+        advanceToNext(false);
         return;
     }
     const auto expectedEntryId = m_preparedEntryId;
@@ -2511,6 +2521,7 @@ void Backend::pause()
 void Backend::stop()
 {
     finishListeningSession();
+    m_manualSkipTimer.stop();
     ++m_sourceGeneration;
     dispatchCore({{QStringLiteral("command"), QStringLiteral("stop")}});
     m_resumePositionMs = 0;
@@ -2518,7 +2529,21 @@ void Backend::stop()
     m_playback.stop();
 }
 
-void Backend::next()
+void Backend::next() { advanceToNext(true); }
+
+void Backend::scheduleCurrentSourceAfterSkip(bool autoplay)
+{
+    // Invalidate any response for an earlier queue selection immediately. The
+    // timer itself is restarted by every click, so only the final selection
+    // reaches the provider host.
+    ++m_sourceGeneration;
+    invalidatePreparedNext();
+    m_manualSkipAutoplay = autoplay;
+    if (autoplay) m_playback.suspendForSourceChange();
+    m_manualSkipTimer.start();
+}
+
+void Backend::advanceToNext(bool coalesceSourceResolution)
 {
     finishListeningSession();
     if (m_repeatMode != QStringLiteral("one") && atLoadedQueueEnd()
@@ -2550,7 +2575,8 @@ void Backend::next()
             return;
         }
     }
-    resolveCurrentSource(0, autoplay);
+    if (coalesceSourceResolution) scheduleCurrentSourceAfterSkip(autoplay);
+    else resolveCurrentSource(0, autoplay);
 }
 
 void Backend::requestRelated(bool continueWhenReady)
@@ -2620,7 +2646,7 @@ void Backend::requestRelated(bool continueWhenReady)
         }
         if (canGoNext()) {
             setStatus(QStringLiteral("Autoplay added %1 related tracks").arg(added));
-            if (continueWhenReady) next();
+            if (continueWhenReady) advanceToNext(false);
             else prepareNextSource();
         } else {
             if (continueWhenReady) {

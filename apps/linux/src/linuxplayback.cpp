@@ -189,6 +189,15 @@ void LinuxPlayback::pause()
     setPauseProperty(true);
 }
 
+void LinuxPlayback::suspendForSourceChange()
+{
+    if (!m_mpv || !hasSource()) return;
+    // Stop stale audio while the next provider URI is resolving, but preserve
+    // the logical Playing state. Integrations should see one continuous manual
+    // skip rather than a synthetic pause/resume pair.
+    setPauseProperty(true);
+}
+
 void LinuxPlayback::stop()
 {
     if (!m_mpv || !hasSource()) return;
