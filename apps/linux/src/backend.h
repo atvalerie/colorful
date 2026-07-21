@@ -151,7 +151,7 @@ public:
     bool muted() const { return m_playback.muted(); }
     QString repeatMode() const { return m_repeatMode; }
     bool shuffleEnabled() const { return m_shuffleEnabled; }
-    bool playbackLoading() const { return m_playback.loading(); }
+    bool playbackLoading() const { return m_sourceResolving || m_playback.loading(); }
     bool buffering() const { return m_playback.buffering(); }
     int bufferingPercent() const { return m_playback.bufferingPercent(); }
     QString playbackError() const { return m_playbackError; }
@@ -338,6 +338,7 @@ private:
     void setProviderReady(bool ready);
     void setLinked(bool linked);
     void setBusy(bool busy);
+    void setSourceResolving(bool resolving);
     void setStatus(const QString &message);
     void notify(const QString &message, const QString &kind = QStringLiteral("info"));
     void setEntitlementWarning(bool visible, const QString &message = {});
@@ -411,6 +412,7 @@ private:
     QTimer m_checkpointTimer;
     QTimer m_manualSkipTimer;
     bool m_manualSkipAutoplay = true;
+    bool m_sourceResolving = false;
     quint64 m_sourceGeneration = 0;
     quint64 m_prepareGeneration = 0;
     qint64 m_preparedEntryId = -1;

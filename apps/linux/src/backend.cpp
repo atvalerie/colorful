@@ -2815,12 +2815,20 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
 {
     m_manualSkipTimer.stop();
     const auto track = currentTrack();
-    if (track.isEmpty()) return;
+    if (track.isEmpty()) {
+        setSourceResolving(false);
+        return;
+    }
     const auto requestedTrackId = track.value(QStringLiteral("id")).toString();
     const auto sourceGeneration = ++m_sourceGeneration;
     invalidatePreparedNext();
     suspendListeningSession();
     m_playbackReady = false;
+    // Queue selection changes synchronously, but network providers may need a
+    // few seconds to resolve their playable URI. Silence the previous source
+    // immediately rather than letting stale audio continue under the new
+    // track's metadata while that request is in flight.
+    m_playback.suspendForSourceChange();
     const auto offline = downloadForTrack(
         track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString(), requestedTrackId);
     const auto localPath = offline.value(QStringLiteral("localPath")).toString();
@@ -2830,9 +2838,11 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         m_displayPositionOverride = startPositionMs > 0 ? startPositionMs : -1;
         loadAccent(track.value(QStringLiteral("coverUrl")).toString());
         m_playback.setSource(QUrl::fromLocalFile(localPath), startPositionMs, autoplay);
+        setSourceResolving(false);
         return;
     }
     m_playingLocalSource = false;
+    setSourceResolving(true);
     setBusy(true);
     setStatus(QStringLiteral("Getting playback source for %1…").arg(track.value(QStringLiteral("title")).toString()));
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());
@@ -2844,6 +2854,7 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         if (sourceGeneration != m_sourceGeneration
             || currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
         if (!message.value(QStringLiteral("ok")).toBool()) {
+            setSourceResolving(false);
             setBusy(false);
             const auto error = message.value(QStringLiteral("error")).toString();
             setStatus(error);
@@ -2859,6 +2870,7 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         const auto source = message.value(QStringLiteral("data")).toObject();
         const auto uri = source.value(QStringLiteral("uri")).toString();
         if (uri.isEmpty()) {
+            setSourceResolving(false);
             setBusy(false);
             setStatus(QStringLiteral("The provider returned an empty playback source"));
             m_playbackError = QStringLiteral("The provider returned an empty playback source");
@@ -2872,6 +2884,9 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")),
             source.value(QStringLiteral("userAgent")).toString(),
             source.value(QStringLiteral("referrer")).toString());
+        // setSource() starts libmpv's own loading phase synchronously, so the
+        // combined playbackLoading property stays true without flickering.
+        setSourceResolving(false);
     });
 }
 
@@ -2995,6 +3010,7 @@ void Backend::stop()
     finishListeningSession();
     m_manualSkipTimer.stop();
     ++m_sourceGeneration;
+    setSourceResolving(false);
     dispatchCore({{QStringLiteral("command"), QStringLiteral("stop")}});
     m_resumePositionMs = 0;
     m_displayPositionOverride = -1;
@@ -3723,6 +3739,12 @@ QVariantMap Backend::jsonCatalogPageToVariant(const QJsonObject &page)
 void Backend::setProviderReady(bool ready) { if (m_providerReady != ready) { m_providerReady = ready; emit providerReadyChanged(); } }
 void Backend::setLinked(bool linked) { if (m_linked != linked) { m_linked = linked; emit linkedChanged(); } }
 void Backend::setBusy(bool busy) { if (m_busy != busy) { m_busy = busy; emit busyChanged(); } }
+void Backend::setSourceResolving(bool resolving)
+{
+    if (m_sourceResolving == resolving) return;
+    m_sourceResolving = resolving;
+    emit playbackConditionChanged();
+}
 void Backend::setStatus(const QString &message) { if (m_statusMessage != message) { m_statusMessage = message; emit statusMessageChanged(); } }
 
 void Backend::notify(const QString &message, const QString &kind)
