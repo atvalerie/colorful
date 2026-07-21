@@ -262,6 +262,14 @@ Backend::Backend(QObject *parent)
             m_playbackReady = false;
         } else {
             m_playbackReady = true;
+            // Restored playback starts through mpv's per-file `start` option,
+            // not Backend::seek(). Once the source is loaded, mpv owns the
+            // live clock and the temporary persisted-position display value
+            // must no longer mask it for QML, MPRIS, or Discord.
+            if (m_displayPositionOverride >= 0) {
+                m_displayPositionOverride = -1;
+                emit positionChanged();
+            }
             resumeListeningSession();
         }
         setBusy(loading);
@@ -281,6 +289,7 @@ Backend::Backend(QObject *parent)
     connect(&m_playback, &LinuxPlayback::errorOccurred, this, [this](const QString &error) {
         suspendListeningSession();
         m_playbackReady = false;
+        m_displayPositionOverride = -1;
         setBusy(false);
         setStatus(QStringLiteral("Playback error: %1").arg(error));
         m_playbackError = error;
