@@ -138,8 +138,9 @@ source .env
 set +a
 ```
 
-Never commit `.env` or post credentials. Linux stores refresh tokens through
-Secret Service; Android uses Android Keystore.
+Never commit `.env` or post credentials. Linux stores TIDAL refresh tokens and
+the optional YouTube Music browser session through Secret Service; Android uses
+Android Keystore.
 
 Authenticated YouTube Music uses a browser session captured from your own
 account. See the [YouTube Music account setup guide](docs/youtube-music-login.md).
