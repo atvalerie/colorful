@@ -764,6 +764,22 @@ bool Backend::canGoPrevious() const
 
 void Backend::startProviderHost()
 {
+#if defined(Q_OS_WIN)
+    const auto providerExecutable = qEnvironmentVariable(
+        "COLORFUL_PROVIDER_EXECUTABLE",
+        QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-provider.exe"));
+    if (!QFileInfo::exists(providerExecutable)) {
+        setStatus(QStringLiteral("The Windows provider host is missing. Rebuild colorful or set COLORFUL_PROVIDER_EXECUTABLE."));
+        return;
+    }
+    m_provider.setWorkingDirectory(QCoreApplication::applicationDirPath());
+    m_provider.setProcessChannelMode(QProcess::SeparateChannels);
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("COLORFUL_SECRET_HELPER"),
+                       QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-credential-helper.exe"));
+    m_provider.setProcessEnvironment(environment);
+    m_provider.start(providerExecutable);
+#else
     const auto bun = qEnvironmentVariable("COLORFUL_BUN", QStandardPaths::findExecutable(QStringLiteral("bun")));
     if (bun.isEmpty()) {
         setStatus(QStringLiteral("Bun was not found. Install Bun or set COLORFUL_BUN."));
@@ -775,13 +791,8 @@ void Backend::startProviderHost()
         sourceRoot + QStringLiteral("/packages/provider-host/src/main.ts"));
     m_provider.setWorkingDirectory(sourceRoot);
     m_provider.setProcessChannelMode(QProcess::SeparateChannels);
-#if defined(Q_OS_WIN)
-    auto environment = QProcessEnvironment::systemEnvironment();
-    environment.insert(QStringLiteral("COLORFUL_SECRET_HELPER"),
-                       QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-credential-helper.exe"));
-    m_provider.setProcessEnvironment(environment);
-#endif
     m_provider.start(bun, {host});
+#endif
     if (!m_provider.waitForStarted(3000)) {
         setStatus(QStringLiteral("Could not launch provider host: %1").arg(m_provider.errorString()));
         return;

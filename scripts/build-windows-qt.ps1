@@ -71,6 +71,12 @@ if (-not $cargo) {
 
 $profile = if ($Configuration -eq 'Release') { 'release' } else { 'debug' }
 $buildDirectory = Join-Path $repoRoot 'build\windows-qt'
+$bun = Get-Command bun.exe -ErrorAction SilentlyContinue
+if (-not $bun) {
+    $bundledBun = Join-Path $env:LOCALAPPDATA 'Programs\colorful-tools\bun\bun.exe'
+    if (Test-Path $bundledBun) { $bun = Get-Item $bundledBun }
+}
+if (-not $bun) { throw 'Bun was not found; it is required to compile the Windows provider host.' }
 
 Push-Location $repoRoot
 try {
@@ -101,6 +107,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Qt configure failed with exit code $LASTEXITCODE." }
     & cmake.exe --build $buildDirectory --parallel
     if ($LASTEXITCODE -ne 0) { throw "Qt build failed with exit code $LASTEXITCODE." }
+
+    $providerExecutable = Join-Path $buildDirectory 'colorful-provider.exe'
+    & $bun.FullName build --compile '.\packages\provider-host\src\main.ts' `
+        --outfile $providerExecutable 2>&1 | Write-Host
+    if ($LASTEXITCODE -ne 0) { throw "Provider-host compilation failed with exit code $LASTEXITCODE." }
 
     $executable = Join-Path $buildDirectory 'colorful.exe'
     $deployArguments = @('--qmldir', (Join-Path $repoRoot 'apps\linux\qml'))
