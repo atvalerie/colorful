@@ -73,7 +73,12 @@ if(UNIX AND NOT APPLE)
     list(APPEND COLORFUL_DESKTOP_SOURCES src/mpris.cpp src/mpris.h)
 endif()
 if(WIN32)
-    list(APPEND COLORFUL_DESKTOP_SOURCES src/credentialstore.cpp src/credentialstore.h)
+    list(APPEND COLORFUL_DESKTOP_SOURCES
+        src/credentialstore.cpp
+        src/credentialstore.h
+        src/windowsmedia.cpp
+        src/windowsmedia.h
+    )
 endif()
 
 if(WIN32)
@@ -205,7 +210,7 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(colorful-linux PRIVATE Qt6::DBus)
 endif()
 if(WIN32)
-    target_link_libraries(colorful-linux PRIVATE Advapi32 Crypt32)
+    target_link_libraries(colorful-linux PRIVATE Advapi32 Crypt32 WindowsApp)
     add_custom_command(TARGET colorful-linux POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${COLORFUL_CORE_LIBRARY}" "$<TARGET_FILE_DIR:colorful-linux>"

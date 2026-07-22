@@ -1,6 +1,8 @@
 #include "backend.h"
 #if defined(Q_OS_LINUX)
 #include "mpris.h"
+#elif defined(Q_OS_WIN)
+#include "windowsmedia.h"
 #endif
 
 #include <QGuiApplication>
@@ -37,6 +39,9 @@ int main(int argc, char *argv[])
     if (engine.rootObjects().isEmpty()) return 1;
 
     auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst());
+#if defined(Q_OS_WIN)
+    WindowsMediaSession windowsMedia(&backend, window);
+#endif
     QObject::connect(&backend, &Backend::quitRequested, &app, &QCoreApplication::quit);
     QObject::connect(&backend, &Backend::raiseRequested, window, [window] {
         if (!window) return;

@@ -71,12 +71,13 @@ if (-not $cargo) {
 
 $profile = if ($Configuration -eq 'Release') { 'release' } else { 'debug' }
 $buildDirectory = Join-Path $repoRoot 'build\windows-qt'
-$bun = Get-Command bun.exe -ErrorAction SilentlyContinue
-if (-not $bun) {
+$bunCommand = Get-Command bun.exe -ErrorAction SilentlyContinue
+$bunPath = if ($bunCommand) { $bunCommand.Source } else { $null }
+if (-not $bunPath) {
     $bundledBun = Join-Path $env:LOCALAPPDATA 'Programs\colorful-tools\bun\bun.exe'
-    if (Test-Path $bundledBun) { $bun = Get-Item $bundledBun }
+    if (Test-Path $bundledBun) { $bunPath = $bundledBun }
 }
-if (-not $bun) { throw 'Bun was not found; it is required to compile the Windows provider host.' }
+if (-not $bunPath) { throw 'Bun was not found; it is required to compile the Windows provider host.' }
 
 Push-Location $repoRoot
 try {
@@ -109,16 +110,26 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Qt build failed with exit code $LASTEXITCODE." }
 
     $providerExecutable = Join-Path $buildDirectory 'colorful-provider.exe'
-    & $bun.FullName build --compile '.\packages\provider-host\src\main.ts' `
-        --outfile $providerExecutable 2>&1 | Write-Host
-    if ($LASTEXITCODE -ne 0) { throw "Provider-host compilation failed with exit code $LASTEXITCODE." }
+    $providerOutput = & $bunPath build --compile '.\packages\provider-host\src\main.ts' `
+        --outfile $providerExecutable 2>&1
+    $providerExitCode = $LASTEXITCODE
+    if ($providerExitCode -ne 0) {
+        $providerOutput | Write-Host
+        throw "Provider-host compilation failed with exit code $providerExitCode."
+    }
+    $providerOutput | Select-Object -Last 8 | Write-Host
 
     $executable = Join-Path $buildDirectory 'colorful.exe'
     $deployArguments = @('--qmldir', (Join-Path $repoRoot 'apps\linux\qml'))
     $deployArguments += if ($Configuration -eq 'Debug') { '--debug' } else { '--release' }
     $deployArguments += $executable
-    & (Join-Path $QtRoot 'bin\windeployqt.exe') @deployArguments
-    if ($LASTEXITCODE -ne 0) { throw "Qt deployment failed with exit code $LASTEXITCODE." }
+    $deploymentOutput = & (Join-Path $QtRoot 'bin\windeployqt.exe') @deployArguments 2>&1
+    $deploymentExitCode = $LASTEXITCODE
+    if ($deploymentExitCode -ne 0) {
+        $deploymentOutput | Write-Host
+        throw "Qt deployment failed with exit code $deploymentExitCode."
+    }
+    $deploymentOutput | Select-Object -Last 12 | Write-Host
     Write-Host "Built $executable"
 } finally {
     Pop-Location
