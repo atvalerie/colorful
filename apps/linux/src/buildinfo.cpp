@@ -13,12 +13,17 @@ QVariantMap colorfulBuildInfo()
 #else
     const auto platform = QStringLiteral("desktop");
 #endif
+#if defined(_MSC_VER)
+    const auto compiler = QStringLiteral("MSVC %1").arg(_MSC_FULL_VER);
+#else
+    const auto compiler = QString::fromLatin1(__VERSION__);
+#endif
     return {
         {QStringLiteral("version"), QString::fromLatin1(COLORFUL_VERSION)},
         {QStringLiteral("commit"), QString::fromLatin1(COLORFUL_GIT_COMMIT)},
         {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
         {QStringLiteral("mpv"), QString::fromLatin1(COLORFUL_MPV_VERSION)},
-        {QStringLiteral("compiler"), QString::fromLatin1(__VERSION__)},
+        {QStringLiteral("compiler"), compiler},
         {QStringLiteral("architecture"), QSysInfo::currentCpuArchitecture()},
         {QStringLiteral("system"), QSysInfo::prettyProductName()},
         {QStringLiteral("platform"), platform},
