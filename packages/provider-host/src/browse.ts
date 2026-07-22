@@ -574,13 +574,18 @@ export class BrowseClient {
       }),
     ]);
     if (tracksResult.status === "rejected" && albumsResult.status === "rejected" && artistsResult.status === "rejected") throw tracksResult.reason;
+    const [tracks, albums, artists] = await Promise.all([
+      tracksResult.status === "fulfilled" && tracksResult.value
+        ? this.hydrateMissingArtwork(mapTracks(tracksResult.value)).then(deduplicateTracks) : [],
+      albumsResult.status === "fulfilled" && albumsResult.value
+        ? this.hydrateAlbums(mapAlbums(albumsResult.value)).then(deduplicateAlbums) : [],
+      artistsResult.status === "fulfilled" && artistsResult.value
+        ? this.hydrateArtists(mapArtists(artistsResult.value)) : [],
+    ]);
     return {
-      tracks: tracksResult.status === "fulfilled" && tracksResult.value
-        ? deduplicateTracks(await this.hydrateMissingArtwork(mapTracks(tracksResult.value))) : [],
-      albums: albumsResult.status === "fulfilled" && albumsResult.value
-        ? deduplicateAlbums(await this.hydrateAlbums(mapAlbums(albumsResult.value))) : [],
-      artists: artistsResult.status === "fulfilled" && artistsResult.value
-        ? await this.hydrateArtists(mapArtists(artistsResult.value)) : [],
+      tracks,
+      albums,
+      artists,
       cursors: {
         ...(tracksResult.status === "fulfilled" && tracksResult.value && cursorFromNextLink(tracksResult.value)
           ? { tracks: cursorFromNextLink(tracksResult.value)! } : {}),
