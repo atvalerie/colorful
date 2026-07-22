@@ -63,6 +63,12 @@ for binary in colorful-linux colorful-provider ffmpeg ffprobe yt-dlp; do
 done
 [[ -f "$appdir/usr/lib/libcolorful_core.so" ]] || missing "libcolorful_core.so"
 
+for plugin in platforms/libqxcb.so platforms/libqoffscreen.so \
+  xcbglintegrations/libqxcb-glx-integration.so xcbglintegrations/libqxcb-egl-integration.so; do
+  [[ -f "$appdir/usr/plugins/$plugin" ]] || missing "Qt plugin $plugin"
+done
+[[ -d "$appdir/usr/qml/QtQuick" ]] || missing "bundled QtQuick QML module"
+
 if ! readelf -h "$appdir/usr/bin/yt-dlp" >/dev/null 2>&1; then
   echo "bundled yt-dlp is not a standalone ELF executable" >&2
   failures=$((failures + 1))
@@ -88,6 +94,18 @@ if [[ -n "$leaks" ]]; then
   echo "$leaks" >&2
   failures=$((failures + 1))
 fi
+
+# Third-party libraries ship their own absolute RPATHs and are left alone; our
+# own artifacts must stay relocatable so they never point back at a build host.
+for file in "$appdir/usr/bin/colorful-linux" "$appdir/usr/lib/libcolorful_core.so"; do
+  [[ -f "$file" ]] || continue
+  absolute_rpath="$(readelf -d "$file" 2>/dev/null \
+    | grep -E 'R(UN)?PATH' | grep -oE '\[[^]]*\]' | grep -E '\[/|:/' || true)"
+  if [[ -n "$absolute_rpath" ]]; then
+    echo "$file has an absolute RPATH/RUNPATH: $absolute_rpath" >&2
+    failures=$((failures + 1))
+  fi
+done
 
 required_glibc="$(objdump -T "${elf_files[@]}" 2>/dev/null | grep -o 'GLIBC_[0-9][0-9.]*' | sort -Vu | tail -1 || true)"
 echo "ELF files audited: ${#elf_files[@]}"

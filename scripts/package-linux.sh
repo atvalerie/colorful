@@ -32,6 +32,11 @@ done
 
 rm -rf -- "$appdir"
 DESTDIR="$appdir" cmake --install "$build_dir" --prefix /usr
+# Keep the installed binary aside: unlike the build tree copy it carries
+# $ORIGIN/../lib instead of an absolute RUNPATH into the developer's checkout.
+staged_install="$build_dir/staged-install"
+rm -rf -- "$staged_install"
+install -Dm755 "$appdir/usr/bin/colorful-linux" "$staged_install/colorful-linux"
 install -Dm755 "$build_dir/colorful-provider" "$appdir/usr/bin/colorful-provider"
 install -Dm755 "$ffmpeg" "$appdir/usr/bin/ffmpeg"
 install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
@@ -52,9 +57,14 @@ fi
 qt_plugins="$($real_qmake -query QT_INSTALL_PLUGINS)"
 plugin_stage="$build_dir/qt-plugins-for-package"
 rm -rf -- "$plugin_stage"
-mkdir -p "$plugin_stage"/{platforms,platforminputcontexts,imageformats,tls}
+mkdir -p "$plugin_stage"/{platforms,platforminputcontexts,imageformats,tls,xcbglintegrations}
 for plugin in libqxcb.so libqoffscreen.so; do
   install -Dm755 "$qt_plugins/platforms/$plugin" "$plugin_stage/platforms/$plugin"
+done
+# Without these the xcb plugin reports "neither GLX nor EGL are enabled" and
+# Qt Quick aborts the moment the first window is exposed.
+for plugin in libqxcb-glx-integration.so libqxcb-egl-integration.so; do
+  install -Dm755 "$qt_plugins/xcbglintegrations/$plugin" "$plugin_stage/xcbglintegrations/$plugin"
 done
 for plugin in libcomposeplatforminputcontextplugin.so libibusplatforminputcontextplugin.so; do
   [[ ! -f "$qt_plugins/platforminputcontexts/$plugin" ]] || \
@@ -109,7 +119,10 @@ while IFS= read -r -d '' destination; do
   source_file="$($real_qmake -query QT_INSTALL_QML)/$relative"
   [[ ! -f "$source_file" ]] || cp -Lf -- "$source_file" "$destination"
 done < <(find "$appdir/usr/qml" -type f -print0)
-install -Dm755 "$build_dir/colorful-linux" "$appdir/usr/bin/colorful-linux"
+for plugin in libqxcb-glx-integration.so libqxcb-egl-integration.so; do
+  install -Dm755 "$qt_plugins/xcbglintegrations/$plugin" "$appdir/usr/plugins/xcbglintegrations/$plugin"
+done
+install -Dm755 "$staged_install/colorful-linux" "$appdir/usr/bin/colorful-linux"
 install -Dm755 "$build_dir/colorful-provider" "$appdir/usr/bin/colorful-provider"
 install -Dm755 "$ffmpeg" "$appdir/usr/bin/ffmpeg"
 install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
@@ -131,6 +144,25 @@ set -e
 if [[ $smoke_status -ne 124 ]]; then
   echo "packaged colorful failed its startup smoke test (exit $smoke_status)" >&2
   exit 1
+fi
+
+# The offscreen platform never creates a GL context, so it cannot catch a
+# broken graphics bundle. Repeat the run against a real X server when one can
+# be faked.
+if command -v xvfb-run >/dev/null 2>&1; then
+  set +e
+  QT_QPA_PLATFORM=xcb COLORFUL_DISABLE_DISCORD_RPC=1 \
+    XDG_RUNTIME_DIR="$smoke_root/runtime" XDG_DATA_HOME="$smoke_root/data" \
+    XDG_CONFIG_HOME="$smoke_root/config" \
+    xvfb-run -a timeout 10s "$appdir/AppRun" >/dev/null 2>&1
+  gl_smoke_status=$?
+  set -e
+  if [[ $gl_smoke_status -ne 124 ]]; then
+    echo "packaged colorful failed its windowed smoke test (exit $gl_smoke_status)" >&2
+    exit 1
+  fi
+else
+  echo "warning: xvfb-run not found, skipping the windowed smoke test" >&2
 fi
 
 tarball="$dist_dir/$artifact-portable.tar.gz"
