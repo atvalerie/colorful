@@ -196,6 +196,17 @@ DPAPI, and bundles the provider host so Bun is not required at runtime. The
 Windows bundle also includes yt-dlp plus GPL FFmpeg/ffprobe for playback
 resolution and offline downloads. See [the Windows guide](apps/windows/README.md).
 
+Create a no-install archive from a clean Release build with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1
+```
+
+Pass `-Installer` when Inno Setup 6 is installed to produce a per-user setup
+executable from the same staged files. Artifacts are written beneath `dist`.
+The portable ZIP does not install files, but account sessions and settings
+remain per-user in Windows application data rather than beside the executable.
+
 ## Building Android
 
 Install Android Studio with SDK 36, NDK `30.0.15729638`, CMake 4.1.2, an

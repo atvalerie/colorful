@@ -43,6 +43,25 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1 -NoBuild
 The old C#/WinUI prototype remains in this directory as an archived experiment,
 but the standard Windows scripts now target the Qt client.
 
+## Distributable builds
+
+Create a clean Release build and no-install ZIP with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1
+```
+
+The archive contains the application, Qt runtime/plugins, libmpv, the Rust
+core, provider and credential helpers, Vulkan loader, yt-dlp, FFmpeg, license,
+and notices. Add `-Installer` when Inno Setup 6 is available to create a
+per-user installer from the identical staging directory. Use `-NoBuild` only
+when the existing `build\windows-qt` output has the intended configuration.
+
+These artifacts are currently unsigned, so Windows SmartScreen may warn the
+recipient. The ZIP is no-install portable; settings, downloads, and encrypted
+sessions intentionally remain in the recipient's local application-data
+directory.
+
 The engine database and encrypted credential files live beneath the current
 user's local application-data directory. Secrets never enter SQLite.
 The public TIDAL clients are built in. Both the native executable and launcher

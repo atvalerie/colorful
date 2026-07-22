@@ -106,8 +106,10 @@ QString mediaTool(const QString &name, const char *environmentName = nullptr)
     }
 #if defined(Q_OS_WIN)
     const auto bundled = QCoreApplication::applicationDirPath() + QLatin1Char('/') + name + QStringLiteral(".exe");
-    if (QFileInfo::exists(bundled)) return bundled;
+#else
+    const auto bundled = QCoreApplication::applicationDirPath() + QLatin1Char('/') + name;
 #endif
+    if (QFileInfo::exists(bundled)) return bundled;
     return QStandardPaths::findExecutable(name);
 }
 }
@@ -797,6 +799,12 @@ void Backend::startProviderHost()
     m_provider.setProcessEnvironment(environment);
     m_provider.start(providerExecutable);
 #else
+    const auto bundledProvider = QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-provider");
+    if (QFileInfo::exists(bundledProvider)) {
+        m_provider.setWorkingDirectory(QCoreApplication::applicationDirPath());
+        m_provider.setProcessChannelMode(QProcess::SeparateChannels);
+        m_provider.start(bundledProvider);
+    } else {
     const auto bun = qEnvironmentVariable("COLORFUL_BUN", QStandardPaths::findExecutable(QStringLiteral("bun")));
     if (bun.isEmpty()) {
         setStatus(QStringLiteral("Bun was not found. Install Bun or set COLORFUL_BUN."));
@@ -809,6 +817,7 @@ void Backend::startProviderHost()
     m_provider.setWorkingDirectory(sourceRoot);
     m_provider.setProcessChannelMode(QProcess::SeparateChannels);
     m_provider.start(bun, {host});
+    }
 #endif
     if (!m_provider.waitForStarted(3000)) {
         setStatus(QStringLiteral("Could not launch provider host: %1").arg(m_provider.errorString()));

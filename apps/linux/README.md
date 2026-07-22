@@ -35,7 +35,10 @@ Secret Service; Windows adds SMTC, WASAPI, and per-user DPAPI encryption.
 - action toasts, settings/storage/account views, qualified listening history,
   and the optional owner-only Discord statistics widget.
 
-Encrypted device sync, parties, and packaged releases are not implemented yet.
+Encrypted device sync and parties are not implemented yet. Linux release
+packaging still needs a reproducible AppImage build; the desktop now supports a
+compiled `colorful-provider` beside the executable so that package will not
+depend on Bun or the source tree.
 
 ## Requirements and launch
 
