@@ -44,3 +44,6 @@ but the standard Windows scripts now target the Qt client.
 
 The engine database and encrypted credential files live beneath the current
 user's local application-data directory. Secrets never enter SQLite.
+The launcher imports provider configuration from a sibling `mocha\.env` when
+present and then from the repository's `.env`; neither file is copied or
+printed.

@@ -8,6 +8,31 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+function Import-ColorfulEnvironment([string]$Path) {
+    if (-not (Test-Path $Path)) { return }
+    foreach ($line in Get-Content $Path) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+        if ($trimmed.StartsWith('export ')) { $trimmed = $trimmed.Substring(7).Trim() }
+        $separator = $trimmed.IndexOf('=')
+        if ($separator -le 0) { continue }
+        $name = $trimmed.Substring(0, $separator).Trim()
+        $value = $trimmed.Substring($separator + 1).Trim()
+        if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        if ($name -match '^[A-Za-z_][A-Za-z0-9_]*$') {
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+}
+
+$siblingEnvironment = Join-Path (Split-Path -Parent $repoRoot) 'mocha\.env'
+$repoEnvironment = Join-Path $repoRoot '.env'
+Import-ColorfulEnvironment $siblingEnvironment
+Import-ColorfulEnvironment $repoEnvironment
+
 if (-not $NoBuild) {
     & (Join-Path $PSScriptRoot 'build-windows-qt.ps1') -Configuration $Configuration
 }
