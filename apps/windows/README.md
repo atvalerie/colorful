@@ -30,8 +30,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 ```
 
-The provisioner installs Qt and a libmpv development bundle under the current
-user profile. The build script compiles the Rust core and provider host, builds
+The provisioner installs Qt, a libmpv development bundle, and the official
+Khronos/LunarG Vulkan loader under the current user profile. The build script compiles the Rust core and provider host, builds
 the Qt application, then deploys its runtime dependencies to
 `build\windows-qt`. Relaunch an existing build with:
 

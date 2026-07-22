@@ -71,6 +71,10 @@ if (-not $cargo) {
 
 $profile = if ($Configuration -eq 'Release') { 'release' } else { 'debug' }
 $buildDirectory = Join-Path $repoRoot 'build\windows-qt'
+$vulkanRuntime = Join-Path $env:USERPROFILE 'colorful-deps\vulkan\vulkan-1.dll'
+if (-not (Test-Path $vulkanRuntime)) {
+    throw 'The Vulkan loader was not found. Run scripts\provision-windows-qt.ps1 first.'
+}
 $bunCommand = Get-Command bun.exe -ErrorAction SilentlyContinue
 $bunPath = if ($bunCommand) { $bunCommand.Source } else { $null }
 if (-not $bunPath) {
@@ -130,6 +134,7 @@ try {
         throw "Qt deployment failed with exit code $deploymentExitCode."
     }
     $deploymentOutput | Select-Object -Last 12 | Write-Host
+    Copy-Item $vulkanRuntime (Join-Path $buildDirectory 'vulkan-1.dll') -Force
     Write-Host "Built $executable"
 } finally {
     Pop-Location

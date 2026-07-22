@@ -13,6 +13,8 @@ $python = Join-Path $pythonRoot 'python.exe'
 $qtRoot = Join-Path $env:USERPROFILE 'Qt'
 $qtPlatformRoot = Join-Path $qtRoot "$QtVersion\msvc2022_64"
 $mpvRoot = Join-Path $toolsRoot 'mpv'
+$vulkanRoot = Join-Path $toolsRoot 'vulkan'
+$vulkanRuntime = Join-Path $vulkanRoot 'vulkan-1.dll'
 New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
 
 if (-not (Test-Path $python)) {
@@ -112,5 +114,22 @@ if (-not (Test-Path $importLibrary)) {
     if ($LASTEXITCODE -ne 0) { throw "libmpv import-library generation failed with exit code $LASTEXITCODE." }
 }
 
+if (-not (Test-Path $vulkanRuntime)) {
+    $vulkanArchive = Join-Path $env:TEMP 'colorful-vulkan-runtime.zip'
+    $vulkanExtracted = Join-Path $env:TEMP 'colorful-vulkan-runtime'
+    Invoke-WebRequest `
+        -Uri 'https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-runtime-components.zip' `
+        -OutFile $vulkanArchive
+    if (Test-Path $vulkanExtracted) { Remove-Item $vulkanExtracted -Recurse -Force }
+    Expand-Archive -Path $vulkanArchive -DestinationPath $vulkanExtracted -Force
+    $loader = Get-ChildItem $vulkanExtracted -Filter 'vulkan-1.dll' -Recurse |
+        Where-Object { $_.FullName -like '*\x64\vulkan-1.dll' } |
+        Select-Object -First 1
+    if (-not $loader) { throw 'The official Vulkan runtime archive had no x64 loader.' }
+    New-Item -ItemType Directory -Path $vulkanRoot -Force | Out-Null
+    Copy-Item $loader.FullName $vulkanRuntime -Force
+}
+
 Write-Host "QtRoot=$qtPlatformRoot"
 Write-Host "MpvRoot=$mpvRoot"
+Write-Host "VulkanRuntime=$vulkanRuntime"
