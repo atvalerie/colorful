@@ -47,9 +47,9 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 | Target | Status | Current implementation |
 | --- | --- | --- |
-| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL, YouTube Music, and public SoundCloud playback, persistent queue/library |
+| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL, YouTube Music, and SoundCloud, persistent queue/library |
 | Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking/search/playback, and Rust/SQLite queue persistence |
-| Windows | Native foundation | WinUI 3, Rust/SQLite ABI bridge, Windows `MediaPlayer` playback boundary, and system media commands |
+| Windows | Qt alpha build | The same Qt/QML desktop shell as Linux, embedded libmpv over WASAPI, Windows media controls, DPAPI credentials, and the Rust/SQLite engine |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
 | macOS | Not targeted | No first-party target is planned |
 
@@ -93,7 +93,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 - Android offline downloads and YouTube Music support
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback
-- Windows and iOS native shells
+- Windows packaging and interactive-runtime polish; iOS native shell
 
 ## Architecture
 
@@ -109,7 +109,7 @@ Native UI
        SQLite · queue · library · history
        settings · offline-job records
 
-Linux provider host (transitional Bun process)
+Desktop provider host (transitional TypeScript process; bundled on Windows)
   └── TIDAL + public SoundCloud + public/authenticated YouTube Music adapters
 ```
 
@@ -122,11 +122,11 @@ audio or attempt to replace Media3, libmpv, AVFoundation, or Windows media APIs.
 | --- | --- |
 | `crates/colorful-core` | Portable Rust domain engine, SQLite repositories, migrations, and stable native ABI |
 | `packages/provider-kit` | Typed provider contracts and shared migration fixtures |
-| `packages/provider-host` | Transitional Bun-based Linux provider adapter |
-| `apps/linux` | Native Qt Quick/QML desktop client with libmpv and MPRIS |
+| `packages/provider-host` | Transitional Bun-based desktop provider adapter; compiled to a standalone executable on Windows |
+| `apps/linux` | Shared Qt Quick/QML desktop client (historical path), with libmpv, MPRIS on Linux, and SMTC/WASAPI on Windows |
 | `apps/android` | Native Kotlin/Compose client with Media3 and JNI bindings |
 | `apps/design-lab` | Disposable React UI prototype; not a production client |
-| `apps/windows` | Windows target plan |
+| `apps/windows` | Archived WinUI prototype; the active Windows target uses the shared Qt desktop shell |
 | `apps/ios` | iOS target plan |
 | `docs` | Architecture, storage, connectivity, sync, provider, CI, and integration notes |
 | `scripts` | Reproducible build, run, and test entry points |
@@ -144,8 +144,8 @@ source .env
 set +a
 ```
 
-Never commit `.env` or post credentials. Linux stores TIDAL refresh tokens and
-the optional YouTube Music browser session through Secret Service; Android uses
+Never commit `.env` or post credentials. Linux stores provider secrets through
+Secret Service, Windows encrypts them per user with DPAPI, and Android uses
 Android Keystore.
 
 Authenticated YouTube Music uses a browser session captured from your own
@@ -177,6 +177,22 @@ changes, use `./scripts/run-linux.sh --no-build`.
 
 See [the Linux client guide](apps/linux/README.md) for the manual test flow,
 MPRIS checks, and troubleshooting.
+
+## Building Windows
+
+The active Windows client is the same Qt/QML desktop shell. Install Visual
+Studio 2022 with MSVC x64, Rust, Bun, CMake, Ninja, and Git, then provision Qt
+and libmpv and launch from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-windows-qt.ps1
+```
+
+The build uses libmpv's WASAPI output, supports shared and exclusive modes,
+publishes Windows system media controls, protects provider credentials with
+DPAPI, and bundles the provider host so Bun is not required at runtime. See
+[the Windows guide](apps/windows/README.md).
 
 ## Building Android
 
@@ -235,12 +251,12 @@ and [local storage contract](docs/storage.md) for the longer version.
 
 ## Discord integrations
 
-Linux Rich Presence publishes the active local track through Discord's local
+Desktop Rich Presence publishes the active local track through Discord's local
 IPC connection. The separate owner-only profile widget publishes aggregate
 all-time listening statistics and can eventually include mobile listens
 received through encrypted sync. Its Application ID is editable so each user
 can connect an application and widget configuration they own. Bot tokens stay
-in Secret Service and are kept separate per application.
+in the platform credential store and are kept separate per application.
 
 Setup and the published field contract are documented in the
 [Discord statistics widget guide](docs/discord-widget.md).

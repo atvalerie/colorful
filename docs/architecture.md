@@ -21,18 +21,20 @@ Native UI
         download records · listening history
 ```
 
-Today Linux obtains TIDAL, public SoundCloud, and public YouTube Music data through the
-transitional Bun provider host, then plays through libmpv. Android implements
+Today the Qt desktop client obtains TIDAL, SoundCloud, and YouTube Music data
+through the transitional TypeScript provider host, then plays through libmpv.
+The host runs through Bun on Linux and is compiled into the Windows build.
+Android implements
 its TIDAL authorization, account, search, and source resolution natively and
 plays through Media3. Neither shell sends provider credentials into the Rust
 database.
 
 Provider account state uses a common shell-facing contract, while each native
 shell owns credential persistence. TIDAL uses device authorization and stores
-its refresh token in the platform credential service. Linux YouTube Music
+its refresh token in the platform credential service. Desktop YouTube Music
 instead imports a logged-in browser session into Secret Service because Google
 currently rejects custom-client OAuth tokens on its private Music endpoints.
-Linux SoundCloud may import the OAuth header from the user's own logged-in API
+Desktop SoundCloud may import the OAuth header from the user's own logged-in API
 request; only that token is retained in Secret Service.
 An Android implementation will store equivalent provider credentials in
 Keystore while reusing the provider request semantics.
@@ -116,10 +118,10 @@ adapters map the same contract onto their platform audio graphs.
 | --- | --- | --- |
 | Android | Kotlin + Jetpack Compose | Media3 session with a custom audio/DSP boundary |
 | Linux | C++ + Qt Quick/QML | embedded libmpv with MPRIS over QtDBus |
-| Windows | C# + WinUI | Media Foundation/WASAPI adapter |
+| Windows | C++ + Qt Quick/QML | embedded libmpv over WASAPI with SMTC system controls |
 | iOS | Swift + SwiftUI | AVAudioEngine/AVFoundation + MPNowPlayingInfoCenter |
 
-Linux's libmpv backend already covers lossless playback, seeking, prepared-next
+The desktop libmpv backend already covers lossless playback, seeking, prepared-next
 gapless transitions, EQ, and normalization. Android's Media3 service covers
 background playback and system media controls; its DSP and offline features
 remain incomplete.
@@ -129,7 +131,7 @@ remain incomplete.
 - Complete: domain contracts, queue state machine, SQLite schema, stable ABI,
   provider fixtures, Linux TIDAL/public-YouTube alpha, Linux downloads/gapless
   playback/DSP, and the Android TIDAL playback vertical slice.
-- Next: add Android feature parity,
-  and migrate more provider behavior away from the Bun host.
+- Next: validate and package the shared Windows desktop build, add Android
+  feature parity, and migrate more provider behavior away from the Bun host.
 - Later: SoundCloud, encrypted device sync and active-device presence, parties,
-  Windows, then iOS and its cloud build/signing workflow.
+  then iOS and its cloud build/signing workflow.

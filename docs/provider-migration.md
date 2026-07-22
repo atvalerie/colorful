@@ -86,7 +86,7 @@ playback, and periodic position checkpoints. The UI communicates with the
 service through explicit Media3 session commands, so playback and queue work do
 not depend on the Activity staying alive.
 
-The Linux shell uses the TypeScript provider host for network requests,
+The desktop shell uses the TypeScript provider host for network requests,
 authorization, subscription checks, and playback manifest retrieval while
 those pieces are migrated behind shared provider contracts and fixtures. Its
 queue, current selection, and saved library now live in the same Rust/SQLite
@@ -96,7 +96,7 @@ tracks contract and feed the desktop autoplay tail without displacing manually
 queued tracks. The shell owns libmpv playback, prepared-next prefetch, ReplayGain
 application, and resumable ffmpeg-based offline transfers.
 
-The Linux provider host maps public YouTube Music songs, long-form and UGC
+The desktop provider host maps public YouTube Music songs, long-form and UGC
 videos, releases, credited artists, uploader channels, and their pages into the
 same catalog contracts using the Music web API directly. Uploader/channel
 identity stays separate from musical artist credits. The host asks the system

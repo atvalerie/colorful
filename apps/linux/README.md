@@ -1,9 +1,10 @@
-# colorful for Linux
+# colorful desktop client
 
-The Linux client is the primary usable alpha. It uses Qt 6 Quick/QML for the
-interface, embedded libmpv for playback and adaptive-stream caching, QtDBus for
-MPRIS, Linux Secret Service for credentials, and the shared Rust/SQLite engine
-for durable queue, library, history, settings, and offline-job state.
+The Qt client is the primary desktop alpha and is shared by Linux and Windows.
+It uses Qt 6 Quick/QML for the interface, embedded libmpv for playback and
+adaptive-stream caching, and the shared Rust/SQLite engine for durable queue,
+library, history, settings, and offline-job state. Linux adds QtDBus/MPRIS and
+Secret Service; Windows adds SMTC, WASAPI, and per-user DPAPI encryption.
 
 ## What works
 
@@ -66,6 +67,26 @@ Set `COLORFUL_YT_DLP` to select a different `yt-dlp` executable, or
 Set `COLORFUL_YT_DLP_ARGS` when the local YouTube session needs additional
 extractor arguments such as `--cookies-from-browser firefox`; the value is
 parsed as a command-line fragment and is used only for bulk downloads.
+
+### Windows
+
+Install Visual Studio 2022 with the MSVC x64 workload, Rust, Bun, CMake, Ninja,
+and Git. From PowerShell at the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-windows-qt.ps1
+```
+
+The provisioner installs a local Qt 6.8.3 MSVC build and libmpv development
+bundle. The build output is `build\windows-qt\colorful.exe`; Qt libraries,
+libmpv, the Rust core, the DPAPI credential helper, and the compiled provider
+host are deployed beside it. Use `-NoBuild` for an immediate relaunch.
+
+Windows playback is lossless when the source and selected output support it.
+Shared WASAPI is the safe default. Exclusive WASAPI can be enabled in Playback
+settings when direct device ownership is wanted; EQ and normalization still
+alter samples when enabled.
 
 ## Desktop controls
 
