@@ -4,7 +4,9 @@
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDateTime>
+#if defined(Q_OS_LINUX)
 #include <QDBusObjectPath>
+#endif
 #include <QDir>
 #include <QCryptographicHash>
 #include <QFile>
@@ -124,6 +126,7 @@ Backend::Backend(QObject *parent)
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
     m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
     m_playback.setAudioDevice(settings.value(QStringLiteral("playback/audioDevice"), QStringLiteral("auto")).toString());
+    m_playback.setAudioExclusive(settings.value(QStringLiteral("playback/audioExclusive"), false).toBool());
     const auto storedEq = settings.value(QStringLiteral("playback/equalizerBands")).toList();
     if (storedEq.size() == 10) {
         for (const auto &gain : storedEq)
@@ -725,7 +728,11 @@ QVariantMap Backend::mprisMetadata() const
     const auto track = currentTrack();
     if (track.isEmpty()) return {};
     QVariantMap metadata;
+#if defined(Q_OS_LINUX)
     metadata.insert(QStringLiteral("mpris:trackid"), QVariant::fromValue(QDBusObjectPath(safeTrackPath(track))));
+#else
+    metadata.insert(QStringLiteral("mpris:trackid"), safeTrackPath(track));
+#endif
     metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")));
     metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")));
     metadata.insert(QStringLiteral("xesam:album"), track.value(QStringLiteral("albumTitle")));
@@ -3209,6 +3216,15 @@ void Backend::setAudioDevice(const QString &device)
 {
     m_playback.setAudioDevice(device);
     QSettings().setValue(QStringLiteral("playback/audioDevice"), m_playback.audioDevice());
+}
+
+void Backend::setAudioExclusive(bool enabled)
+{
+    if (m_playback.audioExclusive() == enabled) return;
+    m_playback.setAudioExclusive(enabled);
+    if (m_playback.audioExclusive() != enabled) return;
+    QSettings().setValue(QStringLiteral("playback/audioExclusive"), enabled);
+    emit audioExclusiveChanged();
 }
 
 void Backend::refreshAudioDevices() { m_playback.refreshAudioDevices(); }

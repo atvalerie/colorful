@@ -1,5 +1,7 @@
 #include "backend.h"
+#if defined(Q_OS_LINUX)
 #include "mpris.h"
+#endif
 
 #include <QGuiApplication>
 #include <QIcon>
@@ -26,7 +28,9 @@ int main(int argc, char *argv[])
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &backend, [&backend] {
         backend.shutdownDiscordPresence();
     });
+#if defined(Q_OS_LINUX)
     MprisService mpris(&backend);
+#endif
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("colorful"), &backend);
     engine.loadFromModule(QStringLiteral("colorful"), QStringLiteral("Main"));

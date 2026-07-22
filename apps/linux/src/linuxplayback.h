@@ -32,6 +32,7 @@ public:
     QVariantList audioDevices() const { return m_audioDevices; }
     QString audioDevice() const { return m_audioDevice; }
     bool seekable() const { return m_seekable; }
+    bool audioExclusive() const { return m_audioExclusive; }
 
     void setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
                    std::optional<double> replayGainDb = std::nullopt,
@@ -54,6 +55,7 @@ public:
     void setMuted(bool muted);
     void refreshAudioDevices();
     void setAudioDevice(const QString &device);
+    void setAudioExclusive(bool enabled);
     void setReplayGain(bool enabled);
     void setEqualizer(const QList<double> &gainsDb);
 
@@ -115,6 +117,7 @@ private:
     int m_bufferingPercent = 100;
     QVariantList m_audioDevices;
     QString m_audioDevice = QStringLiteral("auto");
+    bool m_audioExclusive = false;
     bool m_replayGainEnabled = false;
     std::optional<double> m_replayGainDb;
     std::optional<double> m_peakAmplitude;

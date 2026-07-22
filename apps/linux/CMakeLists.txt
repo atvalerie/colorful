@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(colorfulLinux VERSION 0.1.0 LANGUAGES CXX)
+project(colorfulDesktop VERSION 0.1.0 LANGUAGES CXX)
 
 execute_process(
     COMMAND git rev-parse --short=12 HEAD
@@ -24,13 +24,37 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network DBus)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network)
+if(UNIX AND NOT APPLE)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
+endif()
+
+if(WIN32)
+    set(COLORFUL_MPV_ROOT "" CACHE PATH "Root of a Windows libmpv development package")
+    find_path(MPV_INCLUDE_DIR mpv/client.h
+        HINTS "${COLORFUL_MPV_ROOT}/include")
+    find_library(MPV_LIBRARY NAMES mpv libmpv mpv-2
+        HINTS "${COLORFUL_MPV_ROOT}" "${COLORFUL_MPV_ROOT}/lib")
+    find_file(MPV_RUNTIME NAMES mpv-2.dll libmpv-2.dll mpv.dll
+        HINTS "${COLORFUL_MPV_ROOT}" "${COLORFUL_MPV_ROOT}/bin")
+    if(NOT MPV_INCLUDE_DIR OR NOT MPV_LIBRARY OR NOT MPV_RUNTIME)
+        message(FATAL_ERROR "A Windows libmpv SDK is required. Set COLORFUL_MPV_ROOT to a directory containing include/mpv/client.h, an import library, and mpv-2.dll.")
+    endif()
+    add_library(colorful-mpv UNKNOWN IMPORTED GLOBAL)
+    set_target_properties(colorful-mpv PROPERTIES
+        IMPORTED_LOCATION "${MPV_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${MPV_INCLUDE_DIR}"
+    )
+    set(MPV_VERSION "Windows bundle")
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
+    add_library(colorful-mpv ALIAS PkgConfig::MPV)
+endif()
 
 qt_standard_project_setup(REQUIRES 6.8)
 
-qt_add_executable(colorful-linux
+set(COLORFUL_DESKTOP_SOURCES
     src/main.cpp
     src/backend.cpp
     src/backend.h
@@ -44,22 +68,47 @@ qt_add_executable(colorful-linux
     src/discordpresence.h
     src/discordwidget.cpp
     src/discordwidget.h
-    src/mpris.cpp
-    src/mpris.h
 )
+if(UNIX AND NOT APPLE)
+    list(APPEND COLORFUL_DESKTOP_SOURCES src/mpris.cpp src/mpris.h)
+endif()
 
-set(COLORFUL_CORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/libcolorful_core.so"
-    CACHE FILEPATH "Path to the colorful-core shared library")
+if(WIN32)
+    qt_add_executable(colorful-linux WIN32 ${COLORFUL_DESKTOP_SOURCES})
+else()
+    qt_add_executable(colorful-linux ${COLORFUL_DESKTOP_SOURCES})
+endif()
+
+if(WIN32)
+    set(COLORFUL_CORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/colorful_core.dll"
+        CACHE FILEPATH "Path to the colorful-core shared library")
+    set(COLORFUL_CORE_IMPORT_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/colorful_core.dll.lib"
+        CACHE FILEPATH "Path to the colorful-core MSVC import library")
+else()
+    set(COLORFUL_CORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/libcolorful_core.so"
+        CACHE FILEPATH "Path to the colorful-core shared library")
+endif()
 add_library(colorful-core SHARED IMPORTED GLOBAL)
-set_target_properties(colorful-core PROPERTIES
-    IMPORTED_LOCATION "${COLORFUL_CORE_LIBRARY}"
-    IMPORTED_NO_SONAME TRUE
-)
+if(WIN32)
+    set_target_properties(colorful-core PROPERTIES
+        IMPORTED_LOCATION "${COLORFUL_CORE_LIBRARY}"
+        IMPORTED_IMPLIB "${COLORFUL_CORE_IMPORT_LIBRARY}"
+    )
+else()
+    set_target_properties(colorful-core PROPERTIES
+        IMPORTED_LOCATION "${COLORFUL_CORE_LIBRARY}"
+        IMPORTED_NO_SONAME TRUE
+    )
+endif()
 target_include_directories(colorful-linux PRIVATE
     ../../crates/colorful-core/include
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
-set_target_properties(colorful-linux PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+if(WIN32)
+    set_target_properties(colorful-linux PROPERTIES OUTPUT_NAME colorful)
+else()
+    set_target_properties(colorful-linux PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+endif()
 
 qt_add_qml_module(colorful-linux
     URI colorful
@@ -145,16 +194,32 @@ target_link_libraries(colorful-linux PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Network
-    Qt6::DBus
-    PkgConfig::MPV
+    colorful-mpv
     colorful-core
     ${CMAKE_DL_LIBS}
 )
+if(UNIX AND NOT APPLE)
+    target_link_libraries(colorful-linux PRIVATE Qt6::DBus)
+endif()
+if(WIN32)
+    target_link_libraries(colorful-linux PRIVATE Advapi32)
+    add_custom_command(TARGET colorful-linux POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${COLORFUL_CORE_LIBRARY}" "$<TARGET_FILE_DIR:colorful-linux>"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${MPV_RUNTIME}" "$<TARGET_FILE_DIR:colorful-linux>"
+        VERBATIM
+    )
+endif()
 
 install(TARGETS colorful-linux RUNTIME DESTINATION bin)
-install(FILES "${COLORFUL_CORE_LIBRARY}" DESTINATION lib)
-install(FILES applications/colorful.desktop DESTINATION share/applications)
-install(FILES ../../assets/branding/colorful.svg
-    DESTINATION share/icons/hicolor/scalable/apps
-    RENAME colorful.svg
-)
+if(WIN32)
+    install(FILES "${COLORFUL_CORE_LIBRARY}" "${MPV_RUNTIME}" DESTINATION bin)
+else()
+    install(FILES "${COLORFUL_CORE_LIBRARY}" DESTINATION lib)
+    install(FILES applications/colorful.desktop DESTINATION share/applications)
+    install(FILES ../../assets/branding/colorful.svg
+        DESTINATION share/icons/hicolor/scalable/apps
+        RENAME colorful.svg
+    )
+endif()

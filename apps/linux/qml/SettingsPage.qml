@@ -261,7 +261,12 @@ Item {
                         }
                     }
                     Text { text: "Audio output"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 8 }
-                    Text { text: "Choose the Linux output used by libmpv. System default follows PipeWire routing changes."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text {
+                        text: colorful.buildInfo.platform === "windows"
+                              ? "Choose the Windows output used by libmpv. System default follows WASAPI routing changes."
+                              : "Choose the Linux output used by libmpv. System default follows PipeWire routing changes."
+                        color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 8
                         ComboBox {
@@ -317,6 +322,33 @@ Item {
                             text: "Refresh"; quiet: true
                             implicitWidth: 72; implicitHeight: 38
                             onClicked: colorful.refreshAudioDevices()
+                        }
+                    }
+                    Rectangle {
+                        visible: colorful.buildInfo.platform === "windows"
+                        Layout.fillWidth: true; Layout.preferredHeight: visible ? 76 : 0
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.left: parent.left; anchors.leftMargin: 15
+                            anchors.right: exclusiveSwitch.left; anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                            Text { text: "WASAPI exclusive mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                            Text {
+                                width: parent.width
+                                text: "Bypass the Windows mixer and match the source format when the device allows it. Other apps cannot use that output; ReplayGain and EQ still alter samples."
+                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight
+                            }
+                        }
+                        Rectangle {
+                            id: exclusiveSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 42; height: 24
+                            color: colorful.audioExclusive ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.audioExclusive ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.audioExclusive ? parent.width - width - 3 : 3; color: colorful.audioExclusive && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.audioExclusive = !colorful.audioExclusive }
                         }
                     }
                     Text { text: "Volume normalization"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 8 }

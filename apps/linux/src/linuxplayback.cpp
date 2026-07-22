@@ -42,6 +42,12 @@ LinuxPlayback::LinuxPlayback(QObject *parent)
     // switch tracks without colorful replacing the active file at EOF.
     mpv_set_option_string(m_mpv, "gapless-audio", "yes");
     mpv_set_option_string(m_mpv, "prefetch-playlist", "yes");
+#if defined(Q_OS_WIN)
+    // Keep Windows on its native audio stack. Shared WASAPI preserves the
+    // decoded stream while remaining compatible with other applications;
+    // optional exclusive mode is exposed separately in settings.
+    mpv_set_option_string(m_mpv, "ao", "wasapi");
+#endif
     const auto initialVolume = QByteArray::number(m_volume * 100.0, 'f', 2);
     mpv_set_option_string(m_mpv, "volume", initialVolume.constData());
 
@@ -296,7 +302,7 @@ void LinuxPlayback::refreshAudioDevices()
     }
     mpv_free_node_contents(&node);
 
-    // libmpv enumerates the same desktop sinks through PipeWire, PulseAudio,
+    // libmpv enumerates several audio backends on Linux. Keep only the native
     // ALSA, JACK, OSS, and several ALSA plugin layers. Present the native
     // desktop route only; fall back in preference order on older systems.
     const auto hasBackend = [&discovered](QStringView prefix) {
@@ -305,9 +311,13 @@ void LinuxPlayback::refreshAudioDevices()
         });
     };
     QString preferredPrefix;
+#if defined(Q_OS_WIN)
+    if (hasBackend(u"wasapi/")) preferredPrefix = QStringLiteral("wasapi/");
+#else
     if (hasBackend(u"pipewire/")) preferredPrefix = QStringLiteral("pipewire/");
     else if (hasBackend(u"pulse/")) preferredPrefix = QStringLiteral("pulse/");
     else if (hasBackend(u"alsa/")) preferredPrefix = QStringLiteral("alsa/");
+#endif
 
     QVariantList devices;
     devices.append(QVariantMap{{QStringLiteral("name"), QStringLiteral("auto")},
@@ -341,6 +351,23 @@ void LinuxPlayback::setAudioDevice(const QString &device)
     }
     m_audioDevice = next;
     emit audioDeviceChanged();
+}
+
+void LinuxPlayback::setAudioExclusive(bool enabled)
+{
+    if (m_audioExclusive == enabled) return;
+#if defined(Q_OS_WIN)
+    if (m_mpv) {
+        const auto result = mpv_set_property_string(m_mpv, "audio-exclusive", enabled ? "yes" : "no");
+        if (result < 0) {
+            emit errorOccurred(QStringLiteral("Could not change WASAPI exclusive mode: %1").arg(mpvError(result)));
+            return;
+        }
+    }
+    m_audioExclusive = enabled;
+#else
+    Q_UNUSED(enabled);
+#endif
 }
 
 void LinuxPlayback::setReplayGain(bool enabled)

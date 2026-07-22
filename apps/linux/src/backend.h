@@ -77,6 +77,7 @@ class Backend final : public QObject
     Q_PROPERTY(QString playbackError READ playbackError NOTIFY playbackConditionChanged)
     Q_PROPERTY(QVariantList audioDevices READ audioDevices NOTIFY audioDevicesChanged)
     Q_PROPERTY(QString audioDevice READ audioDevice WRITE setAudioDevice NOTIFY audioDeviceChanged)
+    Q_PROPERTY(bool audioExclusive READ audioExclusive WRITE setAudioExclusive NOTIFY audioExclusiveChanged)
     Q_PROPERTY(QColor accent READ accent NOTIFY accentChanged)
     Q_PROPERTY(QString accentMode READ accentMode WRITE setAccentMode NOTIFY appearanceChanged)
     Q_PROPERTY(QColor fixedAccent READ fixedAccent WRITE setFixedAccent NOTIFY appearanceChanged)
@@ -157,6 +158,7 @@ public:
     QString playbackError() const { return m_playbackError; }
     QVariantList audioDevices() const { return m_playback.audioDevices(); }
     QString audioDevice() const { return m_playback.audioDevice(); }
+    bool audioExclusive() const { return m_playback.audioExclusive(); }
     QColor accent() const { return m_accent; }
     QString accentMode() const { return m_accentMode; }
     QColor fixedAccent() const { return m_fixedAccent; }
@@ -261,6 +263,7 @@ public:
     Q_INVOKABLE void setRepeatMode(const QString &mode);
     Q_INVOKABLE void setShuffleEnabled(bool enabled);
     Q_INVOKABLE void setAudioDevice(const QString &device);
+    Q_INVOKABLE void setAudioExclusive(bool enabled);
     Q_INVOKABLE void refreshAudioDevices();
     Q_INVOKABLE void retryPlayback();
     Q_INVOKABLE void loadLyrics(bool refresh = false);
@@ -314,6 +317,7 @@ signals:
     void playbackConditionChanged();
     void audioDevicesChanged();
     void audioDeviceChanged();
+    void audioExclusiveChanged();
     void accentChanged();
     void appearanceChanged();
     void autoplayEnabledChanged();

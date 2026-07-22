@@ -16,6 +16,9 @@ constexpr quint32 maximumFrameSize = 1024 * 1024;
 
 QString discordRuntimeDirectory()
 {
+#if defined(Q_OS_WIN)
+    return QStringLiteral("\\\\?\\pipe");
+#else
     const auto environment = QProcessEnvironment::systemEnvironment();
     for (const auto &name : {QStringLiteral("XDG_RUNTIME_DIR"), QStringLiteral("TMPDIR"),
                              QStringLiteral("TMP"), QStringLiteral("TEMP")}) {
@@ -23,6 +26,7 @@ QString discordRuntimeDirectory()
         if (!value.isEmpty()) return value;
     }
     return QStringLiteral("/tmp");
+#endif
 }
 }
 
@@ -158,10 +162,15 @@ void DiscordPresence::connectToDiscord()
     if (m_candidates.isEmpty()) {
         m_candidates.clear();
         m_candidateIndex = 0;
-        const QDir runtime(discordRuntimeDirectory());
         for (int index = 0; index < 10; ++index) {
+#if defined(Q_OS_WIN)
+            const auto path = discordRuntimeDirectory() + QStringLiteral("\\discord-ipc-%1").arg(index);
+            m_candidates.append(path);
+#else
+            const QDir runtime(discordRuntimeDirectory());
             const auto path = runtime.filePath(QStringLiteral("discord-ipc-%1").arg(index));
             if (QFileInfo::exists(path)) m_candidates.append(path);
+#endif
         }
         if (m_candidates.isEmpty()) {
             scheduleReconnect();
