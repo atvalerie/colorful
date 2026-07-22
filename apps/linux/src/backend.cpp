@@ -886,7 +886,39 @@ void Backend::handleProviderMessage(const QJsonObject &message)
 
 void Backend::handleProviderEvent(const QString &event, const QJsonObject &message)
 {
-    if (event == QStringLiteral("auth.restored") || event == QStringLiteral("auth.completed")) {
+    if (event == QStringLiteral("search.partial")) {
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        if (!message.value(QStringLiteral("ok")).toBool()
+            || data.value(QStringLiteral("query")).toString() != m_searchQuery) return;
+        const auto provider = data.value(QStringLiteral("provider")).toString();
+        const auto appendUnique = [provider](QVariantList &target, const QJsonArray &values,
+                                             const auto &mapper) {
+            QSet<QString> identities;
+            for (const auto &entry : target) {
+                const auto item = entry.toMap();
+                identities.insert(item.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+                                  + QLatin1Char(':') + item.value(QStringLiteral("id")).toString());
+            }
+            for (const auto &value : values) {
+                auto document = value.toObject();
+                if (!document.contains(QStringLiteral("provider"))) document.insert(QStringLiteral("provider"), provider);
+                const auto item = mapper(document);
+                const auto identity = item.value(QStringLiteral("provider")).toString()
+                    + QLatin1Char(':') + item.value(QStringLiteral("id")).toString();
+                if (!item.value(QStringLiteral("id")).toString().isEmpty() && !identities.contains(identity)) {
+                    identities.insert(identity);
+                    target.append(item);
+                }
+            }
+        };
+        appendUnique(m_searchResults, data.value(QStringLiteral("tracks")).toArray(), jsonTrackToVariant);
+        appendUnique(m_searchAlbums, data.value(QStringLiteral("albums")).toArray(), jsonAlbumToVariant);
+        appendUnique(m_searchArtists, data.value(QStringLiteral("artists")).toArray(), jsonArtistToVariant);
+        m_searchCursors.insert(provider, data.value(QStringLiteral("cursor")).toVariant());
+        emit searchResultsChanged();
+        const auto total = m_searchResults.size() + m_searchAlbums.size() + m_searchArtists.size();
+        setStatus(QStringLiteral("Found %1 results — still searching…").arg(total));
+    } else if (event == QStringLiteral("auth.restored") || event == QStringLiteral("auth.completed")) {
         setLinked(true);
         m_authPending = false;
         emit authPendingChanged();
@@ -1405,6 +1437,10 @@ void Backend::search(const QString &query)
     m_searchQuery = wantedQuery;
     m_searchCursors.clear();
     m_searchMoreLoading = false;
+    m_searchResults.clear();
+    m_searchAlbums.clear();
+    m_searchArtists.clear();
+    emit searchResultsChanged();
     setBusy(true);
     setStatus(QStringLiteral("Searching…"));
     request(QStringLiteral("search"), {{QStringLiteral("query"), wantedQuery}}, [this, wantedQuery](const QJsonObject &message) {

@@ -273,10 +273,26 @@ async function handle(request: RequestMessage): Promise<void> {
     case "search": {
       const query = String(request.payload?.query ?? "").trim();
       if (!query) throw new Error("Search query is empty");
+      const partial = <T>(provider: string, result: Promise<T>, normalize: (value: T) => Record<string, unknown>) => {
+        void result.then((value) => send({ event: "search.partial", ok: true, data: {
+          query, provider, ...normalize(value),
+        } }), (error) => send({ event: "search.partial", ok: false, data: { query, provider }, error: publicError(error) }));
+        return result;
+      };
+      const tidalSearch = partial("tidal", withTimeout(browse.searchCatalog(query), "TIDAL search"), (value) => ({
+        tracks: value.tracks, albums: value.albums, artists: value.artists, cursor: value.cursors,
+      }));
+      const youtubeSearch = partial("youtube", withTimeout(searchYouTubeMusicCatalog(query), "YouTube Music search"), (value) => ({
+        tracks: value.tracks.map((track) => ({ ...track, provider: "youtube" })),
+        albums: value.albums.map((album) => ({ ...album, provider: "youtube" })),
+        artists: value.artists.map((artist) => ({ ...artist, provider: "youtube" })),
+        cursor: Object.keys(value.cursors).length ? value.cursors : youtubeAvailable() ? { fallbackOffset: "1" } : {},
+      }));
+      const soundcloudSearch = partial("soundcloud", withTimeout(soundCloudSearch(query), "SoundCloud search"), (value) => ({
+        tracks: value.tracks, albums: value.albums, artists: value.artists, cursor: value.cursor ?? "",
+      }));
       const [tidalResult, youtubeResult, soundcloudResult] = await Promise.allSettled([
-        withTimeout(browse.searchCatalog(query), "TIDAL search"),
-        withTimeout(searchYouTubeMusicCatalog(query), "YouTube Music search"),
-        withTimeout(soundCloudSearch(query), "SoundCloud search"),
+        tidalSearch, youtubeSearch, soundcloudSearch,
       ]);
       if (tidalResult.status === "rejected" && youtubeResult.status === "rejected" && soundcloudResult.status === "rejected") {
         throw new Error(`Search failed: ${publicError(tidalResult.reason)}; YouTube: ${publicError(youtubeResult.reason)}; SoundCloud: ${publicError(soundcloudResult.reason)}`);
