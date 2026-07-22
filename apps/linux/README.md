@@ -52,9 +52,11 @@ From the repository root:
 ./scripts/run-linux.sh
 ```
 
-The public TIDAL clients are built in. The launcher still imports optional
-provider overrides from `../mocha/.env` when present and never prints them. Use
-the root `.env.example` as the override reference.
+The public TIDAL clients are built in. Both the native executable and launcher
+discover optional overrides from the repository `.env` and `../mocha/.env`
+without printing them. Explicit process environment values take precedence.
+Account sessions are read from Secret Service, never from either file. Use the
+root `.env.example` as the override reference.
 
 For an immediate relaunch of an already-built binary:
 

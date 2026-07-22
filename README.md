@@ -167,7 +167,7 @@ Qt 6.8+ (`Core`, `Gui`, `Quick`, `QuickControls2`, `Network`, and `DBus`),
 radio, and downloads, and `ffmpeg` for offline download assembly. Public
 YouTube Music browsing/search itself does not require `yt-dlp`.
 
-With the provider environment exported:
+No provider environment is required for a normal launch:
 
 ```bash
 ./scripts/run-linux.sh

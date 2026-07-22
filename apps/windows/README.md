@@ -45,6 +45,8 @@ but the standard Windows scripts now target the Qt client.
 
 The engine database and encrypted credential files live beneath the current
 user's local application-data directory. Secrets never enter SQLite.
-The public TIDAL clients are built in. The launcher imports optional overrides
-from a sibling `mocha\.env` and then the repository's `.env`; neither file is
-copied or printed.
+The public TIDAL clients are built in. Both the native executable and launcher
+discover optional overrides from a sibling `mocha\.env` and the repository's
+`.env`; neither file is copied or printed. Explicit process environment values
+take precedence. Provider sessions remain in the per-user DPAPI store and do
+not depend on an `.env` file.
