@@ -114,7 +114,7 @@ Item {
                 onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                 onRemoveRequested: colorful.removeLibraryIndex(index)
                 onDownloadRequested: colorful.downloadTrack(modelData)
-                onDetailsRequested: colorful.openTrackItem(modelData)
+                onDetailsRequested: window.openTrackItem(modelData)
                 onStartRadioRequested: colorful.startRadio(modelData)
             }
             Column {
@@ -198,7 +198,7 @@ Item {
                 onMoveDownRequested: colorful.moveLocalPlaylistItem(root.selectedPlaylistId, index, index + 1)
                 onMoveRequested: function(targetIndex) { colorful.moveLocalPlaylistItem(root.selectedPlaylistId, index, targetIndex) }
                 onDownloadRequested: colorful.downloadTrack(modelData)
-                onDetailsRequested: colorful.openTrackItem(modelData)
+                onDetailsRequested: window.openTrackItem(modelData)
                 onStartRadioRequested: colorful.startRadio(modelData)
             }
             Column {

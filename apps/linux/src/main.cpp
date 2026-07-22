@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "debuglog.h"
 #if defined(Q_OS_LINUX)
 #include "mpris.h"
 #elif defined(Q_OS_WIN)
@@ -15,6 +16,7 @@
 #include <QQuickStyle>
 #include <QSet>
 #include <QWindow>
+#include <QDebug>
 #include <clocale>
 
 namespace {
@@ -59,6 +61,8 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(QStringLiteral("colorful"));
     QGuiApplication::setOrganizationName(QStringLiteral("colorful"));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/branding/colorful.svg")));
+    DebugLog::write(u"app", QStringLiteral("colorful started; log=%1").arg(DebugLog::filePath()));
+    qInfo().noquote() << "colorful debug log:" << DebugLog::filePath();
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     importDevelopmentEnvironment();
     // Qt adopts the user's locale during application construction. libmpv's

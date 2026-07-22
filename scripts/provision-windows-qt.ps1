@@ -16,7 +16,6 @@ $mpvRoot = Join-Path $toolsRoot 'mpv'
 $vulkanRoot = Join-Path $toolsRoot 'vulkan'
 $vulkanRuntime = Join-Path $vulkanRoot 'vulkan-1.dll'
 $mediaToolsRoot = Join-Path $toolsRoot 'media-tools'
-$ytDlp = Join-Path $mediaToolsRoot 'yt-dlp.exe'
 $ffmpeg = Join-Path $mediaToolsRoot 'ffmpeg.exe'
 $ffprobe = Join-Path $mediaToolsRoot 'ffprobe.exe'
 New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
@@ -136,14 +135,6 @@ if (-not (Test-Path $vulkanRuntime)) {
 
 New-Item -ItemType Directory -Path $mediaToolsRoot -Force | Out-Null
 $githubHeaders = @{ 'User-Agent' = 'colorful-build' }
-if (-not (Test-Path $ytDlp)) {
-    $release = Invoke-RestMethod `
-        -Uri 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest' `
-        -Headers $githubHeaders
-    $asset = $release.assets | Where-Object { $_.name -eq 'yt-dlp.exe' } | Select-Object -First 1
-    if (-not $asset) { throw 'The latest yt-dlp release has no Windows executable.' }
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $ytDlp
-}
 if (-not (Test-Path $ffmpeg) -or -not (Test-Path $ffprobe)) {
     $release = Invoke-RestMethod `
         -Uri 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' `

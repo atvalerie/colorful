@@ -101,19 +101,26 @@ application, and resumable ffmpeg-based offline transfers.
 The desktop provider host maps public YouTube Music songs, long-form and UGC
 videos, releases, credited artists, uploader channels, and their pages into the
 same catalog contracts using the Music web API directly. Uploader/channel
-identity stays separate from musical artist credits. The host asks the system
-`yt-dlp` only for ephemeral media URLs and as a fallback for the genuine
-`RDAMVM<videoId>` radio queue. It also expands ordinary uploader channels beyond
-YouTube Music's ten-item preview through their regular YouTube uploads feed.
-This intentionally avoids permanent Python or third-party Rust client
-dependencies. Android and iOS will use native resolvers rather than shipping
-`yt-dlp`.
+identity stays separate from musical artist credits. The host asks the
+Innertube player interface for ephemeral audio URLs. It bootstraps the current
+public visitor identity and player signature timestamp, uses a typed Android VR
+player request that returns directly usable audio formats, and validates the
+playability response before selecting the best audio-only representation.
+When the public player returns `LOGIN_REQUIRED`, the host makes an authenticated
+WEB_REMIX request and uses the pinned `youtubei.js` player implementation to
+transform its ciphered URL. The extracted URL is byte-range probed before being
+returned. A native refresh-and-retry clears cached bootstrap/player state if
+that transformation fails. Offline downloads use the same native
+source contract and resumable FFmpeg chunk pipeline as the other providers.
+Radio/automix now uses a typed `next` request with a native `RDAMVM<videoId>`
+queue. The host reconstructs YouTube Music's opaque protobuf continuation from
+the final watch endpoint and prefetches another radio window near the end of
+each 49-track page; captured browser telemetry is not replayed. Android and iOS can reuse the typed
+public request and response contract, but restricted playback needs an
+equivalent native challenge solver.
 
-Filtered YouTube Music search currently returns capped shelves without a
-continuation token. When the user explicitly asks for more YouTube results, the
-Linux host extends the track section through paged standard-YouTube search via
-the already-required `yt-dlp`; native Music continuations remain preferred
-whenever Google supplies them.
+Filtered YouTube Music search uses the current Songs and Videos filter
+parameters and independently follows each native `musicShelfContinuation`.
 
 Google currently rejects custom-client OAuth tokens on YouTube Music's private
 Innertube endpoints. Linux therefore accepts a user-copied browser session and

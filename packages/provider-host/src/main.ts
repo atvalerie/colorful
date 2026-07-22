@@ -6,9 +6,10 @@ import { clearProviderSecret, clearRefreshToken, loadProviderSecret, loadRefresh
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
 import { parseSoundCloudAuthorization, setSoundCloudAccessToken, soundCloudAccount, soundCloudArtistPage, soundCloudCollection, soundCloudCollectionMore, soundCloudLinked, soundCloudMore, soundCloudPlaylistPage, soundCloudRelated, soundCloudSearch, soundCloudSearchMore, soundCloudSource, soundCloudTrackPage } from "./soundcloud";
 import { clearYouTubeAuth, connectYouTubeBrowser, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
-import { searchYouTubeVideos, youtubeAutomix, youtubeAvailable, youtubeChannelVideos, youtubeSource, youtubeTrack } from "./youtube";
-import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicAutomix, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
+import { youtubeAvailable, youtubeSource, youtubeTrack } from "./youtube";
+import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicArtistTracksMore, youtubeMusicAutomix, youtubeMusicAutomixPage, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 import { resolveLyrics } from "./lyrics";
+import { debugLog } from "./debug";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -286,7 +287,7 @@ async function handle(request: RequestMessage): Promise<void> {
         tracks: value.tracks.map((track) => ({ ...track, provider: "youtube" })),
         albums: value.albums.map((album) => ({ ...album, provider: "youtube" })),
         artists: value.artists.map((artist) => ({ ...artist, provider: "youtube" })),
-        cursor: Object.keys(value.cursors).length ? value.cursors : youtubeAvailable() ? { fallbackOffset: "1" } : {},
+        cursor: value.cursors,
       }));
       const soundcloudSearch = partial("soundcloud", withTimeout(soundCloudSearch(query), "SoundCloud search"), (value) => ({
         tracks: value.tracks, albums: value.albums, artists: value.artists, cursor: value.cursor ?? "",
@@ -310,8 +311,7 @@ async function handle(request: RequestMessage): Promise<void> {
         artists: [...tidal.artists, ...youtube.artists.map((artist) => ({ ...artist, provider: "youtube" })), ...soundcloud.artists],
         cursors: {
           tidal: tidalResult.status === "fulfilled" ? tidal.cursors : {},
-          youtube: youtubeResult.status === "fulfilled"
-            ? (Object.keys(youtube.cursors).length ? youtube.cursors : youtubeAvailable() ? { fallbackOffset: "1" } : {}) : {},
+          youtube: youtubeResult.status === "fulfilled" ? youtube.cursors : {},
           soundcloud: soundcloudResult.status === "fulfilled" ? soundcloud.cursor ?? "" : "",
         },
         warnings: [
@@ -335,15 +335,6 @@ async function handle(request: RequestMessage): Promise<void> {
       }
       if (provider === "youtube") {
         const youtubeCursor = cursor && typeof cursor === "object" ? cursor as Record<string, string> : {};
-        if (youtubeCursor.fallbackOffset) {
-          const start = Number(youtubeCursor.fallbackOffset);
-          if (!Number.isSafeInteger(start) || start < 1) throw new Error("Invalid YouTube search offset");
-          const tracks = await searchYouTubeVideos(query, 20, start);
-          send({ id: request.id, ok: true, data: { provider,
-            tracks, albums: [], artists: [],
-            cursor: tracks.length === 20 ? { fallbackOffset: String(start + tracks.length) } : {} } });
-          return;
-        }
         const page = await searchYouTubeMusicCatalog(query,
           youtubeCursor);
         send({ id: request.id, ok: true, data: { provider,
@@ -371,8 +362,7 @@ async function handle(request: RequestMessage): Promise<void> {
         const [resolvedTrack, musicTrack, relatedTracks] = await Promise.all([
           youtubeTrack(resourceId),
           youtubeMusicTrackMetadata(resourceId).catch(() => null),
-          youtubeMusicAutomix(resourceId, 20).then((tracks) => tracks.length ? tracks : youtubeAutomix(resourceId, 20))
-            .catch(() => youtubeAutomix(resourceId, 20)),
+          youtubeMusicAutomix(resourceId, 20),
         ]);
         const trackDocument = musicTrack ? { ...resolvedTrack, ...musicTrack, provider, uploader: resolvedTrack.uploader } : resolvedTrack;
         send({ id: request.id, ok: true, data: {
@@ -428,13 +418,11 @@ async function handle(request: RequestMessage): Promise<void> {
           send({ id: request.id, ok: true, data: { section: "tracks", ...await youtubeMusicPlaylistMore(cursor) } });
           return;
         }
-        if (kind !== "artist" || section !== "tracks" || !cursor.startsWith("youtube-channel:"))
+        if (kind !== "artist" || section !== "tracks" || !cursor.startsWith("youtube-music-artist-tracks:"))
           throw new Error("That YouTube catalog section cannot be expanded");
-        const start = Number(cursor.slice("youtube-channel:".length));
-        if (!Number.isSafeInteger(start) || start < 1) throw new Error("Invalid YouTube channel cursor");
-        const tracks = await youtubeChannelVideos(resourceId, start, 20);
-        send({ id: request.id, ok: true, data: { section: "tracks", tracks,
-          cursor: tracks.length === 20 ? `youtube-channel:${start + tracks.length}` : "" } });
+        send({ id: request.id, ok: true, data: {
+          section: "tracks", ...await youtubeMusicArtistTracksMore(cursor),
+        } });
         return;
       }
       if (provider === "soundcloud") {
@@ -471,10 +459,8 @@ async function handle(request: RequestMessage): Promise<void> {
       const requestedLimit = Number(request.payload?.limit ?? 20);
       const limit = Number.isFinite(requestedLimit) ? requestedLimit : 20;
       if (provider === "youtube") {
-        const tracks = await youtubeMusicAutomix(trackId, limit)
-          .then((items) => items.length ? items : youtubeAutomix(trackId, limit))
-          .catch(() => youtubeAutomix(trackId, limit));
-        send({ id: request.id, ok: true, data: { tracks: youtubeTracks(tracks) } });
+        const page = await youtubeMusicAutomixPage(trackId);
+        send({ id: request.id, ok: true, data: { tracks: youtubeTracks(page.tracks), cursor: page.cursor } });
       }
       else if (provider === "tidal")
         send({ id: request.id, ok: true, data: { tracks: await browse.relatedTracks(trackId, limit) } });
@@ -488,7 +474,9 @@ async function handle(request: RequestMessage): Promise<void> {
       const trackId = String(request.payload?.trackId ?? "").trim();
       if (!trackId) throw new Error("Track ID is empty");
       if (provider === "youtube") {
-        send({ id: request.id, ok: true, data: await youtubeSource(trackId) });
+        send({ id: request.id, ok: true, data: await youtubeSource(
+          trackId, request.payload?.refresh === true,
+        ) });
         return;
       }
       if (provider === "soundcloud") {
@@ -561,11 +549,18 @@ async function readRequests(): Promise<void> {
       buffered = buffered.slice(newline + 1);
       if (!line) continue;
       let requestId: number | undefined;
+      let requestType = "unknown";
       try {
         const request = JSON.parse(line) as RequestMessage;
         requestId = request.id;
+        requestType = request.type;
         await handle(request);
       } catch (error) {
+        debugLog("provider.request", "failed", {
+          requestId,
+          requestType,
+          error: publicError(error),
+        });
         send({ ...(requestId === undefined ? {} : { id: requestId }), ok: false, error: publicError(error) });
       }
     }

@@ -59,11 +59,15 @@ colorful is an early personal alpha, not a packaged consumer release.
 - account-country discovery with a cached fallback
 - TIDAL collection, playlists, personalized daily/discovery/new-release shelves,
   catalog pages, and account/subscription details
-- public YouTube Music song, video, release, artist, and uploader-channel search; paginated channel uploads, catalog pages, playback, downloads, and genuine radio/automix on Linux
+- public YouTube Music song, video, release, artist, and uploader-channel search;
+  paginated channel uploads, catalog pages, native Innertube playback, ranged
+  downloads, and continuously paged genuine radio/automix on desktop
 - optional locally stored YouTube Music browser session for private library content, playlists, and personalized mixes
 - public SoundCloud mixed search, tracks, profiles, sets, related radio, catalog pagination, playback, quality-aware downloads, and optional uploader originals on Linux
 - optional locally stored SoundCloud OAuth session for personalized home shelves, liked tracks, sets, owned playlists, followed profiles, and account recommendations
 - independent TIDAL, YouTube, and SoundCloud search continuation without resetting the visible result list
+- bounded desktop catalog-page caching with instant history restoration and
+  stale-while-refresh behavior
 - lossless/adaptive playback with accurate duration and seeking
 - persisted perceptual desktop volume, real mute, and selectable Linux output
 - prepared-next, gapless Linux playback with prefetched autoplay
@@ -112,7 +116,7 @@ Native UI
        settings · offline-job records
 
 Desktop provider host (transitional TypeScript process; bundled on Windows)
-  └── TIDAL + public SoundCloud + public/authenticated YouTube Music adapters
+  └── TIDAL + public SoundCloud + typed public/authenticated YouTube Music adapters
 ```
 
 Playback is intentionally platform-owned. The portable engine does not decode
@@ -165,9 +169,11 @@ owners.
 Required development tools currently include Rust, Bun, CMake 3.25+, Ninja,
 Qt 6.8+ (`Core`, `Gui`, `Quick`, `QuickControls2`, `Network`, and `DBus`),
 `pkg-config`, libmpv development files, SQLite's CLI for schema tests,
-`secret-tool` for secure login persistence, `yt-dlp` for YouTube playback,
-radio, and downloads, and `ffmpeg` for offline download assembly. Public
-YouTube Music browsing/search itself does not require `yt-dlp`.
+`secret-tool` for secure login persistence, and `ffmpeg` for offline download
+assembly. YouTube Music playback uses typed Innertube `search`, `browse`,
+`next`, and `player` requests directly. Restricted ciphered formats are
+transformed through the pinned `youtubei.js` player implementation; no
+external video extractor is used or required.
 
 No provider environment is required for a normal launch:
 
@@ -190,8 +196,7 @@ Check the host toolchain and create distributable Linux artifacts with:
 ```
 
 The package command builds a Release AppDir, compiles the provider sidecar,
-bundles Qt, libmpv, checksum-verified static FFmpeg/ffprobe, and a
-checksum-verified standalone yt-dlp, then writes an AppImage and portable
+bundles Qt, libmpv, and checksum-verified static FFmpeg/ffprobe, then writes an AppImage and portable
 AppDir archive beneath `dist/`. It also
 runs an ELF dependency audit and reports the newest required glibc symbol.
 Public release artifacts should be built on the oldest Linux base the project
@@ -212,8 +217,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 The build uses libmpv's WASAPI output, supports shared and exclusive modes,
 publishes Windows system media controls, protects provider credentials with
 DPAPI, and bundles the provider host so Bun is not required at runtime. The
-Windows bundle also includes yt-dlp plus GPL FFmpeg/ffprobe for playback
-resolution and offline downloads. See [the Windows guide](apps/windows/README.md).
+Windows bundle also includes GPL FFmpeg/ffprobe for final offline-media
+assembly and probing. YouTube transfers themselves use resumable bounded HTTP
+byte ranges. See [the Windows guide](apps/windows/README.md).
 
 Create a no-install archive from a clean Release build with:
 
@@ -247,11 +253,11 @@ The Android application ID is `sh.valerie.colorful`. See
 
 ## Checks
 
-On a fresh checkout, install the provider-kit TypeScript development
-dependencies once:
+On a fresh checkout, install the provider TypeScript dependencies once:
 
 ```bash
 (cd packages/provider-kit && bun install)
+(cd packages/provider-host && bun install --frozen-lockfile)
 ```
 
 Run the complete Linux-oriented suite:

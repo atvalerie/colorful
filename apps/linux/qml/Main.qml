@@ -21,6 +21,10 @@ ApplicationWindow {
     property string submittedQuery: ""
     property string searchProvider: "all"
     property string currentSection: "search"
+    property var navigationBackStack: []
+    property var navigationForwardStack: []
+    readonly property bool canNavigateBack: navigationBackStack.length > 0
+    readonly property bool canNavigateForward: navigationForwardStack.length > 0
     readonly property var visibleSearchTracks: searchProvider === "all" ? colorful.searchResults
         : colorful.searchResults.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
     readonly property var visibleSearchAlbums: searchProvider === "all" ? colorful.searchAlbums
@@ -80,6 +84,8 @@ ApplicationWindow {
     Shortcut { sequence: "Right"; enabled: !window.textEntryFocused(); onActivated: colorful.seekBy(5000) }
     Shortcut { sequence: "Ctrl+Left"; enabled: !window.textEntryFocused(); onActivated: colorful.previous() }
     Shortcut { sequence: "Ctrl+Right"; enabled: !window.textEntryFocused(); onActivated: colorful.next() }
+    Shortcut { sequence: "Alt+Left"; onActivated: window.navigateBack() }
+    Shortcut { sequence: "Alt+Right"; onActivated: window.navigateForward() }
     Shortcut { sequence: "Escape"; enabled: colorful.authPending; onActivated: colorful.cancelLogin() }
     Shortcut { sequence: "Up"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(0.04) }
     Shortcut { sequence: "Down"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(-0.04) }
@@ -88,23 +94,149 @@ ApplicationWindow {
         const query = searchField.text.trim()
         if (!query || colorful.busy || !colorful.providerReady) return
         submittedQuery = query
-        currentSection = "search"
-        colorful.closeCatalog()
+        navigateToSection("search")
         resultsList.positionViewAtBeginning()
         colorful.search(query)
     }
 
     function openSettings(tab) {
+        if (currentSection === "settings" && !(colorful.catalogPage || {}).kind) {
+            settingsPage.tab = tab
+            return
+        }
+        navigateToSection("settings")
         settingsPage.tab = tab
-        currentSection = "settings"
+    }
+
+    function isCatalogSection(section) {
+        return ["search", "library", "tidal", "youtube", "soundcloud"].includes(section)
+    }
+
+    function sectionForProvider(provider) {
+        return ["tidal", "youtube", "soundcloud"].includes(provider) ? provider : "search"
+    }
+
+    function navigationState() {
+        const page = colorful.catalogPage || {}
+        const state = { section: currentSection }
+        if (currentSection === "settings") state.settingsTab = settingsPage.tab
+        if (isCatalogSection(currentSection) && page.kind && page.resourceId) {
+            state.catalogKind = page.kind
+            state.catalogId = page.resourceId
+            state.catalogProvider = page.provider || "tidal"
+        }
+        return state
+    }
+
+    function navigationKey(state) {
+        return [state.section || "search", state.settingsTab === undefined ? "" : state.settingsTab,
+                state.catalogKind || "", state.catalogProvider || "",
+                state.catalogId || ""].join("|")
+    }
+
+    function pushCurrentNavigation() {
+        const state = navigationState()
+        const last = navigationBackStack.length > 0
+                   ? navigationBackStack[navigationBackStack.length - 1] : null
+        if (!last || navigationKey(last) !== navigationKey(state)) {
+            navigationBackStack = navigationBackStack.concat([state]).slice(-100)
+        }
+        navigationForwardStack = []
+    }
+
+    function activateSection(section) {
+        currentSection = section || "search"
+        if (currentSection === "youtube") colorful.loadYouTubeHub(false)
+        else if (currentSection === "soundcloud") colorful.loadSoundCloudHub(false)
+        else if (currentSection === "tidal") colorful.loadTidalHub(false)
+    }
+
+    function navigateToSection(section) {
+        const target = { section: section || "search" }
+        if (navigationKey(navigationState()) === navigationKey(target)) return
+        pushCurrentNavigation()
         colorful.closeCatalog()
+        activateSection(target.section)
+    }
+
+    function beginCatalogNavigation(provider) {
+        pushCurrentNavigation()
+        if (!isCatalogSection(currentSection)) activateSection(sectionForProvider(provider || "tidal"))
+    }
+
+    function openTrackItem(track) {
+        if (!track || !track.id) return
+        beginCatalogNavigation(track.provider || "tidal")
+        colorful.openTrackItem(track)
+    }
+
+    function openAlbumItem(album) {
+        if (!album || !album.id) return
+        beginCatalogNavigation(album.provider || "tidal")
+        colorful.openAlbumItem(album)
+    }
+
+    function openArtistItem(artist) {
+        if (!artist || !artist.id) return
+        beginCatalogNavigation(artist.provider || "tidal")
+        colorful.openArtistItem(artist)
+    }
+
+    function openPlaylist(id, provider) {
+        if (!id) return
+        const resolvedProvider = provider || "tidal"
+        beginCatalogNavigation(resolvedProvider)
+        colorful.openPlaylist(id, resolvedProvider)
+    }
+
+    function openTrackArtist(track, index) {
+        if (!track) return
+        const credits = track.artistCredits || []
+        const names = track.artists || []
+        if (index < 0 || (index >= credits.length && index >= names.length)) return
+        beginCatalogNavigation(track.provider || "tidal")
+        colorful.openTrackArtist(track, index)
+    }
+
+    function requestCatalogState(state) {
+        const item = { id: state.catalogId, provider: state.catalogProvider || "tidal" }
+        if (state.catalogKind === "track") colorful.openTrackItem(item)
+        else if (state.catalogKind === "album") colorful.openAlbumItem(item)
+        else if (state.catalogKind === "artist") colorful.openArtistItem(item)
+        else if (state.catalogKind === "playlist") colorful.openPlaylist(item.id, item.provider)
+    }
+
+    function restoreNavigation(state) {
+        colorful.closeCatalog()
+        activateSection(state.section || "search")
+        if (state.section === "settings" && state.settingsTab !== undefined)
+            settingsPage.tab = state.settingsTab
+        if (state.catalogKind && state.catalogId) requestCatalogState(state)
+    }
+
+    function navigateBack() {
+        if (!canNavigateBack) return
+        const current = navigationState()
+        const target = navigationBackStack[navigationBackStack.length - 1]
+        navigationBackStack = navigationBackStack.slice(0, -1)
+        navigationForwardStack = navigationForwardStack.concat([current]).slice(-100)
+        restoreNavigation(target)
+    }
+
+    function navigateForward() {
+        if (!canNavigateForward) return
+        const current = navigationState()
+        const target = navigationForwardStack[navigationForwardStack.length - 1]
+        navigationForwardStack = navigationForwardStack.slice(0, -1)
+        navigationBackStack = navigationBackStack.concat([current]).slice(-100)
+        restoreNavigation(target)
     }
 
     TapHandler {
         acceptedButtons: Qt.BackButton | Qt.ForwardButton
         onTapped: function(eventPoint, button) {
-            if (button === Qt.BackButton) colorful.previous()
-            else if (button === Qt.ForwardButton) colorful.next()
+            if (button === Qt.BackButton) window.navigateBack()
+            else if (button === Qt.ForwardButton) window.navigateForward()
         }
     }
 
@@ -280,18 +412,7 @@ ApplicationWindow {
                             iconSource: "icons/home.svg"
                             selected: window.currentSection === "search"
                             tooltipText: "Search"
-                            onClicked: {
-                                window.currentSection = "search"
-                                colorful.closeCatalog()
-                            }
-                        }
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 3
-                            height: 26
-                            color: colorful.accent
-                            visible: window.currentSection === "search"
+                            onClicked: window.navigateToSection("search")
                         }
                     }
 
@@ -300,10 +421,7 @@ ApplicationWindow {
                         iconSource: "icons/library.svg"
                         selected: window.currentSection === "library"
                         tooltipText: "Library"
-                        onClicked: {
-                            window.currentSection = "library"
-                            colorful.closeCatalog()
-                        }
+                        onClicked: window.navigateToSection("library")
                     }
 
                     IconButton {
@@ -319,10 +437,7 @@ ApplicationWindow {
                         iconSource: "icons/download.svg"
                         selected: window.currentSection === "downloads"
                         tooltipText: "Offline music"
-                        onClicked: {
-                            window.currentSection = "downloads"
-                            colorful.closeCatalog()
-                        }
+                        onClicked: window.navigateToSection("downloads")
                     }
 
                     Item { Layout.fillHeight: true }
@@ -332,11 +447,7 @@ ApplicationWindow {
                         iconSource: "icons/youtube.svg"
                         selected: window.currentSection === "youtube"
                         tooltipText: "YouTube Music library"
-                        onClicked: {
-                            window.currentSection = "youtube"
-                            colorful.closeCatalog()
-                            colorful.loadYouTubeHub(false)
-                        }
+                        onClicked: window.navigateToSection("youtube")
                     }
 
                     IconButton {
@@ -344,11 +455,7 @@ ApplicationWindow {
                         iconSource: "icons/soundcloud.svg"
                         selected: window.currentSection === "soundcloud"
                         tooltipText: "SoundCloud library"
-                        onClicked: {
-                            window.currentSection = "soundcloud"
-                            colorful.closeCatalog()
-                            colorful.loadSoundCloudHub(false)
-                        }
+                        onClicked: window.navigateToSection("soundcloud")
                     }
 
                     IconButton {
@@ -356,11 +463,7 @@ ApplicationWindow {
                         iconSource: "icons/tidal.svg"
                         selected: window.currentSection === "tidal"
                         tooltipText: "TIDAL library"
-                        onClicked: {
-                            window.currentSection = "tidal"
-                            colorful.closeCatalog()
-                            colorful.loadTidalHub(false)
-                        }
+                        onClicked: window.navigateToSection("tidal")
                     }
                 }
             }
@@ -566,7 +669,7 @@ ApplicationWindow {
                                 onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                                 onSaveRequested: colorful.saveCatalogTrack(modelData)
                                 onDownloadRequested: colorful.downloadTrack(modelData)
-                                onDetailsRequested: colorful.openTrackItem(modelData)
+                                onDetailsRequested: window.openTrackItem(modelData)
                                 onStartRadioRequested: colorful.startRadio(modelData)
                             }
 
@@ -597,7 +700,7 @@ ApplicationWindow {
                                         required property var modelData
                                         entry: modelData
                                         artistMode: true
-                                        onOpenRequested: colorful.openArtistItem(modelData)
+                                        onOpenRequested: window.openArtistItem(modelData)
                                     }
                                 }
                                 Text {
@@ -619,7 +722,7 @@ ApplicationWindow {
                                     delegate: CatalogCard {
                                         required property var modelData
                                         entry: modelData
-                                        onOpenRequested: colorful.openAlbumItem(modelData)
+                                        onOpenRequested: window.openAlbumItem(modelData)
                                     }
                                 }
                                 Text {
@@ -761,7 +864,7 @@ ApplicationWindow {
                                     onPlayRequested: colorful.playQueueIndex(index)
                                     onRemoveRequested: colorful.removeQueueIndex(index)
                                     onDownloadRequested: colorful.downloadTrack(modelData)
-                                    onDetailsRequested: colorful.openTrackItem(modelData)
+                                    onDetailsRequested: window.openTrackItem(modelData)
                                     onStartRadioRequested: colorful.startRadio(modelData)
                                     onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                                     onMoveRequested: function(targetIndex) { colorful.moveQueueIndex(index, targetIndex) }
@@ -855,7 +958,7 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 enabled: Boolean(window.now.id)
                                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: colorful.openTrackItem(window.now)
+                                onClicked: window.openTrackItem(window.now)
                             }
                         }
 
@@ -871,7 +974,7 @@ ApplicationWindow {
                                 font.pixelSize: 13
                                 linkEnabled: Boolean(window.now.id)
                                 onActivated: {
-                                    if (window.now.id) colorful.openTrackItem(window.now)
+                                    if (window.now.id) window.openTrackItem(window.now)
                                 }
                             }
                             Item {
@@ -909,7 +1012,7 @@ ApplicationWindow {
                                                     normalColor: window.mutedInk
                                                     font.pixelSize: 11
                                                     font.weight: Font.Normal
-                                                    onActivated: colorful.openTrackArtist(window.now, index)
+                                                    onActivated: window.openTrackArtist(window.now, index)
                                                 }
                                                 Text {
                                                     visible: index + 1 < (window.now.artistCredits || []).length
@@ -953,7 +1056,7 @@ ApplicationWindow {
                                     elide: Text.ElideRight
                                     font.pixelSize: 11
                                     font.weight: Font.Normal
-                                    onActivated: colorful.openAlbumItem({ id: window.now.albumId, provider: window.now.provider || "tidal" })
+                                    onActivated: window.openAlbumItem({ id: window.now.albumId, provider: window.now.provider || "tidal" })
                                 }
                             }
                         }

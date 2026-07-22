@@ -62,6 +62,8 @@ set(COLORFUL_DESKTOP_SOURCES
     src/buildinfo.h
     src/corebridge.cpp
     src/corebridge.h
+    src/debuglog.cpp
+    src/debuglog.h
     src/linuxplayback.cpp
     src/linuxplayback.h
     src/discordpresence.cpp

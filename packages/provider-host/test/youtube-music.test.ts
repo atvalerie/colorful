@@ -1,8 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument, youtubeMusicPremiumStatusFromHtml } from "../src/youtube-music";
+import { mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument, parseYouTubeMusicBootstrap, parseYouTubeSignatureTimestamp, youtubeMusicAutomixContinuation, youtubeMusicAutomixRequest, youtubeMusicContinuationToken, youtubeMusicPremiumStatusFromHtml } from "../src/youtube-music";
 import { parseYouTubeBrowserHeaders, selectYouTubeBrowserHeaders } from "../src/youtube-auth";
 
 describe("authenticated YouTube Music mapping", () => {
+  test("extracts and merges public ytcfg bootstrap objects", () => {
+    expect(parseYouTubeMusicBootstrap(`<script>
+      ytcfg.set({"INNERTUBE_CLIENT_VERSION":"1.20260719.16.00","escaped":"a}b","INNERTUBE_CONTEXT":{"client":{"clientName":"WEB_REMIX","visitorData":"visitor"}}});
+      ytcfg.set({"INNERTUBE_API_KEY":"public-key"});
+    </script>`)).toEqual({
+      INNERTUBE_CLIENT_VERSION: "1.20260719.16.00",
+      escaped: "a}b",
+      INNERTUBE_CONTEXT: { client: { clientName: "WEB_REMIX", visitorData: "visitor" } },
+      INNERTUBE_API_KEY: "public-key",
+    });
+    expect(parseYouTubeSignatureTimestamp("const context={signatureTimestamp:20653,foo:true}")).toBe(20653);
+    expect(parseYouTubeSignatureTimestamp("const context={foo:true}")).toBeNull();
+  });
+
   test("reads premium membership status from YouTube Music bootstrap data", () => {
     expect(youtubeMusicPremiumStatusFromHtml('<script>ytcfg.set({"IS_SUBSCRIBER":true})</script>')).toBe("Premium");
     expect(youtubeMusicPremiumStatusFromHtml('{\\"IS_SUBSCRIBER\\":false}')).toBe("Free");
@@ -97,5 +111,38 @@ describe("authenticated YouTube Music mapping", () => {
     } } });
     expect(result.tracks.map((track) => track.id)).toEqual(["random-b", "random-a"]);
     expect(result.cursor).toBe("youtube-music-watch:shuffle-next");
+  });
+
+  test("builds a minimal typed automix request without captured browser telemetry", () => {
+    const request = youtubeMusicAutomixRequest("abcdefghijk");
+    expect(request).toEqual({
+      videoId: "abcdefghijk",
+      playlistId: "RDAMVMabcdefghijk",
+      enablePersistentPlaylistPanel: true,
+      isAudioOnly: true,
+      tunerSettingValue: "AUTOMIX_SETTING_NORMAL",
+    });
+    expect(request).not.toHaveProperty("adSignalsInfo");
+    expect(request).not.toHaveProperty("clickTracking");
+    expect(request).not.toHaveProperty("loggingContext");
+    expect(request).not.toHaveProperty("responsiveSignals");
+  });
+
+  test("reconstructs YouTube Music's radio continuation from the last queue item", () => {
+    const continuation = youtubeMusicAutomixContinuation({ navigationEndpoint: { watchEndpoint: {
+      videoId: "ptPVhXvT_5s",
+      playlistId: "RDAMVMFv4lKPcmSIY",
+      index: 49,
+      params: "OAHyAQIIAZIEI1FQdW5sWWNZSjRzNy1mbjh3ZFAyaS1nMW1aN2xaMkREZGRQ",
+      playlistSetVideoId: "D625AB40294D381D",
+    } } });
+    expect(continuation).toBe("CDIShAESC3B0UFZoWHZUXzVzIhFSREFNVk1GdjRsS1BjbVNJWTJKd0FFQjhnRUFtZ01EQ05nRWtnUWpVVkIxYm14WlkxbEtOSE0zTFdadU9IZGtVREpwTFdjeGJWbzNiRm95UkVSa1pGRDZCUUElM0Q4MdABAfoBEEQ2MjVBQjQwMjk0RDM4MUQYCg%3D%3D");
+  });
+
+  test("reads filtered-search pagination from a music shelf continuation", () => {
+    expect(youtubeMusicContinuationToken({ continuationContents: { musicShelfContinuation: {
+      contents: [],
+      continuations: [{ nextContinuationData: { continuation: "search-next" } }],
+    } } })).toBe("search-next");
   });
 });

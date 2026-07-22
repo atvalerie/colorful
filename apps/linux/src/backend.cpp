@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "buildinfo.h"
+#include "debuglog.h"
 
 #include <QCoreApplication>
 #include <QDesktopServices>
@@ -27,6 +28,9 @@
 #include <cmath>
 
 namespace {
+constexpr qint64 CatalogCacheFreshMs = 15 * 60 * 1000;
+constexpr qsizetype MaximumCatalogCacheEntries = 128;
+
 QString safeTrackPath(const QVariantMap &track)
 {
     const auto id = track.value(QStringLiteral("id")).toString();
@@ -178,9 +182,7 @@ Backend::Backend(QObject *parent)
     });
     m_checkpointTimer.start();
 
-    // YouTube source resolution may launch yt-dlp and cannot be cancelled once
-    // it has entered the provider host. Collapse a burst of manual Next clicks
-    // into one final resolver instead of spawning one process per skipped item.
+    // Collapse a burst of manual Next clicks into one final provider resolver.
     m_manualSkipTimer.setSingleShot(true);
     m_manualSkipTimer.setInterval(140);
     connect(&m_manualSkipTimer, &QTimer::timeout, this, [this] {
@@ -199,10 +201,17 @@ Backend::Backend(QObject *parent)
     connect(&m_provider, &QProcess::readyReadStandardOutput, this, &Backend::processProviderOutput);
     connect(&m_provider, &QProcess::readyReadStandardError, this, [this] {
         const auto detail = QString::fromUtf8(m_provider.readAllStandardError()).trimmed();
-        if (!detail.isEmpty()) setStatus(QStringLiteral("Provider: %1").arg(detail));
+        if (detail.isEmpty()) return;
+        const auto lines = detail.split(u'\n', Qt::SkipEmptyParts);
+        for (const auto &line : lines) DebugLog::write(u"provider", line.trimmed());
+        const auto visible = std::find_if(lines.crbegin(), lines.crend(), [](const QString &line) {
+            return !line.trimmed().startsWith(QStringLiteral("[colorful-debug]"));
+        });
+        if (visible != lines.crend()) setStatus(QStringLiteral("Provider: %1").arg(visible->trimmed()));
     });
     connect(&m_provider, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
         setProviderReady(false);
+        setProviderStatusResolved(true);
         setStatus(QStringLiteral("Could not start the TIDAL provider host: %1").arg(m_provider.errorString()));
     });
     connect(&m_provider, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
@@ -221,8 +230,7 @@ Backend::Backend(QObject *parent)
             m_activeDownloadTrack.value(QStringLiteral("id")).toString())
                                   .value(QStringLiteral("bytesDownloaded")).toLongLong();
         const auto projectedUsage = std::max<qint64>(0, offlineStorageUsed() - previousSize) + size;
-        if ((m_downloadProcessStage == DownloadProcessStage::Transfer
-             || m_downloadProcessStage == DownloadProcessStage::YouTubeTransfer)
+        if (m_downloadProcessStage == DownloadProcessStage::Transfer
             && m_offlineStorageLimitBytes > 0 && projectedUsage >= m_offlineStorageLimitBytes) {
             m_pauseDownloadForQuota = true;
             m_cancelActiveDownload = true;
@@ -235,16 +243,13 @@ Backend::Backend(QObject *parent)
             [this](int exitCode, QProcess::ExitStatus status) {
         const auto detail = QString::fromUtf8(m_downloadProcess.readAllStandardError()).trimmed();
         const bool succeeded = status == QProcess::NormalExit && exitCode == 0;
-        if ((m_downloadProcessStage == DownloadProcessStage::Transfer
-             || m_downloadProcessStage == DownloadProcessStage::YouTubeTransfer) && succeeded
+        if (m_downloadProcessStage == DownloadProcessStage::Transfer && succeeded
             && !m_cancelActiveDownload && !m_removeActiveDownload) {
             startDownloadFinalization();
             return;
         }
-        const auto downloader = m_downloadProcessStage == DownloadProcessStage::YouTubeTransfer
-            ? QStringLiteral("yt-dlp") : QStringLiteral("ffmpeg");
         finishDownloadTransfer(succeeded,
-                               detail.isEmpty() ? QString{} : QStringLiteral("%1 could not download the source").arg(downloader));
+                               detail.isEmpty() ? QString{} : QStringLiteral("ffmpeg could not download the source"));
     });
     connect(&m_downloadProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
@@ -311,9 +316,29 @@ Backend::Backend(QObject *parent)
         emit playbackConditionChanged();
     });
     connect(&m_playback, &LinuxPlayback::errorOccurred, this, [this](const QString &error) {
+        DebugLog::write(u"playback", QStringLiteral("error: %1").arg(error));
         suspendListeningSession();
         m_playbackReady = false;
         m_displayPositionOverride = -1;
+        const auto track = currentTrack();
+        const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+        const auto trackId = track.value(QStringLiteral("id")).toString();
+        const bool streamLoadFailure = error.startsWith(QStringLiteral("libmpv playback failed"))
+            || error.startsWith(QStringLiteral("libmpv could not load the stream"));
+        if (provider == QStringLiteral("youtube") && streamLoadFailure && !trackId.isEmpty()
+            && (m_automaticPlaybackRetryTrackId != trackId || !m_automaticPlaybackRetryUsed)) {
+            m_automaticPlaybackRetryTrackId = trackId;
+            m_automaticPlaybackRetryUsed = true;
+            const auto retryPosition = std::max<qint64>(0, m_playback.position());
+            DebugLog::write(u"playback", QStringLiteral("automatic fresh-source retry track=%1 positionMs=%2 error=%3")
+                                              .arg(trackId).arg(retryPosition).arg(error));
+            setStatus(QStringLiteral("Refreshing the YouTube playback source…"));
+            QTimer::singleShot(0, this, [this, trackId, retryPosition] {
+                if (currentTrack().value(QStringLiteral("id")).toString() != trackId) return;
+                resolveCurrentSource(retryPosition, playing(), true);
+            });
+            return;
+        }
         setBusy(false);
         setStatus(QStringLiteral("Playback error: %1").arg(error));
         m_playbackError = error;
@@ -342,10 +367,15 @@ Backend::Backend(QObject *parent)
         m_preparedEntryId = -1;
         m_preparedLocalSource = false;
     });
-    connect(&m_playback, &LinuxPlayback::preparedPlaybackFailed, this, [this](const QString &) {
+    connect(&m_playback, &LinuxPlayback::preparedPlaybackFailed, this, [this](const QString &reason) {
         m_playbackReady = false;
+        const auto trackId = currentTrack().value(QStringLiteral("id")).toString();
+        m_automaticPlaybackRetryTrackId = trackId;
+        m_automaticPlaybackRetryUsed = true;
+        DebugLog::write(u"playback", QStringLiteral("prepared source failed; refreshing track=%1 error=%2")
+                                          .arg(trackId, reason));
         setStatus(QStringLiteral("Refreshing the next playback source…"));
-        resolveCurrentSource(0, playing());
+        resolveCurrentSource(0, playing(), true);
     });
 
     openCore();
@@ -382,6 +412,10 @@ Backend::~Backend()
             m_downloadProcess.kill();
             m_downloadProcess.waitForFinished(1200);
         }
+    }
+    if (m_downloadReply) {
+        ++m_downloadGeneration;
+        m_downloadReply->abort();
     }
 }
 
@@ -784,6 +818,7 @@ void Backend::startProviderHost()
         "COLORFUL_PROVIDER_EXECUTABLE",
         QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-provider.exe"));
     if (!QFileInfo::exists(providerExecutable)) {
+        setProviderStatusResolved(true);
         setStatus(QStringLiteral("The Windows provider host is missing. Rebuild colorful or set COLORFUL_PROVIDER_EXECUTABLE."));
         return;
     }
@@ -792,8 +827,6 @@ void Backend::startProviderHost()
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert(QStringLiteral("COLORFUL_SECRET_HELPER"),
                        QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-credential-helper.exe"));
-    const auto bundledYtDlp = mediaTool(QStringLiteral("yt-dlp"), "COLORFUL_YT_DLP");
-    if (!bundledYtDlp.isEmpty()) environment.insert(QStringLiteral("COLORFUL_YT_DLP"), bundledYtDlp);
     const auto bundledFfmpeg = mediaTool(QStringLiteral("ffmpeg"), "COLORFUL_FFMPEG");
     if (!bundledFfmpeg.isEmpty()) environment.insert(QStringLiteral("COLORFUL_FFMPEG"), bundledFfmpeg);
     m_provider.setProcessEnvironment(environment);
@@ -807,6 +840,7 @@ void Backend::startProviderHost()
     } else {
     const auto bun = qEnvironmentVariable("COLORFUL_BUN", QStandardPaths::findExecutable(QStringLiteral("bun")));
     if (bun.isEmpty()) {
+        setProviderStatusResolved(true);
         setStatus(QStringLiteral("Bun was not found. Install Bun or set COLORFUL_BUN."));
         return;
     }
@@ -820,10 +854,12 @@ void Backend::startProviderHost()
     }
 #endif
     if (!m_provider.waitForStarted(3000)) {
+        setProviderStatusResolved(true);
         setStatus(QStringLiteral("Could not launch provider host: %1").arg(m_provider.errorString()));
         return;
     }
     request(QStringLiteral("status"), {}, [this](const QJsonObject &message) {
+        setProviderStatusResolved(true);
         if (!message.value(QStringLiteral("ok")).toBool()) return;
         const auto data = message.value(QStringLiteral("data")).toObject();
         setProviderReady(true);
@@ -857,6 +893,12 @@ int Backend::request(const QString &type, const QJsonObject &payload, ReplyHandl
         return -1;
     }
     const int id = m_nextRequestId++;
+    auto detail = QStringLiteral("request id=%1 type=%2").arg(id).arg(type);
+    const auto provider = payload.value(QStringLiteral("provider")).toString();
+    const auto trackId = payload.value(QStringLiteral("trackId")).toString();
+    if (!provider.isEmpty()) detail += QStringLiteral(" provider=%1").arg(provider);
+    if (!trackId.isEmpty()) detail += QStringLiteral(" track=%1").arg(trackId);
+    DebugLog::write(u"provider", detail);
     m_replies.insert(id, std::move(handler));
     const QJsonObject request{{QStringLiteral("id"), id}, {QStringLiteral("type"), type}, {QStringLiteral("payload"), payload}};
     m_provider.write(QJsonDocument(request).toJson(QJsonDocument::Compact));
@@ -890,6 +932,10 @@ void Backend::handleProviderMessage(const QJsonObject &message)
         return;
     }
     const int id = message.value(QStringLiteral("id")).toInt(-1);
+    if (!message.value(QStringLiteral("ok")).toBool()) {
+        DebugLog::write(u"provider", QStringLiteral("response id=%1 failed: %2")
+                                          .arg(id).arg(message.value(QStringLiteral("error")).toString()));
+    }
     if (auto handler = m_replies.take(id)) handler(message);
 }
 
@@ -948,7 +994,10 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         m_youtubeLinked = true;
         // A newly pasted browser session may select a different YouTube
         // profile. Never retain the previous profile's cached library.
-        if (completed) m_youtubeHub.clear();
+        if (completed) {
+            m_youtubeHub.clear();
+            clearCatalogCache(QStringLiteral("youtube"));
+        }
         const auto account = message.value(QStringLiteral("data")).toObject()
                                  .value(QStringLiteral("account")).toObject();
         if (!account.isEmpty()) m_youtubeHub.insert(QStringLiteral("account"), account.toVariantMap());
@@ -974,7 +1023,10 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
                || event == QStringLiteral("soundcloud.auth.completed")) {
         const auto completed = event.endsWith(QStringLiteral("completed"));
         m_soundcloudLinked = true;
-        if (completed) m_soundcloudHub.clear();
+        if (completed) {
+            m_soundcloudHub.clear();
+            clearCatalogCache(QStringLiteral("soundcloud"));
+        }
         const auto account = message.value(QStringLiteral("data")).toObject()
                                  .value(QStringLiteral("account")).toObject();
         if (!account.isEmpty()) m_soundcloudHub.insert(QStringLiteral("account"), account.toVariantMap());
@@ -1083,6 +1135,7 @@ void Backend::unlinkYouTube()
         }
         m_youtubeLinked = false;
         m_youtubeHub.clear();
+        clearCatalogCache(QStringLiteral("youtube"));
         emit youtubeAccountChanged();
         notify(QStringLiteral("YouTube Music account disconnected"));
     });
@@ -1120,6 +1173,7 @@ void Backend::unlinkSoundCloud()
         }
         m_soundcloudLinked = false;
         m_soundcloudHub.clear();
+        clearCatalogCache(QStringLiteral("soundcloud"));
         emit soundcloudAccountChanged();
         notify(QStringLiteral("SoundCloud account disconnected"));
     });
@@ -1610,34 +1664,99 @@ void Backend::openTrackArtist(const QVariantMap &track, int artistIndex)
     });
 }
 
+QString Backend::catalogCacheKey(const QString &provider, const QString &kind, const QString &id) const
+{
+    return provider.trimmed().toCaseFolded() + QChar(0x1f)
+        + kind.trimmed().toCaseFolded() + QChar(0x1f) + id.trimmed();
+}
+
+void Backend::cacheCurrentCatalogPage()
+{
+    const auto provider = m_catalogPage.value(
+        QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto kind = m_catalogPage.value(QStringLiteral("kind")).toString();
+    const auto id = m_catalogPage.value(QStringLiteral("resourceId")).toString();
+    if (provider.isEmpty() || kind.isEmpty() || id.isEmpty()) return;
+    const auto now = QDateTime::currentMSecsSinceEpoch();
+    m_catalogCache.insert(catalogCacheKey(provider, kind, id), {m_catalogPage, now, now});
+    while (m_catalogCache.size() > MaximumCatalogCacheEntries) {
+        auto oldest = m_catalogCache.end();
+        for (auto iterator = m_catalogCache.begin(); iterator != m_catalogCache.end(); ++iterator) {
+            if (oldest == m_catalogCache.end()
+                || iterator.value().accessedAtMs < oldest.value().accessedAtMs) oldest = iterator;
+        }
+        if (oldest == m_catalogCache.end()) break;
+        m_catalogCache.erase(oldest);
+    }
+}
+
+void Backend::clearCatalogCache(const QString &provider)
+{
+    const auto prefix = provider.trimmed().toCaseFolded() + QChar(0x1f);
+    for (auto iterator = m_catalogCache.begin(); iterator != m_catalogCache.end();) {
+        if (iterator.key().startsWith(prefix)) iterator = m_catalogCache.erase(iterator);
+        else ++iterator;
+    }
+}
+
 void Backend::openCatalog(const QString &kind, const QString &id, bool preserveCurrent,
                           const QString &provider)
 {
-    if (id.trimmed().isEmpty()) return;
+    const auto resourceId = id.trimmed();
+    if (resourceId.isEmpty()) return;
     const auto generation = ++m_catalogGeneration;
-    m_catalogLoading = true;
-    m_catalogMoreLoading = false;
-    emit catalogPageChanged();
-    request(QStringLiteral("detail"), {
+    const auto cacheKey = catalogCacheKey(provider, kind, resourceId);
+    const auto now = QDateTime::currentMSecsSinceEpoch();
+    auto cached = m_catalogCache.find(cacheKey);
+    const bool hasCachedPage = cached != m_catalogCache.end() && !cached.value().page.isEmpty();
+    const auto cacheAgeMs = hasCachedPage ? now - cached.value().storedAtMs : 0;
+    const bool cacheIsFresh = hasCachedPage && cacheAgeMs >= 0
+        && cacheAgeMs <= CatalogCacheFreshMs;
+    if (hasCachedPage) {
+        if (preserveCurrent && !m_catalogPage.isEmpty() && m_catalogPage != cached.value().page)
+            m_catalogHistory.append(m_catalogPage);
+        cached.value().accessedAtMs = now;
+        m_catalogPage = cached.value().page;
+        m_catalogLoading = false;
+        m_catalogMoreLoading = false;
+        emit catalogPageChanged();
+        DebugLog::write(u"catalog", QStringLiteral("cache %1 provider=%2 kind=%3 id=%4")
+                                         .arg(cacheIsFresh ? QStringLiteral("hit") : QStringLiteral("stale"),
+                                              provider, kind, resourceId));
+        if (cacheIsFresh) return;
+    } else {
+        m_catalogLoading = true;
+        m_catalogMoreLoading = false;
+        emit catalogPageChanged();
+        DebugLog::write(u"catalog", QStringLiteral("cache miss provider=%1 kind=%2 id=%3")
+                                         .arg(provider, kind, resourceId));
+    }
+    const auto requestId = request(QStringLiteral("detail"), {
         {QStringLiteral("provider"), provider},
         {QStringLiteral("kind"), kind},
-        {QStringLiteral("id"), id.trimmed()},
-    }, [this, generation, preserveCurrent](const QJsonObject &message) {
+        {QStringLiteral("id"), resourceId},
+    }, [this, generation, preserveCurrent, hasCachedPage](const QJsonObject &message) {
         if (generation != m_catalogGeneration) return;
         m_catalogLoading = false;
         if (!message.value(QStringLiteral("ok")).toBool()) {
             const auto error = message.value(QStringLiteral("error")).toString();
             setStatus(error);
-            notify(error.isEmpty() ? QStringLiteral("Could not open that TIDAL page") : error,
-                   QStringLiteral("error"));
+            if (!hasCachedPage)
+                notify(error.isEmpty() ? QStringLiteral("Could not open that catalog page") : error,
+                       QStringLiteral("error"));
             emit catalogPageChanged();
             return;
         }
         const auto nextPage = jsonCatalogPageToVariant(message.value(QStringLiteral("data")).toObject());
-        if (preserveCurrent && !m_catalogPage.isEmpty()) m_catalogHistory.append(m_catalogPage);
+        if (!hasCachedPage && preserveCurrent && !m_catalogPage.isEmpty()) m_catalogHistory.append(m_catalogPage);
         m_catalogPage = nextPage;
+        cacheCurrentCatalogPage();
         emit catalogPageChanged();
     });
+    if (requestId < 0 && !hasCachedPage) {
+        m_catalogLoading = false;
+        emit catalogPageChanged();
+    }
 }
 
 void Backend::navigateCatalogBack()
@@ -1754,6 +1873,7 @@ void Backend::loadMoreCatalog(const QString &section)
             m_catalogPage.insert(listKey, tracks);
         }
         m_catalogPage.insert(cursorKey, data.value(QStringLiteral("cursor")).toString());
+        cacheCurrentCatalogPage();
         emit catalogPageChanged();
     });
 }
@@ -1878,6 +1998,7 @@ void Backend::playCatalogCollection()
             }
             m_catalogPage.insert(QStringLiteral("tracks"), allTracks);
             m_catalogPage.insert(QStringLiteral("trackCursor"), QString{});
+            cacheCurrentCatalogPage();
             emit catalogPageChanged();
             if (allTracks.isEmpty()) return;
             playTracks(allTracks);
@@ -2294,7 +2415,7 @@ void Backend::downloadTrack(const QVariantMap &track)
 void Backend::beginNextDownload()
 {
     if (!m_activeDownloadTrack.isEmpty() || m_downloadProcess.state() != QProcess::NotRunning
-        || m_downloadQueue.isEmpty()) return;
+        || m_downloadReply || m_downloadQueue.isEmpty()) return;
     m_activeDownloadTrack = m_downloadQueue.takeFirst();
     m_cancelActiveDownload = false;
     m_removeActiveDownload = false;
@@ -2307,10 +2428,6 @@ void Backend::beginNextDownload()
         finishDownloadTransfer(false, provider == QStringLiteral("tidal")
             ? QStringLiteral("Connect TIDAL before starting a new download")
             : QStringLiteral("The provider host is not ready"));
-        return;
-    }
-    if (provider == QStringLiteral("youtube")) {
-        startYouTubeDownload();
         return;
     }
     setStatus(QStringLiteral("Preparing offline download for %1…")
@@ -2350,53 +2467,6 @@ void Backend::beginNextDownload()
     if (requestId < 0) finishDownloadTransfer(false, QStringLiteral("Provider host is not running"));
 }
 
-void Backend::startYouTubeDownload()
-{
-    if (m_activeDownloadTrack.isEmpty()) return;
-    const auto executable = mediaTool(QStringLiteral("yt-dlp"), "COLORFUL_YT_DLP");
-    if (executable.isEmpty()) {
-        finishDownloadTransfer(false, QStringLiteral("yt-dlp is required for YouTube downloads"));
-        return;
-    }
-    const auto partsDirectory = downloadPartsDirectory(m_activeDownloadTrack);
-    if (!QDir().mkpath(partsDirectory)) {
-        finishDownloadTransfer(false, QStringLiteral("Could not create the download checkpoint directory"));
-        return;
-    }
-    m_activeDownloadPartPath = QDir(partsDirectory).filePath(QStringLiteral("000000.mka"));
-    if (QFileInfo::exists(m_activeDownloadPartPath)) {
-        saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
-                          downloadWorkingBytes(m_activeDownloadTrack));
-        startDownloadFinalization();
-        return;
-    }
-
-    QStringList arguments{
-        QStringLiteral("--no-warnings"), QStringLiteral("--no-playlist"),
-        QStringLiteral("--continue"), QStringLiteral("--part"), QStringLiteral("--no-mtime"),
-        QStringLiteral("--newline"), QStringLiteral("--progress-delta"), QStringLiteral("1"),
-    };
-    const auto extraArguments = qEnvironmentVariable("COLORFUL_YT_DLP_ARGS").trimmed();
-    if (!extraArguments.isEmpty()) arguments.append(QProcess::splitCommand(extraArguments));
-    arguments.append({QStringLiteral("--format"), QStringLiteral("bestaudio/best"),
-                      QStringLiteral("--output"), m_activeDownloadPartPath});
-    arguments.append(QStringLiteral("--"));
-    arguments.append(QStringLiteral("https://music.youtube.com/watch?v=%1")
-                         .arg(m_activeDownloadTrack.value(QStringLiteral("id")).toString()));
-
-    saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
-                      downloadWorkingBytes(m_activeDownloadTrack));
-    m_downloadProcess.setProgram(executable);
-    m_downloadProcess.setArguments(arguments);
-    m_downloadProcess.setProcessChannelMode(QProcess::SeparateChannels);
-    m_downloadProcessStage = DownloadProcessStage::YouTubeTransfer;
-    m_downloadProcess.start();
-    m_downloadProgressTimer.start();
-    setStatus(QFileInfo::exists(m_activeDownloadPartPath + QStringLiteral(".part"))
-        ? QStringLiteral("Resuming %1 with yt-dlp…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString())
-        : QStringLiteral("Downloading %1 with yt-dlp…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
-}
-
 void Backend::startDownloadTransfer(const QJsonObject &source)
 {
     if (m_activeDownloadTrack.isEmpty()) return;
@@ -2416,6 +2486,14 @@ void Backend::startDownloadTransfer(const QJsonObject &source)
     }
     if (mediaTool(QStringLiteral("ffprobe"), "COLORFUL_FFPROBE").isEmpty()) {
         finishDownloadTransfer(false, QStringLiteral("ffprobe is required for resumable offline audio"));
+        return;
+    }
+
+    const auto provider = m_activeDownloadTrack.value(
+        QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto contentLength = source.value(QStringLiteral("contentLength")).toInteger();
+    if (provider == QStringLiteral("youtube") && contentLength > 0) {
+        startYouTubeRangeDownload(source);
         return;
     }
 
@@ -2507,6 +2585,158 @@ void Backend::startDownloadTransfer(const QJsonObject &source)
         : QStringLiteral("Downloading %1…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
 }
 
+void Backend::startYouTubeRangeDownload(const QJsonObject &source)
+{
+    if (m_activeDownloadTrack.isEmpty()) return;
+    const auto partsDirectory = downloadPartsDirectory(m_activeDownloadTrack);
+    if (!QDir().mkpath(partsDirectory)) {
+        finishDownloadTransfer(false, QStringLiteral("Could not create the download checkpoint directory"));
+        return;
+    }
+
+    const QDir directory(partsDirectory);
+    const auto rawPath = directory.filePath(QStringLiteral("source.media"));
+    const auto completeMarker = directory.filePath(QStringLiteral("range.complete"));
+    const auto completedPart = directory.filePath(QStringLiteral("000000.mka"));
+    m_downloadSourceBytesTotal = source.value(QStringLiteral("contentLength")).toInteger();
+    m_activeDownloadSource = source;
+
+    if (QFileInfo::exists(completeMarker) && QFileInfo::exists(completedPart)) {
+        DebugLog::write(u"download", QStringLiteral("youtube range checkpoint already complete bytes=%1")
+                                         .arg(QFileInfo(completedPart).size()));
+        saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
+                          QFileInfo(completedPart).size(), m_downloadSourceBytesTotal);
+        startDownloadFinalization();
+        return;
+    }
+    QFile::remove(completeMarker);
+
+    // Checkpoints created by the former FFmpeg streaming strategy cannot be
+    // safely combined with exact byte ranges. Migrate once by starting clean.
+    if (!QFileInfo::exists(rawPath)) {
+        for (const auto &part : downloadPartFiles(m_activeDownloadTrack)) QFile::remove(part);
+        QFile::remove(downloadPath(m_activeDownloadTrack, true));
+    }
+    if (QFileInfo(rawPath).size() > m_downloadSourceBytesTotal) QFile::remove(rawPath);
+
+    const auto resumedBytes = std::max<qint64>(0, QFileInfo(rawPath).size());
+    saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {}, resumedBytes,
+                      m_downloadSourceBytesTotal);
+    DebugLog::write(u"download", QStringLiteral("youtube range transfer started offset=%1 total=%2")
+                                     .arg(resumedBytes).arg(m_downloadSourceBytesTotal));
+    setStatus(resumedBytes > 0
+        ? QStringLiteral("Resuming %1…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString())
+        : QStringLiteral("Downloading %1…").arg(m_activeDownloadTrack.value(QStringLiteral("title")).toString()));
+    requestNextYouTubeDownloadRange();
+}
+
+void Backend::requestNextYouTubeDownloadRange()
+{
+    if (m_activeDownloadTrack.isEmpty() || m_activeDownloadSource.isEmpty()
+        || m_downloadReply || m_downloadSourceBytesTotal <= 0) return;
+
+    const QDir directory(downloadPartsDirectory(m_activeDownloadTrack));
+    const auto rawPath = directory.filePath(QStringLiteral("source.media"));
+    const auto completedPart = directory.filePath(QStringLiteral("000000.mka"));
+    const auto completeMarker = directory.filePath(QStringLiteral("range.complete"));
+    const auto offset = std::max<qint64>(0, QFileInfo(rawPath).size());
+    if (offset >= m_downloadSourceBytesTotal) {
+        QFile::remove(completedPart);
+        if (!QFile::rename(rawPath, completedPart)) {
+            finishDownloadTransfer(false, QStringLiteral("Could not seal the completed YouTube checkpoint"));
+            return;
+        }
+        QFile marker(completeMarker);
+        if (!marker.open(QIODevice::WriteOnly | QIODevice::Truncate) || marker.write("complete\n") < 0) {
+            QFile::rename(completedPart, rawPath);
+            finishDownloadTransfer(false, QStringLiteral("Could not save the YouTube checkpoint state"));
+            return;
+        }
+        marker.close();
+        DebugLog::write(u"download", QStringLiteral("youtube range transfer completed bytes=%1")
+                                         .arg(m_downloadSourceBytesTotal));
+        saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
+                          m_downloadSourceBytesTotal, m_downloadSourceBytesTotal);
+        startDownloadFinalization();
+        return;
+    }
+
+    constexpr qint64 ChunkBytes = 1024 * 1024;
+    const auto end = std::min(m_downloadSourceBytesTotal - 1, offset + ChunkBytes - 1);
+    QNetworkRequest request(QUrl(m_activeDownloadSource.value(QStringLiteral("uri")).toString()));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(30'000);
+    const auto headers = m_activeDownloadSource.value(QStringLiteral("httpHeaders")).toObject();
+    for (auto iterator = headers.constBegin(); iterator != headers.constEnd(); ++iterator) {
+        if (!iterator.value().isString()
+            || iterator.key().compare(QStringLiteral("Range"), Qt::CaseInsensitive) == 0
+            || iterator.key().compare(QStringLiteral("Host"), Qt::CaseInsensitive) == 0
+            || iterator.key().compare(QStringLiteral("Content-Length"), Qt::CaseInsensitive) == 0) continue;
+        request.setRawHeader(iterator.key().toUtf8(), iterator.value().toString().toUtf8());
+    }
+    const auto userAgent = m_activeDownloadSource.value(QStringLiteral("userAgent")).toString();
+    const auto referrer = m_activeDownloadSource.value(QStringLiteral("referrer")).toString();
+    if (!userAgent.isEmpty()) request.setRawHeader("User-Agent", userAgent.toUtf8());
+    if (!referrer.isEmpty()) request.setRawHeader("Referer", referrer.toUtf8());
+    request.setRawHeader("Range", QStringLiteral("bytes=%1-%2").arg(offset).arg(end).toUtf8());
+
+    const auto generation = m_downloadGeneration;
+    const auto startedAt = QDateTime::currentMSecsSinceEpoch();
+    auto *reply = m_network.get(request);
+    m_downloadReply = reply;
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, generation, rawPath, offset, end, startedAt] {
+        if (m_downloadReply == reply) m_downloadReply = nullptr;
+        const auto data = reply->readAll();
+        const auto networkError = reply->error();
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto contentRange = QString::fromLatin1(reply->rawHeader("Content-Range"));
+        reply->deleteLater();
+        if (generation != m_downloadGeneration || m_activeDownloadTrack.isEmpty()) return;
+
+        const auto expectedBytes = end - offset + 1;
+        const auto expectedRangePrefix = QStringLiteral("bytes %1-%2/").arg(offset).arg(end);
+        if (networkError != QNetworkReply::NoError || status != 206
+            || data.size() != expectedBytes || !contentRange.startsWith(expectedRangePrefix)) {
+            DebugLog::write(u"download", QStringLiteral(
+                "youtube range failed offset=%1 end=%2 status=%3 bytes=%4 networkError=%5")
+                .arg(offset).arg(end).arg(status).arg(data.size()).arg(static_cast<int>(networkError)));
+            finishDownloadTransfer(false, QStringLiteral("YouTube rejected a ranged download request"));
+            return;
+        }
+
+        QFile file(rawPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Append) || file.size() != offset
+            || file.write(data) != data.size()) {
+            finishDownloadTransfer(false, QStringLiteral("Could not write the YouTube download checkpoint"));
+            return;
+        }
+        file.close();
+        const auto downloadedBytes = offset + data.size();
+        DebugLog::write(u"download", QStringLiteral(
+            "youtube range completed offset=%1 end=%2 bytes=%3 elapsedMs=%4")
+            .arg(offset).arg(end).arg(data.size())
+            .arg(QDateTime::currentMSecsSinceEpoch() - startedAt));
+        saveDownloadState(m_activeDownloadTrack, QStringLiteral("downloading"), {},
+                          downloadedBytes, m_downloadSourceBytesTotal);
+
+        const auto existing = downloadForTrack(
+            m_activeDownloadTrack.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString(),
+            m_activeDownloadTrack.value(QStringLiteral("id")).toString());
+        const auto previousSize = existing.value(QStringLiteral("bytesDownloaded")).toLongLong();
+        const auto projectedUsage = std::max<qint64>(0, offlineStorageUsed() - previousSize)
+            + downloadedBytes;
+        if (m_offlineStorageLimitBytes > 0 && projectedUsage >= m_offlineStorageLimitBytes) {
+            m_pauseDownloadForQuota = true;
+            m_cancelActiveDownload = true;
+            finishDownloadTransfer(false);
+            return;
+        }
+        requestNextYouTubeDownloadRange();
+    });
+}
+
 void Backend::startDownloadFinalization()
 {
     if (m_activeDownloadTrack.isEmpty()) return;
@@ -2576,6 +2806,10 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
 {
     if (m_activeDownloadTrack.isEmpty()) return;
     m_downloadProgressTimer.stop();
+    if (m_downloadReply) {
+        m_downloadReply->abort();
+        m_downloadReply = nullptr;
+    }
     const auto track = m_activeDownloadTrack;
     const auto assemblyPath = downloadAssemblyPath(track);
     const auto finalPath = downloadPath(track, false);
@@ -2585,6 +2819,8 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
     const bool quotaPause = m_pauseDownloadForQuota;
     m_activeDownloadTrack.clear();
     m_activeDownloadPartPath.clear();
+    m_activeDownloadSource = {};
+    m_downloadSourceBytesTotal = 0;
     m_downloadProcessStage = DownloadProcessStage::Idle;
     m_cancelActiveDownload = false;
     m_removeActiveDownload = false;
@@ -2647,6 +2883,12 @@ void Backend::pauseDownload(const QString &trackId, const QString &provider)
         || m_activeDownloadTrack.value(QStringLiteral("id")).toString() != trackId) return;
     ++m_downloadGeneration;
     m_cancelActiveDownload = true;
+    if (m_downloadReply) {
+        m_downloadReply->abort();
+        m_downloadReply = nullptr;
+        finishDownloadTransfer(false);
+        return;
+    }
     if (m_downloadProcess.state() == QProcess::NotRunning) finishDownloadTransfer(false);
     else {
         m_downloadProcess.terminate();
@@ -2678,6 +2920,12 @@ void Backend::removeDownload(const QString &trackId, const QString &provider)
         && m_activeDownloadTrack.value(QStringLiteral("id")).toString() == trackId) {
         ++m_downloadGeneration;
         m_removeActiveDownload = true;
+        if (m_downloadReply) {
+            m_downloadReply->abort();
+            m_downloadReply = nullptr;
+            finishDownloadTransfer(false);
+            return;
+        }
         if (m_downloadProcess.state() == QProcess::NotRunning) finishDownloadTransfer(false);
         else m_downloadProcess.kill();
         return;
@@ -2735,6 +2983,13 @@ void Backend::removeUnfinishedDownloads()
             && m_activeDownloadTrack.value(QStringLiteral("id")).toString() == id) {
             ++m_downloadGeneration;
             m_removeActiveDownload = true;
+            if (m_downloadReply) {
+                m_downloadReply->abort();
+                m_downloadReply = nullptr;
+                finishDownloadTransfer(false);
+                ++removed;
+                continue;
+            }
             if (m_downloadProcess.state() == QProcess::NotRunning) finishDownloadTransfer(false);
             else m_downloadProcess.kill();
             ++removed;
@@ -2892,6 +3147,7 @@ void Backend::requestPlaylistContinuation(bool continueWhenReady)
                 visibleTracks.append(pageTracks);
                 m_catalogPage.insert(QStringLiteral("tracks"), visibleTracks);
                 m_catalogPage.insert(QStringLiteral("trackCursor"), m_playlistCursor);
+                cacheCurrentCatalogPage();
                 emit catalogPageChanged();
             }
         }
@@ -2904,7 +3160,7 @@ void Backend::requestPlaylistContinuation(bool continueWhenReady)
     });
 }
 
-void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
+void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay, bool refresh)
 {
     m_manualSkipTimer.stop();
     const auto track = currentTrack();
@@ -2913,12 +3169,16 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
         return;
     }
     const auto requestedTrackId = track.value(QStringLiteral("id")).toString();
+    if (m_automaticPlaybackRetryTrackId != requestedTrackId) {
+        m_automaticPlaybackRetryTrackId = requestedTrackId;
+        m_automaticPlaybackRetryUsed = false;
+    }
     const auto sourceGeneration = ++m_sourceGeneration;
     invalidatePreparedNext();
     suspendListeningSession();
     m_playbackReady = false;
-    // Queue selection changes synchronously, but network providers may need a
-    // few seconds to resolve their playable URI. Silence the previous source
+    // Queue selection changes synchronously, but a network provider still
+    // needs to resolve its playable URI. Silence the previous source
     // immediately rather than letting stale audio continue under the new
     // track's metadata while that request is in flight.
     m_playback.suspendForSourceChange();
@@ -2937,19 +3197,26 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
     m_playingLocalSource = false;
     setSourceResolving(true);
     setBusy(true);
+    const auto requestedProvider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    DebugLog::write(u"playback", QStringLiteral("source resolve started provider=%1 track=%2 autoplay=%3 positionMs=%4")
+                                      .arg(requestedProvider, requestedTrackId)
+                                      .arg(autoplay).arg(startPositionMs));
     setStatus(QStringLiteral("Getting playback source for %1…").arg(track.value(QStringLiteral("title")).toString()));
     loadAccent(track.value(QStringLiteral("coverUrl")).toString());
-    request(QStringLiteral("source"), {{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
+    request(QStringLiteral("source"), {{QStringLiteral("provider"), requestedProvider},
                                         {QStringLiteral("trackId"), requestedTrackId},
                                         {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")},
-                                        {QStringLiteral("quality"), m_streamQuality}},
-            [this, requestedTrackId, startPositionMs, autoplay, sourceGeneration](const QJsonObject &message) {
+                                        {QStringLiteral("quality"), m_streamQuality},
+                                        {QStringLiteral("refresh"), refresh}},
+            [this, requestedProvider, requestedTrackId, startPositionMs, autoplay, sourceGeneration](const QJsonObject &message) {
         if (sourceGeneration != m_sourceGeneration
             || currentTrack().value(QStringLiteral("id")).toString() != requestedTrackId) return;
         if (!message.value(QStringLiteral("ok")).toBool()) {
             setSourceResolving(false);
             setBusy(false);
             const auto error = message.value(QStringLiteral("error")).toString();
+            DebugLog::write(u"playback", QStringLiteral("source resolve failed provider=%1 track=%2 error=%3")
+                                              .arg(requestedProvider, requestedTrackId, error));
             setStatus(error);
             m_playbackError = error.isEmpty() ? QStringLiteral("Could not resolve a playback source") : error;
             emit playbackConditionChanged();
@@ -2970,6 +3237,12 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay)
             emit playbackConditionChanged();
             return;
         }
+        const QUrl sourceUrl(uri);
+        DebugLog::write(u"playback", QStringLiteral("source resolved provider=%1 track=%2 scheme=%3 host=%4 itag=%5 mime=%6 bitrate=%7")
+                                          .arg(requestedProvider, requestedTrackId, sourceUrl.scheme(), sourceUrl.host())
+                                          .arg(source.value(QStringLiteral("itag")).toInt())
+                                          .arg(source.value(QStringLiteral("mimeType")).toString())
+                                          .arg(source.value(QStringLiteral("bitrate")).toInteger()));
         m_displayPositionOverride = startPositionMs > 0 ? startPositionMs : -1;
         m_playback.setSource(
             QUrl(uri), startPositionMs, autoplay,
@@ -3184,10 +3457,12 @@ void Backend::requestRelated(bool continueWhenReady)
     const auto generation = ++m_relatedGeneration;
     const auto seedEntryId = m_relatedSeedEntryId;
     const auto seedProvider = seed.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto seedTrackId = seed.value(QStringLiteral("id")).toString();
     if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
     request(QStringLiteral("related"), {{QStringLiteral("provider"), seedProvider},
-                                         {QStringLiteral("trackId"), seed.value(QStringLiteral("id")).toString()},
-                                         {QStringLiteral("limit"), 20}}, [this, seedEntryId, generation, seedProvider](const QJsonObject &message) {
+                                         {QStringLiteral("trackId"), seedTrackId},
+                                         {QStringLiteral("limit"), seedProvider == QStringLiteral("youtube") ? 50 : 20}},
+            [this, seedEntryId, generation, seedProvider, seedTrackId](const QJsonObject &message) {
         if (generation != m_relatedGeneration) return;
         const bool continueWhenReady = m_relatedContinueWhenReady;
         m_relatedPending = false;
@@ -3210,8 +3485,9 @@ void Backend::requestRelated(bool continueWhenReady)
         };
         QSet<QString> queuedIds;
         for (const auto &value : m_queue) queuedIds.insert(identity(value.toMap()));
+        const auto data = message.value(QStringLiteral("data")).toObject();
         int added = 0;
-        for (const auto &value : message.value(QStringLiteral("data")).toObject().value(QStringLiteral("tracks")).toArray()) {
+        for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
             auto document = value.toObject();
             if (!document.contains(QStringLiteral("provider"))) {
                 document.insert(QStringLiteral("provider"), seedProvider);
@@ -3223,7 +3499,11 @@ void Backend::requestRelated(bool continueWhenReady)
             dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
                           {QStringLiteral("track"), variantTrackToCore(track)}});
             queuedIds.insert(key);
-            if (++added >= 20) break;
+            if (++added >= 50) break;
+        }
+        const auto cursor = data.value(QStringLiteral("cursor")).toString();
+        if (seedProvider == QStringLiteral("youtube") && added > 0 && !cursor.isEmpty()) {
+            activatePlaylistContinuation(seedTrackId, cursor);
         }
         if (canGoNext()) {
             setStatus(QStringLiteral("Autoplay added %1 related tracks").arg(added));
@@ -3318,7 +3598,9 @@ void Backend::retryPlayback()
     const auto retryPosition = position();
     m_playbackError.clear();
     emit playbackConditionChanged();
-    resolveCurrentSource(retryPosition, playing());
+    DebugLog::write(u"playback", QStringLiteral("manual retry requested track=%1 with fresh provider source")
+                                      .arg(currentTrack().value(QStringLiteral("id")).toString()));
+    resolveCurrentSource(retryPosition, playing(), true);
 }
 
 void Backend::setAutoplayEnabled(bool enabled)
@@ -3839,7 +4121,19 @@ QVariantMap Backend::jsonCatalogPageToVariant(const QJsonObject &page)
 }
 
 void Backend::setProviderReady(bool ready) { if (m_providerReady != ready) { m_providerReady = ready; emit providerReadyChanged(); } }
-void Backend::setLinked(bool linked) { if (m_linked != linked) { m_linked = linked; emit linkedChanged(); } }
+void Backend::setProviderStatusResolved(bool resolved)
+{
+    if (m_providerStatusResolved == resolved) return;
+    m_providerStatusResolved = resolved;
+    emit providerStatusResolvedChanged();
+}
+void Backend::setLinked(bool linked)
+{
+    if (m_linked == linked) return;
+    m_linked = linked;
+    clearCatalogCache(QStringLiteral("tidal"));
+    emit linkedChanged();
+}
 void Backend::setBusy(bool busy) { if (m_busy != busy) { m_busy = busy; emit busyChanged(); } }
 void Backend::setSourceResolving(bool resolving)
 {

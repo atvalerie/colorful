@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QUrl>
 #include <QList>
 #include <QStringList>
@@ -107,6 +108,8 @@ private:
     bool m_loading = false;
     bool m_seekSilenceActive = false;
     bool m_currentWasPrepared = false;
+    QElapsedTimer m_openTimer;
+    QElapsedTimer m_prepareTimer;
     quint64 m_nextRequestId = 1;
     quint64 m_seekRequestId = 0;
     quint64 m_loadRequestId = 0;

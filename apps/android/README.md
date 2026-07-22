@@ -23,6 +23,10 @@ the activity does not own or reset the session.
 
 Android does not yet have the desktop catalog pages, YouTube Music provider,
 offline-download manager, EQ/normalization controls, or final visual design.
+The desktop Bun provider host is not embedded in the APK. Android provider
+work must use native/shared request contracts and platform networking; the
+typed desktop YouTube Music implementation is the reference for future
+`search`, `browse`, `next`, and `player` support.
 
 ## Build
 
@@ -55,3 +59,11 @@ debug APK is written to `apps/android/app/build/outputs/apk/debug/app-debug.apk`
 
 Provider secrets and signed playback URLs must never be included in bug-report
 logs or screenshots.
+
+## Next milestone
+
+Android feature parity is the active cross-platform milestone: product UI,
+complete catalog navigation, YouTube Music and SoundCloud, provider-neutral
+playlists, downloads and storage controls, lyrics caching, EQ/normalization,
+and device/emulator playback restoration tests. iOS follows after these shared
+behaviors have been exercised on Android.

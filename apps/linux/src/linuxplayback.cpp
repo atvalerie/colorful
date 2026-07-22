@@ -1,4 +1,5 @@
 #include "linuxplayback.h"
+#include "debuglog.h"
 
 #include <QMetaObject>
 #include <QSet>
@@ -16,6 +17,18 @@ constexpr quint64 PausedForCacheProperty = 5;
 QString mpvError(int error)
 {
     return QString::fromUtf8(mpv_error_string(error));
+}
+
+QString endFileReason(mpv_end_file_reason reason)
+{
+    switch (reason) {
+    case MPV_END_FILE_REASON_EOF: return QStringLiteral("eof");
+    case MPV_END_FILE_REASON_STOP: return QStringLiteral("stop");
+    case MPV_END_FILE_REASON_QUIT: return QStringLiteral("quit");
+    case MPV_END_FILE_REASON_ERROR: return QStringLiteral("error");
+    case MPV_END_FILE_REASON_REDIRECT: return QStringLiteral("redirect");
+    default: return QStringLiteral("unknown");
+    }
 }
 }
 
@@ -59,6 +72,8 @@ LinuxPlayback::LinuxPlayback(QObject *parent)
         QMetaObject::invokeMethod(this, [this, message] { emit errorOccurred(message); }, Qt::QueuedConnection);
         return;
     }
+    mpv_request_log_messages(m_mpv, "warn");
+    DebugLog::write(u"mpv", u"libmpv initialized");
 
     mpv_observe_property(m_mpv, PositionProperty, "time-pos", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_mpv, DurationProperty, "duration", MPV_FORMAT_DOUBLE);
@@ -81,6 +96,9 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
                               const QString &userAgent, const QString &referrer)
 {
     if (!m_mpv || !source.isValid() || source.isEmpty()) return;
+    DebugLog::write(u"mpv", QStringLiteral("load source scheme=%1 host=%2 autoplay=%3 positionMs=%4 userAgent=%5")
+                                .arg(source.scheme(), source.host()).arg(autoplay).arg(startPositionMs)
+                                .arg(userAgent.isEmpty() ? QStringLiteral("default") : QStringLiteral("custom")));
     setSeekSilence(false);
     m_source = source;
     m_preparedSource = QUrl();
@@ -90,6 +108,7 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     m_preparedPeakAmplitude.reset();
     m_prepareRequestId = 0;
     m_currentWasPrepared = false;
+    m_openTimer.restart();
     m_positionMs = std::max<qint64>(0, startPositionMs);
     m_durationMs = 0;
     m_seekable = false;
@@ -119,11 +138,15 @@ void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> 
 {
     if (!m_mpv || !hasSource() || !source.isValid() || source.isEmpty()) return;
     if (m_preparedSource == source) return;
+    DebugLog::write(u"mpv", QStringLiteral("prepare source scheme=%1 host=%2 userAgent=%3")
+                                .arg(source.scheme(), source.host(),
+                                     userAgent.isEmpty() ? QStringLiteral("default") : QStringLiteral("custom")));
 
     clearPreparedNext();
     m_preparedSource = source;
     m_preparedReplayGainDb = replayGainDb;
     m_preparedPeakAmplitude = peakAmplitude;
+    m_prepareTimer.restart();
     const auto uri = source.toEncoded();
     const auto options = playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer).toUtf8();
     const char *arguments[] = {"loadfile", uri.constData(), "append", "-1", options.constData(), nullptr};
@@ -147,6 +170,7 @@ bool LinuxPlayback::playPreparedNext(bool autoplay)
     if (!m_mpv || m_preparedSource.isEmpty()) return false;
     m_desiredState = autoplay ? State::Playing : State::Paused;
     setLogicalState(m_desiredState);
+    m_openTimer.restart();
     promotePreparedSource(false);
     const char *arguments[] = {"playlist-next", "force", nullptr};
     command(arguments);
@@ -397,9 +421,9 @@ QString LinuxPlayback::playbackOptions(std::optional<double> replayGainDb,
         options << QStringLiteral("replaygain=no")
                 << QStringLiteral("volume-gain=%1").arg(gain, 0, 'f', 3);
     }
-    // yt-dlp's selected Google media URL is tied to the extractor's client
-    // identity. Keep these as per-file options so mixed-provider queues do not
-    // mutate headers on an already playing stream.
+    // A provider's media URL can be tied to its client identity. Keep these as
+    // per-file options so mixed-provider queues do not mutate headers on an
+    // already playing stream.
     if (!userAgent.isEmpty()) options << QStringLiteral("user-agent=%1").arg(userAgent);
     if (!referrer.isEmpty()) options << QStringLiteral("referrer=%1").arg(referrer);
     return options.join(QLatin1Char(','));
@@ -460,15 +484,40 @@ void LinuxPlayback::drainEvents()
         auto *event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
         switch (event->event_id) {
+        case MPV_EVENT_LOG_MESSAGE: {
+            const auto *message = static_cast<mpv_event_log_message *>(event->data);
+            if (message) DebugLog::write(u"mpv", QStringLiteral("%1/%2: %3")
+                                                       .arg(QString::fromUtf8(message->prefix),
+                                                            QString::fromUtf8(message->level),
+                                                            QString::fromUtf8(message->text).trimmed()));
+            break;
+        }
         case MPV_EVENT_PROPERTY_CHANGE:
             if (event->data)
                 handleProperty(event->reply_userdata, *static_cast<mpv_event_property *>(event->data));
             break;
+        case MPV_EVENT_START_FILE:
+            DebugLog::write(u"mpv", QStringLiteral("start-file role=%1 host=%2 elapsedMs=%3")
+                                           .arg(m_currentWasPrepared ? QStringLiteral("prepared-promoted")
+                                                                     : QStringLiteral("active"),
+                                                m_source.host())
+                                           .arg(m_openTimer.isValid() ? m_openTimer.elapsed() : -1));
+            break;
         case MPV_EVENT_FILE_LOADED:
+            DebugLog::write(u"mpv", QStringLiteral("file-loaded role=%1 host=%2 elapsedMs=%3")
+                                           .arg(m_currentWasPrepared ? QStringLiteral("prepared-promoted")
+                                                                     : QStringLiteral("active"),
+                                                m_source.host())
+                                           .arg(m_openTimer.isValid() ? m_openTimer.elapsed() : -1));
             setPauseProperty(m_desiredState != State::Playing);
             finishLoading();
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
+            DebugLog::write(u"mpv", QStringLiteral("playback-restart role=%1 host=%2 elapsedMs=%3")
+                                           .arg(m_currentWasPrepared ? QStringLiteral("prepared-promoted")
+                                                                     : QStringLiteral("active"),
+                                                m_source.host())
+                                           .arg(m_openTimer.isValid() ? m_openTimer.elapsed() : -1));
             if (m_confirmingSeekMs >= 0) {
                 if (m_queuedSeekMs >= 0) {
                     const auto target = m_queuedSeekMs;
@@ -485,7 +534,20 @@ void LinuxPlayback::drainEvents()
             finishLoading();
             break;
         case MPV_EVENT_COMMAND_REPLY:
-            if (event->error >= 0) break;
+            if (event->error >= 0) {
+                if (m_loadRequestId != 0 && event->reply_userdata == m_loadRequestId) {
+                    DebugLog::write(u"mpv", QStringLiteral("load-command accepted elapsedMs=%1")
+                                                   .arg(m_openTimer.isValid() ? m_openTimer.elapsed() : -1));
+                    m_loadRequestId = 0;
+                } else if (m_prepareRequestId != 0 && event->reply_userdata == m_prepareRequestId) {
+                    DebugLog::write(u"mpv", QStringLiteral("prepare-command accepted elapsedMs=%1")
+                                                   .arg(m_prepareTimer.isValid() ? m_prepareTimer.elapsed() : -1));
+                    m_prepareRequestId = 0;
+                }
+                break;
+            }
+            DebugLog::write(u"mpv", QStringLiteral("command reply failed request=%1 error=%2")
+                                           .arg(event->reply_userdata).arg(mpvError(event->error)));
             if (event->reply_userdata == m_seekRequestId && m_confirmingSeekMs >= 0) {
                 const auto target = m_confirmingSeekMs;
                 m_confirmingSeekMs = -1;
@@ -496,10 +558,11 @@ void LinuxPlayback::drainEvents()
                     m_queuedSeekMs = -1;
                     performSeek(queued);
                 }
-            } else if (event->reply_userdata == m_loadRequestId) {
+            } else if (m_loadRequestId != 0 && event->reply_userdata == m_loadRequestId) {
+                m_loadRequestId = 0;
                 finishLoading();
                 emit errorOccurred(QStringLiteral("libmpv could not load the stream: %1").arg(mpvError(event->error)));
-            } else if (event->reply_userdata == m_prepareRequestId) {
+            } else if (m_prepareRequestId != 0 && event->reply_userdata == m_prepareRequestId) {
                 m_preparedSource = QUrl();
                 m_preparedReplayGainDb.reset();
                 m_preparedPeakAmplitude.reset();
@@ -510,6 +573,11 @@ void LinuxPlayback::drainEvents()
         case MPV_EVENT_END_FILE: {
             setSeekSilence(false);
             const auto *end = static_cast<mpv_event_end_file *>(event->data);
+            if (end) DebugLog::write(u"mpv", QStringLiteral("end-file reason=%1 error=%2 role=%3 host=%4")
+                                                   .arg(endFileReason(end->reason), mpvError(end->error),
+                                                        m_currentWasPrepared ? QStringLiteral("prepared-promoted")
+                                                                             : QStringLiteral("active"),
+                                                        m_source.host()));
             if (end && end->reason == MPV_END_FILE_REASON_EOF) {
                 if (!m_preparedSource.isEmpty()) promotePreparedSource(true);
                 else emit endOfMedia();
@@ -517,6 +585,7 @@ void LinuxPlayback::drainEvents()
             else if (end && end->reason == MPV_END_FILE_REASON_ERROR) {
                 finishLoading();
                 const auto message = mpvError(end->error);
+                DebugLog::write(u"mpv", QStringLiteral("end-file error: %1").arg(message));
                 if (m_currentWasPrepared) {
                     m_currentWasPrepared = false;
                     emit preparedPlaybackFailed(message);
@@ -597,6 +666,7 @@ void LinuxPlayback::promotePreparedSource(bool notifyOwner)
     m_preparedPeakAmplitude.reset();
     m_prepareRequestId = 0;
     m_currentWasPrepared = true;
+    m_openTimer.restart();
     m_positionMs = 0;
     m_durationMs = 0;
     m_seekable = false;
@@ -622,7 +692,10 @@ void LinuxPlayback::command(const char *arguments[], quint64 requestId)
 {
     if (!m_mpv) return;
     const auto result = mpv_command_async(m_mpv, requestId, arguments);
-    if (result < 0) emit errorOccurred(QStringLiteral("libmpv command failed: %1").arg(mpvError(result)));
+    if (result < 0) {
+        DebugLog::write(u"mpv", QStringLiteral("command failed: %1").arg(mpvError(result)));
+        emit errorOccurred(QStringLiteral("libmpv command failed: %1").arg(mpvError(result)));
+    }
 }
 
 void LinuxPlayback::handleWakeup(void *userData)

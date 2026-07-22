@@ -76,7 +76,7 @@ if (-not (Test-Path $vulkanRuntime)) {
     throw 'The Vulkan loader was not found. Run scripts\provision-windows-qt.ps1 first.'
 }
 $mediaToolsRoot = Join-Path $env:USERPROFILE 'colorful-deps\media-tools'
-$mediaTools = @('yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe')
+$mediaTools = @('ffmpeg.exe', 'ffprobe.exe')
 foreach ($tool in $mediaTools) {
     if (-not (Test-Path (Join-Path $mediaToolsRoot $tool))) {
         throw "$tool was not found. Run scripts\provision-windows-qt.ps1 first."

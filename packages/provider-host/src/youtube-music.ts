@@ -1,21 +1,28 @@
 import { createHash } from "node:crypto";
 import type { AlbumPage, AlbumSummary, ArtistCredit, ArtistPage, ArtistSummary, CatalogSearch, PlaylistPage, PlaylistSummary, TrackSummary, UserCollectionPage } from "./browse";
+import { debugLog } from "./debug";
 
 type JsonObject = Record<string, unknown>;
 type Run = { text?: unknown; navigationEndpoint?: unknown };
 
 const MUSIC_ORIGIN = "https://music.youtube.com";
+export const YOUTUBE_MUSIC_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36";
 const MUSIC_API_KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30";
 const PLAYLIST_BROWSE_CURSOR = "youtube-music-browse:";
 const PLAYLIST_WATCH_CURSOR = "youtube-music-watch:";
+const AUTOMIX_CURSOR = "youtube-music-automix:";
+const ARTIST_TRACKS_CURSOR = "youtube-music-artist-tracks:";
 let accessTokenProvider: (() => Promise<string>) | null = null;
 let browserHeadersProvider: (() => Promise<Record<string, string>>) | null = null;
 let visitorIdPromise: Promise<string> | null = null;
+let bootstrapPromise: Promise<JsonObject> | null = null;
+let signatureTimestampPromise: Promise<number> | null = null;
+let playerScriptUrlPromise: Promise<URL> | null = null;
 const SEARCH_FILTERS = {
-  songs: "EgWKAQIIAWoMEA4QChADEAQQCRAF",
-  videos: "EgWKAQIQAWoMEA4QChADEAQQCRAF",
-  albums: "EgWKAQIYAWoMEA4QChADEAQQCRAF",
-  artists: "EgWKAQIgAWoMEA4QChADEAQQCRAF",
+  songs: "EgWKAQIIAWoQEAUQBBADEAoQCRAVEBAQEQ%3D%3D",
+  videos: "EgWKAQIQAWoQEAUQBBADEAoQCRAVEBAQEQ%3D%3D",
+  albums: "EgWKAQIYAWoQEAUQBBADEAoQCRAVEBAQEQ%3D%3D",
+  artists: "EgWKAQIgAWoQEAUQBBADEAoQCRAVEBAQEQ%3D%3D",
 } as const;
 
 function object(value: unknown): JsonObject {
@@ -225,6 +232,131 @@ function clientVersion(): string {
   return `1.${date}.01.00`;
 }
 
+export function parseYouTubeMusicBootstrap(html: string): JsonObject {
+  const marker = "ytcfg.set(";
+  const merged: JsonObject = {};
+  let searchFrom = 0;
+  while (searchFrom < html.length) {
+    const markerIndex = html.indexOf(marker, searchFrom);
+    if (markerIndex < 0) break;
+    const start = markerIndex + marker.length;
+    let depth = 0;
+    let quoted = false;
+    let escaped = false;
+    let end = -1;
+    for (let index = start; index < html.length; index += 1) {
+      const character = html[index];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === "\"") quoted = false;
+        continue;
+      }
+      if (character === "\"") quoted = true;
+      else if (character === "{") depth += 1;
+      else if (character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = index + 1;
+          break;
+        }
+      }
+    }
+    if (end > start) {
+      try {
+        const value = object(JSON.parse(html.slice(start, end)) as unknown);
+        Object.assign(merged, value);
+      } catch {
+        // Some pages also call ytcfg.set with JavaScript object literals. The
+        // server bootstrap is strict JSON; ignore unrelated executable input.
+      }
+      searchFrom = end;
+    } else {
+      searchFrom = start;
+    }
+  }
+  return merged;
+}
+
+async function youtubeMusicBootstrap(): Promise<JsonObject> {
+  if (!bootstrapPromise) {
+    bootstrapPromise = fetch(MUSIC_ORIGIN, {
+      headers: { "User-Agent": YOUTUBE_MUSIC_USER_AGENT },
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(`YouTube Music bootstrap returned HTTP ${response.status}`);
+      const config = parseYouTubeMusicBootstrap(await response.text());
+      if (!string(config.INNERTUBE_CLIENT_VERSION) || !Object.keys(object(config.INNERTUBE_CONTEXT)).length) {
+        throw new Error("YouTube Music bootstrap did not contain an Innertube client context");
+      }
+      return config;
+    }).catch((error) => {
+      bootstrapPromise = null;
+      throw error;
+    });
+  }
+  return bootstrapPromise;
+}
+
+export function parseYouTubeSignatureTimestamp(script: string): number | null {
+  const value = Number(script.match(/signatureTimestamp\s*:\s*(\d{4,6})/)?.[1]);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+async function youtubeMusicPlayerScriptUrl(): Promise<URL> {
+  if (!playerScriptUrlPromise) {
+    playerScriptUrlPromise = youtubeMusicBootstrap().then((bootstrap) => {
+      const playerConfigs = object(bootstrap.WEB_PLAYER_CONTEXT_CONFIGS);
+      const playerConfig = Object.values(playerConfigs).map(object)
+        .find((config) => string(config.jsUrl));
+      const relativeUrl = string(playerConfig?.jsUrl);
+      if (!relativeUrl) throw new Error("YouTube Music bootstrap did not contain a player script URL");
+      return new URL(relativeUrl, MUSIC_ORIGIN);
+    }).catch((error) => {
+      playerScriptUrlPromise = null;
+      throw error;
+    });
+  }
+  return playerScriptUrlPromise;
+}
+
+export async function youtubeMusicPlayerId(): Promise<string> {
+  const playerId = (await youtubeMusicPlayerScriptUrl()).pathname.match(/\/s\/player\/([^/]+)\//)?.[1] ?? "";
+  if (!playerId) throw new Error("YouTube Music player script URL did not contain a player ID");
+  return playerId;
+}
+
+export async function youtubeMusicSignatureTimestamp(): Promise<number> {
+  if (!signatureTimestampPromise) {
+    signatureTimestampPromise = (async () => {
+      const response = await fetch(await youtubeMusicPlayerScriptUrl(), {
+        headers: { "User-Agent": YOUTUBE_MUSIC_USER_AGENT },
+      });
+      if (!response.ok) throw new Error(`YouTube Music player script returned HTTP ${response.status}`);
+      const timestamp = parseYouTubeSignatureTimestamp(await response.text());
+      if (!timestamp) throw new Error("YouTube Music player script did not contain a signature timestamp");
+      return timestamp;
+    })().catch((error) => {
+      signatureTimestampPromise = null;
+      throw error;
+    });
+  }
+  return signatureTimestampPromise;
+}
+
+export async function youtubeMusicVisitorData(): Promise<string> {
+  const bootstrap = await youtubeMusicBootstrap();
+  const visitor = string(object(object(bootstrap.INNERTUBE_CONTEXT).client).visitorData);
+  if (!visitor) throw new Error("YouTube Music bootstrap did not contain visitor data");
+  return visitor;
+}
+
+export function refreshYouTubeMusicPlayerState(): void {
+  bootstrapPromise = null;
+  signatureTimestampPromise = null;
+  playerScriptUrlPromise = null;
+  visitorIdPromise = null;
+}
+
 export function setYouTubeMusicAccessTokenProvider(provider: (() => Promise<string>) | null): void {
   accessTokenProvider = provider;
 }
@@ -239,6 +371,154 @@ export type YouTubeSearchCursors = {
   albums?: string;
   artists?: string;
 };
+
+export interface YouTubeMusicAutomixRequest extends JsonObject {
+  videoId: string;
+  playlistId: string;
+  enablePersistentPlaylistPanel: true;
+  isAudioOnly: true;
+  tunerSettingValue: "AUTOMIX_SETTING_NORMAL";
+}
+
+export function youtubeMusicAutomixRequest(video: string): YouTubeMusicAutomixRequest {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(video)) throw new Error("Invalid YouTube video ID");
+  return {
+    videoId: video,
+    playlistId: `RDAMVM${video}`,
+    enablePersistentPlaylistPanel: true,
+    isAudioOnly: true,
+    tunerSettingValue: "AUTOMIX_SETTING_NORMAL",
+  };
+}
+
+function protobufVarint(value: number): Uint8Array {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error("Invalid protobuf integer");
+  const bytes: number[] = [];
+  do {
+    const next = value % 128;
+    value = Math.floor(value / 128);
+    bytes.push(next | (value ? 0x80 : 0));
+  } while (value);
+  return Uint8Array.from(bytes);
+}
+
+function protobufBytes(field: number, value: Uint8Array): Uint8Array {
+  return Uint8Array.from([
+    ...protobufVarint(field * 8 + 2),
+    ...protobufVarint(value.length),
+    ...value,
+  ]);
+}
+
+function protobufString(field: number, value: string): Uint8Array {
+  return protobufBytes(field, new TextEncoder().encode(value));
+}
+
+function protobufInteger(field: number, value: number): Uint8Array {
+  return Uint8Array.from([...protobufVarint(field * 8), ...protobufVarint(value)]);
+}
+
+function protobufMessage(...fields: Uint8Array[]): Uint8Array {
+  return Uint8Array.from(fields.flatMap((field) => [...field]));
+}
+
+function protobufStringField(encoded: string, wantedField: number): string {
+  let bytes: Uint8Array;
+  try {
+    bytes = Buffer.from(decodeURIComponent(encoded).replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  } catch {
+    return "";
+  }
+  let offset = 0;
+  const readVarint = (): number | null => {
+    let value = 0;
+    let multiplier = 1;
+    for (let count = 0; count < 10 && offset < bytes.length; ++count) {
+      const byte = bytes[offset++]!;
+      value += (byte & 0x7f) * multiplier;
+      if (!(byte & 0x80)) return Number.isSafeInteger(value) ? value : null;
+      multiplier *= 128;
+    }
+    return null;
+  };
+  while (offset < bytes.length) {
+    const tag = readVarint();
+    if (tag === null) return "";
+    const field = Math.floor(tag / 8);
+    const wire = tag % 8;
+    if (wire === 0) {
+      if (readVarint() === null) return "";
+      continue;
+    }
+    if (wire === 1) {
+      offset += 8;
+      continue;
+    }
+    if (wire === 5) {
+      offset += 4;
+      continue;
+    }
+    if (wire !== 2) return "";
+    const length = readVarint();
+    if (length === null || offset + length > bytes.length) return "";
+    const value = bytes.slice(offset, offset + length);
+    offset += length;
+    if (field === wantedField) return new TextDecoder().decode(value);
+  }
+  return "";
+}
+
+function encodedProtobuf(message: Uint8Array): string {
+  return encodeURIComponent(Buffer.from(message).toString("base64"));
+}
+
+function encodedCursor(value: JsonObject): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function decodedCursor(value: string): JsonObject {
+  try {
+    return object(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+  } catch {
+    return {};
+  }
+}
+
+/** Build the continuation YouTube Music normally emits after its 50-item radio window. */
+export function youtubeMusicAutomixContinuation(renderer: JsonObject): string {
+  const endpoint = object(object(renderer.navigationEndpoint).watchEndpoint);
+  const currentVideo = string(endpoint.videoId);
+  const playlistId = string(endpoint.playlistId);
+  const playlistSetVideoId = string(endpoint.playlistSetVideoId);
+  const index = Number(endpoint.index);
+  const queueId = protobufStringField(string(endpoint.params), 66);
+  if (!/^[A-Za-z0-9_-]{11}$/.test(currentVideo)
+      || !/^RDAMVM[A-Za-z0-9_-]{11}$/.test(playlistId)
+      || !/^[A-Fa-f0-9]{16}$/.test(playlistSetVideoId)
+      || !Number.isSafeInteger(index) || index < 0
+      || !/^[A-Za-z0-9_-]{16,128}$/.test(queueId)) return "";
+
+  const queue = protobufMessage(
+    protobufInteger(24, 1),
+    protobufString(30, ""),
+    protobufBytes(51, protobufInteger(1, 600)),
+    protobufString(66, queueId),
+    protobufString(95, ""),
+  );
+  const state = protobufMessage(
+    protobufString(2, currentVideo),
+    protobufString(4, playlistId),
+    protobufString(6, encodedProtobuf(queue)),
+    protobufInteger(7, index),
+    protobufInteger(26, 1),
+    protobufString(31, playlistSetVideoId),
+  );
+  return encodedProtobuf(protobufMessage(
+    protobufInteger(1, index + 1),
+    protobufBytes(2, state),
+    protobufInteger(3, 10),
+  ));
+}
 
 function cookieValue(cookie: string, name: string): string {
   const prefix = `${name}=`;
@@ -255,7 +535,7 @@ function browserAuthorization(cookie: string): string {
 async function visitorId(): Promise<string> {
   if (!visitorIdPromise) {
     visitorIdPromise = fetch(MUSIC_ORIGIN, {
-      headers: { "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36" },
+      headers: { "User-Agent": YOUTUBE_MUSIC_USER_AGENT },
     }).then(async (response) => {
       if (!response.ok) return "";
       const html = await response.text();
@@ -265,7 +545,9 @@ async function visitorId(): Promise<string> {
   return visitorIdPromise;
 }
 
-async function youtubei(endpoint: "search" | "browse" | "next" | "account/account_menu", body: JsonObject,
+export type YouTubeiEndpoint = "search" | "browse" | "next" | "account/account_menu";
+
+export async function youtubei(endpoint: YouTubeiEndpoint, body: JsonObject,
   accountRequired = false): Promise<JsonObject> {
   let accessToken = "";
   let browserHeaders: Record<string, string> = {};
@@ -291,7 +573,7 @@ async function youtubei(endpoint: "search" | "browse" | "next" | "account/accoun
       "Content-Type": "application/json",
       "Accept": "*/*",
       "Origin": MUSIC_ORIGIN,
-      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+      "User-Agent": YOUTUBE_MUSIC_USER_AGENT,
       ...(browserCookie ? {
         "Authorization": browserAuthorization(browserCookie),
         "Cookie": browserCookie,
@@ -362,10 +644,10 @@ export async function searchYouTubeMusicCatalog(query: string, cursors: YouTubeS
     albums: responsiveItems(albumDocument).map(mapAlbum).filter((item): item is AlbumSummary => Boolean(item)),
     artists: [...new Map(artists.map((artist) => [artist.id, artist])).values()],
     cursors: {
-      ...(continuationToken(songDocument) ? { songs: continuationToken(songDocument) } : {}),
-      ...(continuationToken(videoDocument) ? { videos: continuationToken(videoDocument) } : {}),
-      ...(continuationToken(albumDocument) ? { albums: continuationToken(albumDocument) } : {}),
-      ...(continuationToken(artistDocument) ? { artists: continuationToken(artistDocument) } : {}),
+      ...(youtubeMusicContinuationToken(songDocument) ? { songs: youtubeMusicContinuationToken(songDocument) } : {}),
+      ...(youtubeMusicContinuationToken(videoDocument) ? { videos: youtubeMusicContinuationToken(videoDocument) } : {}),
+      ...(youtubeMusicContinuationToken(albumDocument) ? { albums: youtubeMusicContinuationToken(albumDocument) } : {}),
+      ...(youtubeMusicContinuationToken(artistDocument) ? { artists: youtubeMusicContinuationToken(artistDocument) } : {}),
     },
   };
 }
@@ -443,15 +725,46 @@ export async function youtubeMusicLyrics(video: string): Promise<{ plain: string
   return { plain: plain || null, synced: null };
 }
 
-export async function youtubeMusicAutomix(video: string, limit = 20): Promise<TrackSummary[]> {
-  const document = await youtubei("next", {
-    videoId: video,
-    playlistId: `RDAMVM${video}`,
-    enablePersistentPlaylistPanel: true,
+export interface YouTubeMusicAutomixPage {
+  tracks: TrackSummary[];
+  cursor: string;
+}
+
+function mapYouTubeMusicAutomixDocument(document: JsonObject, excludedVideo = ""): YouTubeMusicAutomixPage {
+  const renderers = children(document, "playlistPanelVideoRenderer");
+  const tracks = renderers.map(mapPlaylistTrack)
+    .filter((track): track is TrackSummary => track !== null && track.id !== excludedVideo);
+  const unique = [...new Map(tracks.map((track) => [track.id, track])).values()];
+  const continuation = renderers.length ? youtubeMusicAutomixContinuation(renderers.at(-1)!) : "";
+  return { tracks: unique, cursor: continuation ? `${AUTOMIX_CURSOR}${continuation}` : "" };
+}
+
+export async function youtubeMusicAutomixPage(video: string): Promise<YouTubeMusicAutomixPage> {
+  const startedAt = Date.now();
+  const document = await youtubei("next", youtubeMusicAutomixRequest(video));
+  const page = mapYouTubeMusicAutomixDocument(document, video);
+  if (!page.tracks.length) throw new Error("YouTube Music returned an empty automix queue");
+  debugLog("youtube.automix", "page_resolved", {
+    videoId: video, trackCount: page.tracks.length, hasCursor: Boolean(page.cursor), elapsedMs: Date.now() - startedAt,
   });
-  const tracks = children(document, "playlistPanelVideoRenderer")
-    .map(mapPlaylistTrack).filter((track): track is TrackSummary => track !== null && track.id !== video);
-  return [...new Map(tracks.map((track) => [track.id, track])).values()].slice(0, Math.max(1, limit));
+  return page;
+}
+
+export async function youtubeMusicAutomixMore(cursor: string): Promise<YouTubeMusicAutomixPage> {
+  if (!cursor.startsWith(AUTOMIX_CURSOR)) throw new Error("Invalid YouTube Music automix cursor");
+  const continuation = cursor.slice(AUTOMIX_CURSOR.length);
+  if (!continuation) throw new Error("Empty YouTube Music automix cursor");
+  const startedAt = Date.now();
+  const page = mapYouTubeMusicAutomixDocument(await youtubei("next", { continuation }));
+  if (!page.tracks.length) throw new Error("YouTube Music returned an empty automix continuation");
+  debugLog("youtube.automix", "continuation_resolved", {
+    trackCount: page.tracks.length, hasCursor: Boolean(page.cursor), elapsedMs: Date.now() - startedAt,
+  });
+  return page;
+}
+
+export async function youtubeMusicAutomix(video: string, limit = 20): Promise<TrackSummary[]> {
+  return (await youtubeMusicAutomixPage(video)).tracks.slice(0, Math.max(1, limit));
 }
 
 function titleOfCarousel(carousel: JsonObject): string {
@@ -474,10 +787,18 @@ export async function youtubeMusicArtist(artistId: string): Promise<ArtistPage> 
   };
   const topTracks: TrackSummary[] = [];
   const albums: AlbumSummary[] = [];
+  let trackCursor = "";
   for (const shelf of children(document, "musicShelfRenderer")) {
     for (const renderer of responsiveItems(shelf)) {
       const track = mapTrack(renderer);
       if (track) topTracks.push(track);
+    }
+    const endpoint = object(shelf.bottomEndpoint);
+    const browse = object(endpoint.browseEndpoint);
+    const browseId = string(browse.browseId);
+    const params = string(browse.params);
+    if (browseId && runText(shelf.bottomText).toLocaleLowerCase().includes("show all")) {
+      trackCursor = `${ARTIST_TRACKS_CURSOR}${encodedCursor({ browseId, ...(params ? { params } : {}) })}`;
     }
   }
   for (const carousel of children(document, "musicCarouselShelfRenderer")) {
@@ -508,7 +829,25 @@ export async function youtubeMusicArtist(artistId: string): Promise<ArtistPage> 
     artist,
     topTracks: [...new Map(topTracks.map((track) => [track.id, track])).values()],
     albums: [...new Map(albums.map((album) => [album.id, album])).values()],
-    ...(artist.isChannel && topTracks.length >= 10 ? { trackCursor: "youtube-channel:11" } : {}),
+    ...(trackCursor ? { trackCursor } : {}),
+  };
+}
+
+export async function youtubeMusicArtistTracksMore(cursor: string): Promise<{ tracks: TrackSummary[]; cursor: string }> {
+  if (!cursor.startsWith(ARTIST_TRACKS_CURSOR)) throw new Error("Invalid YouTube Music artist tracks cursor");
+  const state = decodedCursor(cursor.slice(ARTIST_TRACKS_CURSOR.length));
+  const browseId = string(state.browseId);
+  const params = string(state.params);
+  const continuation = string(state.continuation);
+  if ((!browseId || !/^[A-Za-z0-9_-]{10,128}$/.test(browseId)) && !continuation)
+    throw new Error("Invalid YouTube Music artist tracks state");
+  const document = await youtubei("browse", continuation
+    ? { continuation }
+    : { browseId, ...(params ? { params } : {}) });
+  const next = youtubeMusicContinuationToken(document);
+  return {
+    tracks: tracksFromDocument(document),
+    cursor: next ? `${ARTIST_TRACKS_CURSOR}${encodedCursor({ continuation: next })}` : "",
   };
 }
 
@@ -752,15 +1091,17 @@ export function mapYouTubeMusicPlaylistDocument(document: JsonObject, playlistId
     ...runs(header.straplineTextOne),
   ]);
   playlist.numberOfItems = headerCount ?? (tracks.length || null);
-  const continuation = continuationToken(document);
+  const continuation = youtubeMusicContinuationToken(document);
   return {
     kind: "playlist", playlist, tracks,
     ...(continuation ? { trackCursor: `${PLAYLIST_BROWSE_CURSOR}${continuation}` } : {}),
   };
 }
 
-function continuationToken(document: JsonObject): string {
+export function youtubeMusicContinuationToken(document: JsonObject): string {
   const playlistRoots = [
+    ...children(document, "musicShelfRenderer"),
+    ...children(document, "musicShelfContinuation"),
     ...children(document, "musicPlaylistShelfRenderer"),
     ...children(document, "musicPlaylistShelfContinuation"),
     ...children(document, "appendContinuationItemsAction")
@@ -811,9 +1152,10 @@ export function mapYouTubeMusicWatchPlaylistDocument(document: JsonObject): { tr
 }
 
 export async function youtubeMusicPlaylistMore(cursor: string): Promise<{ tracks: TrackSummary[]; cursor: string }> {
+  if (cursor.startsWith(AUTOMIX_CURSOR)) return youtubeMusicAutomixMore(cursor);
   if (cursor.startsWith(PLAYLIST_BROWSE_CURSOR)) {
     const document = await youtubei("browse", { continuation: cursor.slice(PLAYLIST_BROWSE_CURSOR.length) });
-    const continuation = continuationToken(document);
+    const continuation = youtubeMusicContinuationToken(document);
     return {
       tracks: tracksFromDocument(document),
       cursor: continuation ? `${PLAYLIST_BROWSE_CURSOR}${continuation}` : "",

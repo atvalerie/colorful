@@ -5,6 +5,11 @@ porting approved UI and interactions into the native QML client. Nothing here
 connects to TIDAL or production state, and the prototype is not expected to
 stay pixel-identical to the newer native client.
 
+This directory is not a provider test harness or a shipping web client. Linux
+and Windows behavior is defined by the Qt application, Android by its native
+Compose application, and the canonical implementation backlog by
+[`../../docs/todo.md`](../../docs/todo.md).
+
 From the repository root:
 
 ```bash

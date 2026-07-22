@@ -69,8 +69,9 @@ Item {
                 spacing: 10
                 IconButton {
                     iconSource: "icons/previous.svg"
-                    tooltipText: colorful.canNavigateCatalogBack ? "Back" : "Back to results"
-                    onClicked: colorful.canNavigateCatalogBack ? colorful.navigateCatalogBack() : colorful.closeCatalog()
+                    tooltipText: "Back"
+                    enabled: window.canNavigateBack
+                    onClicked: window.navigateBack()
                 }
                 Text {
                     text: root.kind === "track" ? "Track" : root.kind === "album" ? "Album" : root.kind === "playlist" ? "Playlist"
@@ -140,7 +141,7 @@ Item {
                                 spacing: 4
                                 MetadataLink {
                                     text: modelData.name
-                                    onActivated: colorful.openArtistItem({ id: modelData.id, provider: root.page.provider || "tidal" })
+                                    onActivated: window.openArtistItem({ id: modelData.id, provider: root.page.provider || "tidal" })
                                 }
                                 Text {
                                     visible: index + 1 < (root.primary.artistCredits || []).length
@@ -171,7 +172,7 @@ Item {
                         text: root.primary.albumTitle || "Open album"
                         normalColor: Qt.rgba(1, 1, 1, 0.5)
                         font.pixelSize: 12
-                        onActivated: colorful.openAlbumItem({ id: root.primary.albumId, provider: root.primary.provider || root.page.provider || "tidal" })
+                        onActivated: window.openAlbumItem({ id: root.primary.albumId, provider: root.primary.provider || root.page.provider || "tidal" })
                     }
                     Row {
                         spacing: 5
@@ -187,7 +188,7 @@ Item {
                             font.pixelSize: 11
                             onActivated: {
                                 if (root.primary.uploader && root.primary.uploader.id)
-                                    colorful.openArtistItem({ id: root.primary.uploader.id, provider: "youtube" })
+                                    window.openArtistItem({ id: root.primary.uploader.id, provider: "youtube" })
                             }
                         }
                     }
@@ -257,7 +258,7 @@ Item {
                         onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                         onSaveRequested: colorful.saveCatalogTrack(modelData)
                         onDownloadRequested: colorful.downloadTrack(modelData)
-                        onDetailsRequested: colorful.openTrackItem(modelData)
+                        onDetailsRequested: window.openTrackItem(modelData)
                         onStartRadioRequested: colorful.startRadio(modelData)
                     }
                 }
@@ -288,7 +289,7 @@ Item {
                     delegate: CatalogCard {
                         required property var modelData
                         entry: modelData
-                        onOpenRequested: colorful.openAlbumItem(modelData)
+                        onOpenRequested: window.openAlbumItem(modelData)
                     }
                 }
             }

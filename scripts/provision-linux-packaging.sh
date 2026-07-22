@@ -27,18 +27,6 @@ download \
   "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64" \
   "$tools_dir/runtime-x86_64"
 
-yt_dlp_url="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
-yt_dlp_sums_url="https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"
-download "$yt_dlp_url" "$tools_dir/yt-dlp"
-curl --fail --location --retry 3 --output "$tools_dir/SHA2-256SUMS" "$yt_dlp_sums_url"
-expected="$({ grep -E '[ *]yt-dlp_linux$' "$tools_dir/SHA2-256SUMS" || true; } | awk '{print $1}' | head -1)"
-[[ -n "$expected" ]] || { echo "yt-dlp_linux is missing from SHA2-256SUMS" >&2; exit 1; }
-actual="$(sha256sum "$tools_dir/yt-dlp" | awk '{print $1}')"
-[[ "$actual" == "$expected" ]] || {
-  echo "yt-dlp checksum mismatch: expected $expected, got $actual" >&2
-  exit 1
-}
-
 ffmpeg_name="ffmpeg-master-latest-linux64-gpl.tar.xz"
 download \
   "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$ffmpeg_name" \

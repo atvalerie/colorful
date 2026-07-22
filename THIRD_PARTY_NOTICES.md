@@ -9,7 +9,11 @@ or dynamically load third-party components under their own licenses.
 - FFmpeg and ffprobe — GPL-3.0-or-later for distributed desktop builds;
   Linux binaries are produced by BtbN/FFmpeg-Builds;
   <https://ffmpeg.org/>, <https://github.com/BtbN/FFmpeg-Builds>
-- yt-dlp — Unlicense; <https://github.com/yt-dlp/yt-dlp>
+- YouTube.js (`youtubei.js`) — MIT; <https://github.com/LuanRT/YouTube.js>
+- Meriyah — ISC; <https://github.com/meriyah/meriyah>
+- fflate — MIT; <https://github.com/101arrowz/fflate>
+- Buf (`@bufbuild/protobuf`) — Apache-2.0 AND BSD-3-Clause;
+  <https://github.com/bufbuild/protobuf-es>
 - SQLite — public domain; <https://sqlite.org/copyright.html>
 - Nunito — SIL Open Font License 1.1; the license is embedded with the font
   and available at `assets/fonts/OFL.txt` in the source tree.

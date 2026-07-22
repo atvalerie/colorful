@@ -23,6 +23,7 @@ class Backend final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool providerReady READ providerReady NOTIFY providerReadyChanged)
+    Q_PROPERTY(bool providerStatusResolved READ providerStatusResolved NOTIFY providerStatusResolvedChanged)
     Q_PROPERTY(bool linked READ linked NOTIFY linkedChanged)
     Q_PROPERTY(bool authPending READ authPending NOTIFY authPendingChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
@@ -104,6 +105,7 @@ public:
     ~Backend() override;
 
     bool providerReady() const { return m_providerReady; }
+    bool providerStatusResolved() const { return m_providerStatusResolved; }
     bool linked() const { return m_linked; }
     bool authPending() const { return m_authPending; }
     bool busy() const { return m_busy; }
@@ -289,6 +291,7 @@ public:
 
 signals:
     void providerReadyChanged();
+    void providerStatusResolvedChanged();
     void linkedChanged();
     void authPendingChanged();
     void busyChanged();
@@ -340,6 +343,7 @@ private:
     void handleProviderMessage(const QJsonObject &message);
     void handleProviderEvent(const QString &event, const QJsonObject &message);
     void setProviderReady(bool ready);
+    void setProviderStatusResolved(bool resolved);
     void setLinked(bool linked);
     void setBusy(bool busy);
     void setSourceResolving(bool resolving);
@@ -358,16 +362,20 @@ private:
     bool atLoadedQueueEnd() const;
     void openCatalog(const QString &kind, const QString &id, bool preserveCurrent = true,
                      const QString &provider = QStringLiteral("tidal"));
+    QString catalogCacheKey(const QString &provider, const QString &kind, const QString &id) const;
+    void cacheCurrentCatalogPage();
+    void clearCatalogCache(const QString &provider);
     void enqueueTrack(const QVariantMap &track);
     void saveTrack(const QVariantMap &track);
-    void resolveCurrentSource(qint64 startPositionMs = 0, bool autoplay = true);
+    void resolveCurrentSource(qint64 startPositionMs = 0, bool autoplay = true, bool refresh = false);
     void prepareNextSource();
     void advancePreparedTrack();
     void invalidatePreparedNext();
     int nextQueueIndex() const;
     void beginNextDownload();
     void startDownloadTransfer(const QJsonObject &source);
-    void startYouTubeDownload();
+    void startYouTubeRangeDownload(const QJsonObject &source);
+    void requestNextYouTubeDownloadRange();
     void startDownloadFinalization();
     void finishDownloadTransfer(bool succeeded, const QString &error = {});
     void saveDownloadState(const QVariantMap &track, const QString &state,
@@ -418,6 +426,8 @@ private:
     bool m_manualSkipAutoplay = true;
     bool m_sourceResolving = false;
     quint64 m_sourceGeneration = 0;
+    QString m_automaticPlaybackRetryTrackId;
+    bool m_automaticPlaybackRetryUsed = false;
     quint64 m_prepareGeneration = 0;
     qint64 m_preparedEntryId = -1;
     bool m_preparedLocalSource = false;
@@ -435,6 +445,12 @@ private:
     bool m_searchMoreLoading = false;
     QVariantMap m_catalogPage;
     QVariantList m_catalogHistory;
+    struct CatalogCacheEntry {
+        QVariantMap page;
+        qint64 storedAtMs = 0;
+        qint64 accessedAtMs = 0;
+    };
+    QHash<QString, CatalogCacheEntry> m_catalogCache;
     bool m_catalogLoading = false;
     bool m_catalogMoreLoading = false;
     quint64 m_catalogGeneration = 0;
@@ -447,8 +463,11 @@ private:
     QList<QVariantMap> m_downloadQueue;
     QVariantMap m_activeDownloadTrack;
     QProcess m_downloadProcess;
+    QPointer<QNetworkReply> m_downloadReply;
+    QJsonObject m_activeDownloadSource;
+    qint64 m_downloadSourceBytesTotal = 0;
     QTimer m_downloadProgressTimer;
-    enum class DownloadProcessStage { Idle, Transfer, YouTubeTransfer, Finalize };
+    enum class DownloadProcessStage { Idle, Transfer, Finalize };
     DownloadProcessStage m_downloadProcessStage = DownloadProcessStage::Idle;
     QString m_activeDownloadPartPath;
     quint64 m_downloadGeneration = 0;
@@ -479,6 +498,7 @@ private:
     qint64 m_currentEntryId = -1;
     CoreBridge m_core;
     bool m_providerReady = false;
+    bool m_providerStatusResolved = false;
     bool m_linked = false;
     bool m_authPending = false;
     bool m_busy = false;

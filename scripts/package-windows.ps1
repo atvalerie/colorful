@@ -28,7 +28,7 @@ New-Item $stage -ItemType Directory -Force | Out-Null
 $runtimeFiles = @(
     'colorful.exe', 'colorful_core.dll', 'colorful-credential-helper.exe',
     'colorful-provider.exe', 'mpv-2.dll', 'vulkan-1.dll',
-    'yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe'
+    'ffmpeg.exe', 'ffprobe.exe'
 )
 foreach ($name in $runtimeFiles) {
     $source = Join-Path $buildDirectory $name

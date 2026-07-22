@@ -103,8 +103,9 @@ Item {
                     ProviderAccountCard {
                         Layout.fillWidth: true
                         providerName: "TIDAL"
+                        loading: !colorful.providerStatusResolved
                         connected: colorful.linked
-                        statusText: colorful.linked
+                        statusText: !colorful.providerStatusResolved ? "Checking saved account…" : colorful.linked
                                     ? "Connected  ·  " + (((colorful.tidalHub.account || {}).email)
                                                          || ((colorful.tidalHub.account || {}).username)
                                                          || ((colorful.tidalHub.account || {}).countryCode)
@@ -126,8 +127,9 @@ Item {
                     ProviderAccountCard {
                         Layout.fillWidth: true
                         providerName: "YouTube Music"
+                        loading: !colorful.providerStatusResolved
                         connected: colorful.youtubeLinked
-                        statusText: colorful.youtubeLinked
+                        statusText: !colorful.providerStatusResolved ? "Checking saved account…" : colorful.youtubeLinked
                                     ? "Connected  ·  " + (((colorful.youtubeHub.account || {}).channelHandle) || ((colorful.youtubeHub.account || {}).accountName) || "account ready")
                                     : "Anonymous catalog mode"
                         description: colorful.youtubeLinked
@@ -163,8 +165,9 @@ Item {
                     ProviderAccountCard {
                         Layout.fillWidth: true
                         providerName: "SoundCloud"
+                        loading: !colorful.providerStatusResolved
                         connected: colorful.soundcloudLinked
-                        statusText: colorful.soundcloudLinked
+                        statusText: !colorful.providerStatusResolved ? "Checking saved account…" : colorful.soundcloudLinked
                                     ? "Connected  ·  " + (((colorful.soundcloudHub.account || {}).username) || "account ready")
                                     : "Public catalog mode"
                         description: colorful.soundcloudLinked

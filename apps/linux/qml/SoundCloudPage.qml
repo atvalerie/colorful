@@ -75,7 +75,7 @@ Item {
                             delegate: CatalogCard {
                                 required property var modelData
                                 entry: modelData; artistMode: true
-                                onOpenRequested: colorful.openArtistItem(modelData)
+                                onOpenRequested: window.openArtistItem(modelData)
                             }
                         }
                     }
@@ -89,7 +89,7 @@ Item {
                             delegate: CatalogCard {
                                 required property var modelData
                                 entry: modelData
-                                onOpenRequested: colorful.openAlbumItem(modelData)
+                                onOpenRequested: window.openAlbumItem(modelData)
                             }
                         }
                     }
@@ -121,7 +121,7 @@ Item {
                             delegate: CatalogCard {
                                 required property var modelData
                                 entry: modelData; artistMode: true
-                                onOpenRequested: colorful.openArtistItem(modelData)
+                                onOpenRequested: window.openArtistItem(modelData)
                             }
                         }
                         ColorButton {
@@ -139,7 +139,7 @@ Item {
                             delegate: CatalogCard {
                                 required property var modelData
                                 entry: modelData
-                                onOpenRequested: colorful.openAlbumItem(modelData)
+                                onOpenRequested: window.openAlbumItem(modelData)
                             }
                         }
                         ColorButton {
@@ -158,7 +158,7 @@ Item {
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
                         onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
                         onDownloadRequested: colorful.downloadTrack(modelData)
-                        onDetailsRequested: colorful.openTrackItem(modelData)
+                        onDetailsRequested: window.openTrackItem(modelData)
                         onStartRadioRequested: colorful.startRadio(modelData)
                     }
                     footer: Item {

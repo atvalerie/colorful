@@ -8,7 +8,6 @@ linuxdeploy="${COLORFUL_LINUXDEPLOY:-$tools_dir/linuxdeploy-x86_64.AppImage}"
 qt_plugin="${COLORFUL_LINUXDEPLOY_QT:-$tools_dir/linuxdeploy-plugin-qt}"
 appimagetool="${COLORFUL_APPIMAGETOOL:-$tools_dir/appimagetool-x86_64.AppImage}"
 appimage_runtime="${COLORFUL_APPIMAGE_RUNTIME:-$tools_dir/runtime-x86_64}"
-yt_dlp="${COLORFUL_PACKAGING_YT_DLP:-$tools_dir/yt-dlp}"
 ffmpeg="${COLORFUL_PACKAGING_FFMPEG:-$tools_dir/ffmpeg/bin/ffmpeg}"
 ffprobe="${COLORFUL_PACKAGING_FFPROBE:-$tools_dir/ffmpeg/bin/ffprobe}"
 build_dir="$repo_dir/build/linux-release"
@@ -22,7 +21,7 @@ appdir="$dist_dir/$artifact.AppDir"
 mkdir -p "$build_dir" "$dist_dir" "$tools_dir"
 bun build --compile "$repo_dir/packages/provider-host/src/main.ts" --outfile "$build_dir/colorful-provider"
 
-for tool in "$linuxdeploy" "$qt_plugin" "$appimagetool" "$appimage_runtime" "$yt_dlp" "$ffmpeg" "$ffprobe"; do
+for tool in "$linuxdeploy" "$qt_plugin" "$appimagetool" "$appimage_runtime" "$ffmpeg" "$ffprobe"; do
   if [[ ! -x "$tool" ]]; then
     echo "missing packaging tool: $tool" >&2
     echo "run ./scripts/provision-linux-packaging.sh first" >&2
@@ -40,7 +39,6 @@ install -Dm755 "$appdir/usr/bin/colorful-linux" "$staged_install/colorful-linux"
 install -Dm755 "$build_dir/colorful-provider" "$appdir/usr/bin/colorful-provider"
 install -Dm755 "$ffmpeg" "$appdir/usr/bin/ffmpeg"
 install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
-install -Dm755 "$yt_dlp" "$appdir/usr/bin/yt-dlp"
 install -Dm644 "$repo_dir/LICENSE" "$appdir/usr/share/doc/colorful/LICENSE"
 install -Dm644 "$repo_dir/THIRD_PARTY_NOTICES.md" "$appdir/usr/share/doc/colorful/THIRD_PARTY_NOTICES.md"
 
@@ -91,7 +89,6 @@ export NO_STRIP=1
   --executable "$appdir/usr/bin/colorful-provider" \
   --executable "$appdir/usr/bin/ffmpeg" \
   --executable "$appdir/usr/bin/ffprobe" \
-  --executable "$appdir/usr/bin/yt-dlp" \
   --desktop-file "$appdir/usr/share/applications/sh.valerie.colorful.desktop" \
   --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/colorful.svg" \
   --plugin qt
@@ -126,7 +123,6 @@ install -Dm755 "$staged_install/colorful-linux" "$appdir/usr/bin/colorful-linux"
 install -Dm755 "$build_dir/colorful-provider" "$appdir/usr/bin/colorful-provider"
 install -Dm755 "$ffmpeg" "$appdir/usr/bin/ffmpeg"
 install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
-install -Dm755 "$yt_dlp" "$appdir/usr/bin/yt-dlp"
 install -Dm644 "$repo_dir/target/release/libcolorful_core.so" "$appdir/usr/lib/libcolorful_core.so"
 install -Dm755 "$script_dir/AppRun-linux" "$appdir/AppRun"
 

@@ -13,7 +13,7 @@ if [[ "$mode" == build ]]; then
   for package in Qt6Core Qt6Gui Qt6Quick Qt6QuickControls2 Qt6Network Qt6DBus mpv; do
     pkg-config --exists "$package" 2>/dev/null || missing "pkg-config module $package"
   done
-  for command in ffmpeg ffprobe yt-dlp secret-tool; do need_command "$command"; done
+  for command in ffmpeg ffprobe secret-tool; do need_command "$command"; done
   if ((failures)); then exit 1; fi
   qmake="$(command -v qmake6 || command -v qmake || true)"
   [[ -n "$qmake" ]] || missing "Qt 6 qmake"
@@ -58,7 +58,7 @@ for file in "${elf_files[@]}"; do
   fi
 done
 
-for binary in colorful-linux colorful-provider ffmpeg ffprobe yt-dlp; do
+for binary in colorful-linux colorful-provider ffmpeg ffprobe; do
   [[ -x "$appdir/usr/bin/$binary" ]] || missing "bundled executable $binary"
 done
 [[ -f "$appdir/usr/lib/libcolorful_core.so" ]] || missing "libcolorful_core.so"
@@ -69,11 +69,6 @@ for plugin in platforms/libqxcb.so platforms/libqoffscreen.so \
 done
 [[ -d "$appdir/usr/qml/QtQuick" ]] || missing "bundled QtQuick QML module"
 
-if ! readelf -h "$appdir/usr/bin/yt-dlp" >/dev/null 2>&1; then
-  echo "bundled yt-dlp is not a standalone ELF executable" >&2
-  failures=$((failures + 1))
-fi
-
 if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffmpeg" -version >/dev/null 2>&1; then
   echo "bundled ffmpeg failed its runtime smoke test" >&2
   failures=$((failures + 1))
@@ -82,11 +77,6 @@ if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffprobe" -version >/dev/
   echo "bundled ffprobe failed its runtime smoke test" >&2
   failures=$((failures + 1))
 fi
-if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/yt-dlp" --version >/dev/null 2>&1; then
-  echo "bundled yt-dlp failed its runtime smoke test" >&2
-  failures=$((failures + 1))
-fi
-
 leaks="$(LD_LIBRARY_PATH="$appdir/usr/lib" ldd "$appdir/usr/bin/colorful-linux" | awk '/=> \// {print $1, $3}' \
   | grep -E '^(libQt6|libmpv)' | grep -v " $appdir/" || true)"
 if [[ -n "$leaks" ]]; then

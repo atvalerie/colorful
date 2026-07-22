@@ -47,7 +47,7 @@ Item {
             delegate: PlaylistCard {
                 required property var modelData
                 entry: modelData
-                onOpenRequested: colorful.openPlaylist(modelData.id)
+                onOpenRequested: window.openPlaylist(modelData.id, "tidal")
             }
         }
         ColorButton {
@@ -189,7 +189,7 @@ Item {
                         delegate: CatalogCard {
                             required property var modelData
                             entry: modelData; artistMode: true
-                            onOpenRequested: colorful.openArtist(modelData.id)
+                            onOpenRequested: window.openArtistItem({ id: modelData.id, provider: "tidal" })
                         }
                     }
                     ColorButton {
@@ -208,7 +208,7 @@ Item {
                         delegate: CatalogCard {
                             required property var modelData
                             entry: modelData
-                            onOpenRequested: colorful.openAlbum(modelData.id)
+                            onOpenRequested: window.openAlbumItem({ id: modelData.id, provider: "tidal" })
                         }
                     }
                     ColorButton {
@@ -227,7 +227,7 @@ Item {
                     onPlayRequested: colorful.playCatalogTrack(modelData)
                     onAddRequested: colorful.enqueueCatalogTrack(modelData)
                     onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
-                    onDetailsRequested: colorful.openTrackItem(modelData)
+                    onDetailsRequested: window.openTrackItem(modelData)
                     onStartRadioRequested: colorful.startRadio(modelData)
                 }
                 footer: ColorButton {
@@ -272,7 +272,7 @@ Item {
                         delegate: PlaylistCard {
                             required property var modelData
                             entry: modelData
-                            onOpenRequested: colorful.openPlaylist(modelData.id)
+                            onOpenRequested: window.openPlaylist(modelData.id, "tidal")
                         }
                     }
                     Text { visible: (colorful.tidalHub.playlists || []).length > 0; text: "Your playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
@@ -290,7 +290,7 @@ Item {
                         Text { width: parent.width; text: modelData.numberOfItems ? modelData.numberOfItems + " tracks" : (modelData.playlistType || "TIDAL"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10 }
                     }
                     HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: colorful.openPlaylist(modelData.id) }
+                    TapHandler { onTapped: window.openPlaylist(modelData.id, "tidal") }
                 }
                 footer: ColorButton {
                     anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
@@ -314,10 +314,14 @@ Item {
         }
     }
 
-    BusyIndicator { anchors.centerIn: parent; running: colorful.tidalHubLoading; visible: running }
+    BusyIndicator {
+        anchors.centerIn: parent
+        running: !colorful.providerStatusResolved || colorful.tidalHubLoading
+        visible: running
+    }
     Column {
         anchors.centerIn: parent; spacing: 12
-        visible: !colorful.linked
+        visible: colorful.providerStatusResolved && !colorful.linked
         Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect TIDAL to load your collection and account"; color: Qt.rgba(1, 1, 1, 0.52); font.pixelSize: 13 }
         ColorButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect TIDAL"; onClicked: colorful.startLogin() }
     }

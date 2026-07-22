@@ -68,7 +68,7 @@ Item {
                             delegate: CatalogCard {
                                 required property var modelData
                                 entry: modelData; artistMode: true
-                                onOpenRequested: colorful.openArtistItem(modelData)
+                                onOpenRequested: window.openArtistItem(modelData)
                             }
                         }
                         Text { visible: (colorful.youtubeHub.albums || []).length > 0; text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
@@ -80,7 +80,7 @@ Item {
                             delegate: CatalogCard {
                                 required property var modelData
                                 entry: modelData
-                                onOpenRequested: colorful.openAlbumItem(modelData)
+                                onOpenRequested: window.openAlbumItem(modelData)
                             }
                         }
                         Text { visible: (colorful.youtubeHub.tracks || []).length > 0; text: "Library songs"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
@@ -91,7 +91,7 @@ Item {
                         onPlayRequested: colorful.playCatalogTrack(modelData)
                         onAddRequested: colorful.enqueueCatalogTrack(modelData)
                         onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
-                        onDetailsRequested: colorful.openTrackItem(modelData)
+                        onDetailsRequested: window.openTrackItem(modelData)
                         onStartRadioRequested: colorful.startRadio(modelData)
                     }
                 }
@@ -122,7 +122,7 @@ Item {
                             delegate: PlaylistCard {
                                 required property var modelData
                                 entry: modelData
-                                onOpenRequested: colorful.openPlaylist(modelData.id, "youtube")
+                                onOpenRequested: window.openPlaylist(modelData.id, "youtube")
                             }
                         }
                         Text { visible: (colorful.youtubeHub.playlists || []).length > 0; text: "Your playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
@@ -140,7 +140,7 @@ Item {
                             Text { width: parent.width; text: modelData.numberOfItems ? modelData.numberOfItems + " tracks" : "YouTube Music"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10 }
                         }
                         HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: colorful.openPlaylist(modelData.id, "youtube") }
+                        TapHandler { onTapped: window.openPlaylist(modelData.id, "youtube") }
                     }
                 }
                 Column {

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -7,6 +8,7 @@ Rectangle {
     required property string statusText
     required property string description
     property bool connected: false
+    property bool loading: false
     property string primaryText: "Connect"
     property bool primaryVisible: true
     property string secondaryText: "Disconnect"
@@ -45,18 +47,24 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     text: root.statusText
-                    color: root.connected ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42)
+                    color: !root.loading && root.connected ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42)
                     font.pixelSize: 11
                     elide: Text.ElideRight
                 }
             }
+            BusyIndicator {
+                visible: root.loading
+                running: visible
+                implicitWidth: 24
+                implicitHeight: 24
+            }
             ColorButton {
-                visible: root.primaryVisible
+                visible: root.primaryVisible && !root.loading
                 text: root.primaryText
                 onClicked: root.primaryRequested()
             }
             ColorButton {
-                visible: root.secondaryVisible
+                visible: root.secondaryVisible && !root.loading
                 text: root.secondaryText
                 quiet: true
                 onClicked: root.secondaryRequested()
@@ -71,7 +79,7 @@ Rectangle {
         }
         Row {
             Layout.fillWidth: true
-            visible: root.connected && root.details.length > 0
+            visible: !root.loading && root.connected && root.details.length > 0
             spacing: 0
             Repeater {
                 model: root.details
@@ -101,7 +109,7 @@ Rectangle {
             id: extra
             Layout.fillWidth: true
             Layout.preferredHeight: root.extraVisible ? implicitHeight : 0
-            visible: root.extraVisible
+            visible: root.extraVisible && !root.loading
             spacing: 7
         }
     }
