@@ -561,31 +561,26 @@ export class BrowseClient {
     const continuation = Object.keys(cursors).length > 0;
     const [tracksResult, albumsResult, artistsResult] = await Promise.allSettled([
       continuation && !cursors.tracks ? Promise.resolve(null) : this.get(`searchResults/${encoded}/relationships/tracks`, {
-        include: "tracks.albums,tracks.artists", collapseBy: "FINGERPRINT", "page[limit]": pageLimit,
+        include: "tracks.albums,tracks.artists,tracks.albums.coverArt", collapseBy: "FINGERPRINT", "page[limit]": pageLimit,
         ...(cursors.tracks ? { "page[cursor]": cursors.tracks } : {}),
       }),
       continuation && !cursors.albums ? Promise.resolve(null) : this.get(`searchResults/${encoded}/relationships/albums`, {
-        include: "albums", "page[limit]": pageLimit,
+        include: "albums,albums.coverArt,albums.artists", "page[limit]": pageLimit,
         ...(cursors.albums ? { "page[cursor]": cursors.albums } : {}),
       }),
       continuation && !cursors.artists ? Promise.resolve(null) : this.get(`searchResults/${encoded}/relationships/artists`, {
-        include: "artists", "page[limit]": pageLimit,
+        include: "artists,artists.profileArt", "page[limit]": pageLimit,
         ...(cursors.artists ? { "page[cursor]": cursors.artists } : {}),
       }),
     ]);
     if (tracksResult.status === "rejected" && albumsResult.status === "rejected" && artistsResult.status === "rejected") throw tracksResult.reason;
-    const [tracks, albums, artists] = await Promise.all([
-      tracksResult.status === "fulfilled" && tracksResult.value
-        ? this.hydrateMissingArtwork(mapTracks(tracksResult.value)).then(deduplicateTracks) : [],
-      albumsResult.status === "fulfilled" && albumsResult.value
-        ? this.hydrateAlbums(mapAlbums(albumsResult.value)).then(deduplicateAlbums) : [],
-      artistsResult.status === "fulfilled" && artistsResult.value
-        ? this.hydrateArtists(mapArtists(artistsResult.value)) : [],
-    ]);
     return {
-      tracks,
-      albums,
-      artists,
+      tracks: tracksResult.status === "fulfilled" && tracksResult.value
+        ? deduplicateTracks(mapTracks(tracksResult.value)) : [],
+      albums: albumsResult.status === "fulfilled" && albumsResult.value
+        ? deduplicateAlbums(mapAlbums(albumsResult.value)) : [],
+      artists: artistsResult.status === "fulfilled" && artistsResult.value
+        ? mapArtists(artistsResult.value) : [],
       cursors: {
         ...(tracksResult.status === "fulfilled" && tracksResult.value && cursorFromNextLink(tracksResult.value)
           ? { tracks: cursorFromNextLink(tracksResult.value)! } : {}),
