@@ -30,8 +30,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 ```
 
-The provisioner installs Qt, a libmpv development bundle, and the official
-Khronos/LunarG Vulkan loader under the current user profile. The build script compiles the Rust core and provider host, builds
+The provisioner installs Qt, a libmpv development bundle, the official
+Khronos/LunarG Vulkan loader, yt-dlp, and a GPL FFmpeg build under the current
+user profile. The build script compiles the Rust core and provider host, builds
 the Qt application, then deploys its runtime dependencies to
 `build\windows-qt`. Relaunch an existing build with:
 
@@ -44,6 +45,6 @@ but the standard Windows scripts now target the Qt client.
 
 The engine database and encrypted credential files live beneath the current
 user's local application-data directory. Secrets never enter SQLite.
-The launcher imports provider configuration from a sibling `mocha\.env` when
-present and then from the repository's `.env`; neither file is copied or
-printed.
+The public TIDAL clients are built in. The launcher imports optional overrides
+from a sibling `mocha\.env` and then the repository's `.env`; neither file is
+copied or printed.

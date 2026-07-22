@@ -97,6 +97,19 @@ std::optional<double> normalizationNumber(const QJsonObject &source, const QStri
     if (!value.isDouble() || !std::isfinite(value.toDouble())) return std::nullopt;
     return value.toDouble();
 }
+
+QString mediaTool(const QString &name, const char *environmentName = nullptr)
+{
+    if (environmentName) {
+        const auto configured = qEnvironmentVariable(environmentName).trimmed();
+        if (!configured.isEmpty()) return configured;
+    }
+#if defined(Q_OS_WIN)
+    const auto bundled = QCoreApplication::applicationDirPath() + QLatin1Char('/') + name + QStringLiteral(".exe");
+    if (QFileInfo::exists(bundled)) return bundled;
+#endif
+    return QStandardPaths::findExecutable(name);
+}
 }
 
 Backend::Backend(QObject *parent)
@@ -777,6 +790,10 @@ void Backend::startProviderHost()
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert(QStringLiteral("COLORFUL_SECRET_HELPER"),
                        QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-credential-helper.exe"));
+    const auto bundledYtDlp = mediaTool(QStringLiteral("yt-dlp"), "COLORFUL_YT_DLP");
+    if (!bundledYtDlp.isEmpty()) environment.insert(QStringLiteral("COLORFUL_YT_DLP"), bundledYtDlp);
+    const auto bundledFfmpeg = mediaTool(QStringLiteral("ffmpeg"), "COLORFUL_FFMPEG");
+    if (!bundledFfmpeg.isEmpty()) environment.insert(QStringLiteral("COLORFUL_FFMPEG"), bundledFfmpeg);
     m_provider.setProcessEnvironment(environment);
     m_provider.start(providerExecutable);
 #else
@@ -1415,6 +1432,12 @@ void Backend::search(const QString &query)
         const auto total = m_searchResults.size() + m_searchAlbums.size() + m_searchArtists.size();
         setStatus(total == 0 ? QStringLiteral("Nothing found")
                              : QStringLiteral("Found %1 results").arg(total));
+        QStringList warnings;
+        for (const auto &warning : data.value(QStringLiteral("warnings")).toArray()) {
+            const auto text = warning.toString().trimmed();
+            if (!text.isEmpty()) warnings.append(text);
+        }
+        if (!warnings.isEmpty()) notify(warnings.join(QLatin1Char('\n')), QStringLiteral("warning"));
         if (qEnvironmentVariableIsSet("COLORFUL_SMOKE_DETAIL") && !m_searchResults.isEmpty()) {
             openTrack(m_searchResults.first().toMap().value(QStringLiteral("id")).toString());
         }
@@ -2089,7 +2112,7 @@ qint64 Backend::downloadWorkingBytes(const QVariantMap &track) const
 
 qint64 Backend::mediaDurationMs(const QString &path) const
 {
-    const auto ffprobe = QStandardPaths::findExecutable(QStringLiteral("ffprobe"));
+    const auto ffprobe = mediaTool(QStringLiteral("ffprobe"), "COLORFUL_FFPROBE");
     if (ffprobe.isEmpty() || path.isEmpty() || !QFileInfo::exists(path)) return 0;
     QProcess probe;
     probe.setProgram(ffprobe);
@@ -2285,9 +2308,7 @@ void Backend::beginNextDownload()
 void Backend::startYouTubeDownload()
 {
     if (m_activeDownloadTrack.isEmpty()) return;
-    const auto configured = qEnvironmentVariable("COLORFUL_YT_DLP").trimmed();
-    const auto executable = configured.isEmpty()
-        ? QStandardPaths::findExecutable(QStringLiteral("yt-dlp")) : configured;
+    const auto executable = mediaTool(QStringLiteral("yt-dlp"), "COLORFUL_YT_DLP");
     if (executable.isEmpty()) {
         finishDownloadTransfer(false, QStringLiteral("yt-dlp is required for YouTube downloads"));
         return;
@@ -2343,12 +2364,12 @@ void Backend::startDownloadTransfer(const QJsonObject &source)
         finishDownloadTransfer(false, QStringLiteral("Could not create the offline music directory"));
         return;
     }
-    const auto ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    const auto ffmpeg = mediaTool(QStringLiteral("ffmpeg"), "COLORFUL_FFMPEG");
     if (ffmpeg.isEmpty()) {
         finishDownloadTransfer(false, QStringLiteral("ffmpeg is required to assemble offline audio"));
         return;
     }
-    if (QStandardPaths::findExecutable(QStringLiteral("ffprobe")).isEmpty()) {
+    if (mediaTool(QStringLiteral("ffprobe"), "COLORFUL_FFPROBE").isEmpty()) {
         finishDownloadTransfer(false, QStringLiteral("ffprobe is required for resumable offline audio"));
         return;
     }
@@ -2449,7 +2470,7 @@ void Backend::startDownloadFinalization()
         finishDownloadTransfer(false, QStringLiteral("No completed download chunks were found"));
         return;
     }
-    const auto ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    const auto ffmpeg = mediaTool(QStringLiteral("ffmpeg"), "COLORFUL_FFMPEG");
     if (ffmpeg.isEmpty()) {
         finishDownloadTransfer(false, QStringLiteral("ffmpeg is required to finalize offline audio"));
         return;

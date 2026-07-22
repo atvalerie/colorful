@@ -26,6 +26,10 @@ fun javaString(value: String): String = "\"" + value
     .replace("\"", "\\\"")
     .replace("\n", "\\n") + "\""
 val rustOutput = rootProject.layout.buildDirectory.dir("rustJniLibs")
+val defaultTidalBrowseClientId = "lw3vR6GE1vtNBsjv"
+val defaultTidalBrowseClientSecret = "Y8tIpqKJxs9BEIwYr0I9bSbMWDsogXJx9LaN3mCHwD4="
+val defaultTidalDeviceClientId = "fX2JxdmntZWK0ixT"
+val defaultTidalDeviceClientSecret = "1Nm5AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg="
 val buildRustCore by tasks.registering(Exec::class) {
     workingDir(repositoryRoot)
     environment("COLORFUL_ANDROID_OUT", rustOutput.get().asFile.absolutePath)
@@ -47,12 +51,12 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "TIDAL_BROWSE_CLIENT_ID", javaString(providerValue("TIDAL_CLIENT_ID")))
-        buildConfigField("String", "TIDAL_BROWSE_CLIENT_SECRET", javaString(providerValue("TIDAL_CLIENT_SECRET")))
-        buildConfigField("String", "TIDAL_DEVICE_CLIENT_ID", javaString(providerValue("TIDAL_DEVICE_CLIENT_ID")))
-        buildConfigField("String", "TIDAL_DEVICE_CLIENT_SECRET", javaString(providerValue("TIDAL_DEVICE_CLIENT_SECRET")))
-        buildConfigField("String", "TIDAL_REFRESH_CLIENT_ID", javaString(providerValue("TIDAL_REFRESH_CLIENT_ID", providerValue("TIDAL_CLIENT_ID"))))
-        buildConfigField("String", "TIDAL_REFRESH_CLIENT_SECRET", javaString(providerValue("TIDAL_REFRESH_CLIENT_SECRET", providerValue("TIDAL_CLIENT_SECRET"))))
+        buildConfigField("String", "TIDAL_BROWSE_CLIENT_ID", javaString(providerValue("TIDAL_CLIENT_ID", defaultTidalBrowseClientId)))
+        buildConfigField("String", "TIDAL_BROWSE_CLIENT_SECRET", javaString(providerValue("TIDAL_CLIENT_SECRET", defaultTidalBrowseClientSecret)))
+        buildConfigField("String", "TIDAL_DEVICE_CLIENT_ID", javaString(providerValue("TIDAL_DEVICE_CLIENT_ID", defaultTidalDeviceClientId)))
+        buildConfigField("String", "TIDAL_DEVICE_CLIENT_SECRET", javaString(providerValue("TIDAL_DEVICE_CLIENT_SECRET", defaultTidalDeviceClientSecret)))
+        buildConfigField("String", "TIDAL_REFRESH_CLIENT_ID", javaString(providerValue("TIDAL_REFRESH_CLIENT_ID", providerValue("TIDAL_CLIENT_ID", defaultTidalBrowseClientId))))
+        buildConfigField("String", "TIDAL_REFRESH_CLIENT_SECRET", javaString(providerValue("TIDAL_REFRESH_CLIENT_SECRET", providerValue("TIDAL_CLIENT_SECRET", defaultTidalBrowseClientSecret))))
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild {
             cmake { arguments += "-DCOLORFUL_CORE_DIR=${rustOutput.get().asFile.absolutePath}" }

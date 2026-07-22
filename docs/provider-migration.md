@@ -10,7 +10,8 @@ The existing projects were inspected as local references:
 - `../mocha/server/src/providers/tidal/*`
 - `../mocha/app/src/components/DeviceLink.tsx`
 
-No secrets or `.env` values are copied into colorful.
+No user tokens or private `.env` values are copied into colorful. The public
+TIDAL web/device application clients are included as overridable defaults.
 
 ## Reuse
 
@@ -43,8 +44,9 @@ The device flow stays, but the refresh token is written directly to Android
 Keystore, iOS Keychain, Windows Credential Locker, or Linux Secret Service. The
 database stores only a credential handle and non-secret account metadata.
 
-Any provider client identifier or secret whose redistribution is not permitted
-must be supplied locally at build/runtime and excluded from Git.
+Public first-party web/device clients may be shipped as overridable defaults.
+Any provider configuration whose redistribution is not permitted must instead
+be supplied locally at build/runtime and excluded from Git.
 
 ### Playback and downloads
 

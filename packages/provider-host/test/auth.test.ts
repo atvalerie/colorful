@@ -3,6 +3,14 @@ import { basicAuthorization, nextDevicePollDelay, normalizeVerificationUrl } fro
 import { readTidalConfig } from "../src/config";
 
 describe("TIDAL auth helpers", () => {
+  test("ships usable public desktop client defaults", () => {
+    const config = readTidalConfig({});
+    expect(config.browseClientId.length).toBeGreaterThan(0);
+    expect(config.browseClientSecret.length).toBeGreaterThan(0);
+    expect(config.deviceClientId.length).toBeGreaterThan(0);
+    expect(config.deviceClientSecret.length).toBeGreaterThan(0);
+  });
+
   test("uses HTTP Basic for the exact client pair", () => {
     expect(basicAuthorization("client", "secret")).toBe("Basic Y2xpZW50OnNlY3JldA==");
   });

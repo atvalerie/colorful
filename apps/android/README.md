@@ -33,8 +33,8 @@ Install Android Studio and the repository-pinned SDK 36, NDK
 rustup target add aarch64-linux-android x86_64-linux-android
 ```
 
-Supply your permitted TIDAL client configuration through the environment or
-the sibling `../mocha/.env`, then run from the repository root:
+The public TIDAL client configuration is built in; environment values or the
+sibling `../mocha/.env` can override it. Run from the repository root:
 
 ```bash
 ./scripts/build-android.sh

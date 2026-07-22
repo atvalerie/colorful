@@ -30,6 +30,18 @@ function publicError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs = 12_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function youtubeTracks(tracks: Awaited<ReturnType<typeof youtubeMusicAutomix>>): Array<(typeof tracks)[number] & { provider: "youtube" }> {
   return tracks.map((track) => ({ ...track, provider: "youtube" as const }));
 }
@@ -262,9 +274,9 @@ async function handle(request: RequestMessage): Promise<void> {
       const query = String(request.payload?.query ?? "").trim();
       if (!query) throw new Error("Search query is empty");
       const [tidalResult, youtubeResult, soundcloudResult] = await Promise.allSettled([
-        browse.searchCatalog(query),
-        searchYouTubeMusicCatalog(query),
-        soundCloudSearch(query),
+        withTimeout(browse.searchCatalog(query), "TIDAL search"),
+        withTimeout(searchYouTubeMusicCatalog(query), "YouTube Music search"),
+        withTimeout(soundCloudSearch(query), "SoundCloud search"),
       ]);
       if (tidalResult.status === "rejected" && youtubeResult.status === "rejected" && soundcloudResult.status === "rejected") {
         throw new Error(`Search failed: ${publicError(tidalResult.reason)}; YouTube: ${publicError(youtubeResult.reason)}; SoundCloud: ${publicError(soundcloudResult.reason)}`);

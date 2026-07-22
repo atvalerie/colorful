@@ -133,9 +133,10 @@ audio or attempt to replace Media3, libmpv, AVFoundation, or Windows media APIs.
 
 ## Provider and account requirements
 
-colorful does not bundle provider accounts or private provider configuration.
-Supply your own TIDAL account and permitted client configuration in a local
-environment file:
+colorful bundles the public TIDAL web/device client configuration required to
+reach the service. It does not bundle provider accounts, user tokens, imported
+browser sessions, or private configuration. Environment values are optional
+development overrides:
 
 ```bash
 cp .env.example .env
@@ -144,7 +145,7 @@ source .env
 set +a
 ```
 
-Never commit `.env` or post credentials. Linux stores provider secrets through
+Never commit a populated `.env` or post account credentials. Linux stores provider secrets through
 Secret Service, Windows encrypts them per user with DPAPI, and Android uses
 Android Keystore.
 
@@ -191,8 +192,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 
 The build uses libmpv's WASAPI output, supports shared and exclusive modes,
 publishes Windows system media controls, protects provider credentials with
-DPAPI, and bundles the provider host so Bun is not required at runtime. See
-[the Windows guide](apps/windows/README.md).
+DPAPI, and bundles the provider host so Bun is not required at runtime. The
+Windows bundle also includes yt-dlp plus GPL FFmpeg/ffprobe for playback
+resolution and offline downloads. See [the Windows guide](apps/windows/README.md).
 
 ## Building Android
 

@@ -75,6 +75,13 @@ $vulkanRuntime = Join-Path $env:USERPROFILE 'colorful-deps\vulkan\vulkan-1.dll'
 if (-not (Test-Path $vulkanRuntime)) {
     throw 'The Vulkan loader was not found. Run scripts\provision-windows-qt.ps1 first.'
 }
+$mediaToolsRoot = Join-Path $env:USERPROFILE 'colorful-deps\media-tools'
+$mediaTools = @('yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe')
+foreach ($tool in $mediaTools) {
+    if (-not (Test-Path (Join-Path $mediaToolsRoot $tool))) {
+        throw "$tool was not found. Run scripts\provision-windows-qt.ps1 first."
+    }
+}
 $bunCommand = Get-Command bun.exe -ErrorAction SilentlyContinue
 $bunPath = if ($bunCommand) { $bunCommand.Source } else { $null }
 if (-not $bunPath) {
@@ -135,6 +142,9 @@ try {
     }
     $deploymentOutput | Select-Object -Last 12 | Write-Host
     Copy-Item $vulkanRuntime (Join-Path $buildDirectory 'vulkan-1.dll') -Force
+    foreach ($tool in $mediaTools) {
+        Copy-Item (Join-Path $mediaToolsRoot $tool) (Join-Path $buildDirectory $tool) -Force
+    }
     Write-Host "Built $executable"
 } finally {
     Pop-Location

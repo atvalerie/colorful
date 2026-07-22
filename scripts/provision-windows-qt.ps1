@@ -15,6 +15,10 @@ $qtPlatformRoot = Join-Path $qtRoot "$QtVersion\msvc2022_64"
 $mpvRoot = Join-Path $toolsRoot 'mpv'
 $vulkanRoot = Join-Path $toolsRoot 'vulkan'
 $vulkanRuntime = Join-Path $vulkanRoot 'vulkan-1.dll'
+$mediaToolsRoot = Join-Path $toolsRoot 'media-tools'
+$ytDlp = Join-Path $mediaToolsRoot 'yt-dlp.exe'
+$ffmpeg = Join-Path $mediaToolsRoot 'ffmpeg.exe'
+$ffprobe = Join-Path $mediaToolsRoot 'ffprobe.exe'
 New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
 
 if (-not (Test-Path $python)) {
@@ -130,6 +134,37 @@ if (-not (Test-Path $vulkanRuntime)) {
     Copy-Item $loader.FullName $vulkanRuntime -Force
 }
 
+New-Item -ItemType Directory -Path $mediaToolsRoot -Force | Out-Null
+$githubHeaders = @{ 'User-Agent' = 'colorful-build' }
+if (-not (Test-Path $ytDlp)) {
+    $release = Invoke-RestMethod `
+        -Uri 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest' `
+        -Headers $githubHeaders
+    $asset = $release.assets | Where-Object { $_.name -eq 'yt-dlp.exe' } | Select-Object -First 1
+    if (-not $asset) { throw 'The latest yt-dlp release has no Windows executable.' }
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $ytDlp
+}
+if (-not (Test-Path $ffmpeg) -or -not (Test-Path $ffprobe)) {
+    $release = Invoke-RestMethod `
+        -Uri 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' `
+        -Headers $githubHeaders
+    $asset = $release.assets |
+        Where-Object { $_.name -eq 'ffmpeg-master-latest-win64-gpl.zip' } |
+        Select-Object -First 1
+    if (-not $asset) { throw 'The latest BtbN FFmpeg release has no win64 GPL archive.' }
+    $ffmpegArchive = Join-Path $env:TEMP $asset.name
+    $ffmpegExtracted = Join-Path $env:TEMP 'colorful-ffmpeg'
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $ffmpegArchive
+    if (Test-Path $ffmpegExtracted) { Remove-Item $ffmpegExtracted -Recurse -Force }
+    Expand-Archive -Path $ffmpegArchive -DestinationPath $ffmpegExtracted -Force
+    $resolvedFfmpeg = Get-ChildItem $ffmpegExtracted -Filter 'ffmpeg.exe' -Recurse | Select-Object -First 1
+    $resolvedFfprobe = Get-ChildItem $ffmpegExtracted -Filter 'ffprobe.exe' -Recurse | Select-Object -First 1
+    if (-not $resolvedFfmpeg -or -not $resolvedFfprobe) { throw 'The FFmpeg archive layout was not recognized.' }
+    Copy-Item $resolvedFfmpeg.FullName $ffmpeg -Force
+    Copy-Item $resolvedFfprobe.FullName $ffprobe -Force
+}
+
 Write-Host "QtRoot=$qtPlatformRoot"
 Write-Host "MpvRoot=$mpvRoot"
 Write-Host "VulkanRuntime=$vulkanRuntime"
+Write-Host "MediaToolsRoot=$mediaToolsRoot"

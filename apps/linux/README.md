@@ -52,9 +52,9 @@ From the repository root:
 ./scripts/run-linux.sh
 ```
 
-The launcher imports provider configuration from `../mocha/.env` when present.
-It does not copy or print those credentials; the same `TIDAL_*` values can be
-exported directly. Use the root `.env.example` as the field reference.
+The public TIDAL clients are built in. The launcher still imports optional
+provider overrides from `../mocha/.env` when present and never prints them. Use
+the root `.env.example` as the override reference.
 
 For an immediate relaunch of an already-built binary:
 
@@ -81,7 +81,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 The provisioner installs a local Qt 6.8.3 MSVC build and libmpv development
 bundle. The build output is `build\windows-qt\colorful.exe`; Qt libraries,
 libmpv, the Rust core, the DPAPI credential helper, and the compiled provider
-host are deployed beside it. Use `-NoBuild` for an immediate relaunch.
+host are deployed beside it. yt-dlp, FFmpeg, and ffprobe are bundled as well.
+Use `-NoBuild` for an immediate relaunch.
 
 Windows playback is lossless when the source and selected output support it.
 Shared WASAPI is the safe default. Exclusive WASAPI can be enabled in Playback
