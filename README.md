@@ -93,7 +93,9 @@ colorful is an early personal alpha, not a packaged consumer release.
 - Android offline downloads and YouTube Music support
 - encrypted multi-device library sync and playback handoff
 - parties over LAN, ICE/STUN, and an encrypted relay fallback
-- Windows packaging and interactive-runtime polish; iOS native shell
+- Windows interactive-runtime polish; iOS native shell
+
+The maintained, milestone-oriented backlog is in [docs/todo.md](docs/todo.md).
 
 ## Architecture
 
