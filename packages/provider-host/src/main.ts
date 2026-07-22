@@ -531,7 +531,7 @@ async function restoreAccounts(): Promise<void> {
   })()]);
 }
 
-void restoreAccounts().finally(async () => {
+async function readRequests(): Promise<void> {
   const reader = Bun.stdin.stream().pipeThrough(new TextDecoderStream()).getReader();
   let buffered = "";
   for (;;) {
@@ -554,4 +554,12 @@ void restoreAccounts().finally(async () => {
       }
     }
   }
+}
+
+// Credential discovery and remote account validation must never block the
+// provider protocol. In particular, a slow account endpoint should not delay
+// anonymous catalog search or make the native shell look frozen at startup.
+void restoreAccounts().catch((error) => {
+  send({ event: "warning", ok: false, error: `Account restoration failed: ${publicError(error)}` });
 });
+void readRequests();

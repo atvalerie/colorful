@@ -830,7 +830,7 @@ void Backend::startProviderHost()
             emit soundcloudAccountChanged();
         }
         if (!data.value(QStringLiteral("browseConfigured")).toBool()) {
-            setStatus(QStringLiteral("TIDAL browse credentials are missing. Launch with scripts/run-linux.sh."));
+            setStatus(QStringLiteral("TIDAL browse configuration is unavailable."));
         } else if (!data.value(QStringLiteral("deviceConfigured")).toBool()) {
             setStatus(QStringLiteral("TIDAL device-login credentials are missing."));
         } else {

@@ -6,12 +6,51 @@
 #endif
 
 #include <QGuiApplication>
+#include <QDir>
+#include <QFile>
 #include <QIcon>
+#include <QProcessEnvironment>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QSet>
 #include <QWindow>
 #include <clocale>
+
+namespace {
+void importEnvironmentFile(const QString &path, const QSet<QString> &inherited)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    while (!file.atEnd()) {
+        auto line = QString::fromUtf8(file.readLine()).trimmed();
+        if (line.isEmpty() || line.startsWith(u'#')) continue;
+        if (line.startsWith(QStringLiteral("export "))) line = line.sliced(7).trimmed();
+        const auto separator = line.indexOf(u'=');
+        if (separator <= 0) continue;
+        const auto name = line.left(separator).trimmed();
+        if (inherited.contains(name)) continue;
+        auto value = line.sliced(separator + 1).trimmed();
+        if (value.size() >= 2 && ((value.front() == u'\"' && value.back() == u'\"')
+                                 || (value.front() == u'\'' && value.back() == u'\'')))
+            value = value.sliced(1, value.size() - 2);
+        if (!name.isEmpty()) qputenv(name.toUtf8(), value.toUtf8());
+    }
+}
+
+void importDevelopmentEnvironment()
+{
+    const auto inheritedKeys = QProcessEnvironment::systemEnvironment().keys();
+    const QSet<QString> inherited(inheritedKeys.cbegin(), inheritedKeys.cend());
+    const QDir sourceRoot(QString::fromUtf8(COLORFUL_SOURCE_DIR));
+    // Match the convenience launchers, while preserving explicit process
+    // environment values. Packaged builds may optionally place an .env next
+    // to the executable; public provider clients do not require one.
+    importEnvironmentFile(sourceRoot.filePath(QStringLiteral("../mocha/.env")), inherited);
+    importEnvironmentFile(sourceRoot.filePath(QStringLiteral(".env")), inherited);
+    importEnvironmentFile(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral(".env")), inherited);
+}
+}
 
 int main(int argc, char *argv[])
 {
@@ -21,6 +60,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("colorful"));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/branding/colorful.svg")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+    importDevelopmentEnvironment();
     // Qt adopts the user's locale during application construction. libmpv's
     // client API requires the process-wide numeric locale to remain C so
     // option and property values always use a decimal point.
