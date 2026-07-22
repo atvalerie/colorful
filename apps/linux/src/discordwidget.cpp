@@ -1,4 +1,7 @@
 #include "discordwidget.h"
+#if defined(Q_OS_WIN)
+#include "credentialstore.h"
+#endif
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -28,6 +31,11 @@ QStringList secretAttributes(const QString &applicationId)
         QStringLiteral("service"), QStringLiteral("discord-statistics-widget"),
         QStringLiteral("discord-application"), applicationId,
     };
+}
+
+QString widgetCredentialName(const QString &applicationId)
+{
+    return QStringLiteral("discord-widget/") + applicationId;
 }
 
 QVariantMap firstMap(const QVariantMap &map, const QString &key)
@@ -231,6 +239,21 @@ void DiscordWidgetExporter::storeToken(const QString &token)
         setStatus(QStringLiteral("Enter a bot token first"));
         return;
     }
+#if defined(Q_OS_WIN)
+    QString error;
+    if (!saveCredential(widgetCredentialName(m_applicationId), trimmed, &error)) {
+        setStatus(error.isEmpty() ? QStringLiteral("Windows could not store the Discord token") : error);
+        return;
+    }
+    m_token = trimmed;
+    m_enabled = true;
+    QSettings().setValue(QStringLiteral("discordWidget/enabled"), true);
+    setStatus(m_userId.isEmpty()
+        ? QStringLiteral("Open Discord once so colorful can identify the widget owner")
+        : QStringLiteral("Discord widget is ready to publish"));
+    emit stateChanged();
+    schedulePublish(true);
+#else
     const auto executable = QStandardPaths::findExecutable(QStringLiteral("secret-tool"));
     if (executable.isEmpty()) {
         setStatus(QStringLiteral("secret-tool is required to store the Discord token"));
@@ -271,6 +294,7 @@ void DiscordWidgetExporter::storeToken(const QString &token)
     process->write(trimmed);
     process->write("\n");
     process->closeWriteChannel();
+#endif
 }
 
 void DiscordWidgetExporter::forgetToken()
@@ -282,6 +306,13 @@ void DiscordWidgetExporter::forgetToken()
     QSettings().setValue(QStringLiteral("discordWidget/enabled"), false);
     emit stateChanged();
 
+#if defined(Q_OS_WIN)
+    QString error;
+    if (deleteCredential(widgetCredentialName(m_applicationId), &error))
+        setStatus(QStringLiteral("Discord widget token removed"));
+    else
+        setStatus(error.isEmpty() ? QStringLiteral("Windows could not remove the Discord token") : error);
+#else
     const auto executable = QStandardPaths::findExecutable(QStringLiteral("secret-tool"));
     if (executable.isEmpty()) {
         setStatus(QStringLiteral("Discord token removed from colorful's memory"));
@@ -298,6 +329,7 @@ void DiscordWidgetExporter::forgetToken()
         setStatus(QStringLiteral("Discord widget token removed"));
     });
     process->start(executable, arguments);
+#endif
 }
 
 void DiscordWidgetExporter::publishNow()
@@ -307,6 +339,24 @@ void DiscordWidgetExporter::publishNow()
 
 void DiscordWidgetExporter::loadToken()
 {
+#if defined(Q_OS_WIN)
+    QString error;
+    const auto token = loadCredential(widgetCredentialName(m_applicationId), &error);
+    if (!token.isEmpty()) {
+        m_token = token;
+        setStatus(m_enabled
+            ? m_userId.isEmpty()
+                ? QStringLiteral("Open Discord once so colorful can identify the widget owner")
+                : QStringLiteral("Discord widget is ready")
+            : QStringLiteral("Discord widget updates are off"));
+        emit stateChanged();
+        schedulePublish();
+    } else if (!error.isEmpty()) {
+        setStatus(error);
+    } else {
+        setStatus(QStringLiteral("Discord widget is not configured"));
+    }
+#else
     const auto executable = QStandardPaths::findExecutable(QStringLiteral("secret-tool"));
     if (executable.isEmpty()) {
         setStatus(QStringLiteral("secret-tool is required for Discord widget updates"));
@@ -335,6 +385,7 @@ void DiscordWidgetExporter::loadToken()
         }
     });
     process->start(executable, arguments);
+#endif
 }
 
 void DiscordWidgetExporter::schedulePublish(bool manual)

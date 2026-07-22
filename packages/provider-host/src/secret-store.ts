@@ -4,13 +4,17 @@ function attributes(provider: string): string[] {
 
 async function runSecretTool(args: string[], stdin?: string): Promise<{ exitCode: number; stdout: string }> {
   try {
-    const process = Bun.spawn(["secret-tool", ...args], {
+    const helper = process.env.COLORFUL_SECRET_HELPER;
+    const command = helper
+      ? [helper, args[0] === "lookup" ? "load" : args[0] === "store" ? "save" : "delete", args.at(-1) ?? ""]
+      : ["secret-tool", ...args];
+    const child = Bun.spawn(command, {
       stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
       stdout: "pipe",
       stderr: "ignore",
       env: processEnvWithoutToken(),
     });
-    const [exitCode, stdout] = await Promise.all([process.exited, new Response(process.stdout).text()]);
+    const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
     return { exitCode, stdout };
   } catch {
     return { exitCode: 127, stdout: "" };

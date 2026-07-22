@@ -72,6 +72,9 @@ set(COLORFUL_DESKTOP_SOURCES
 if(UNIX AND NOT APPLE)
     list(APPEND COLORFUL_DESKTOP_SOURCES src/mpris.cpp src/mpris.h)
 endif()
+if(WIN32)
+    list(APPEND COLORFUL_DESKTOP_SOURCES src/credentialstore.cpp src/credentialstore.h)
+endif()
 
 if(WIN32)
     qt_add_executable(colorful-linux WIN32 ${COLORFUL_DESKTOP_SOURCES})
@@ -202,7 +205,7 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(colorful-linux PRIVATE Qt6::DBus)
 endif()
 if(WIN32)
-    target_link_libraries(colorful-linux PRIVATE Advapi32)
+    target_link_libraries(colorful-linux PRIVATE Advapi32 Crypt32)
     add_custom_command(TARGET colorful-linux POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${COLORFUL_CORE_LIBRARY}" "$<TARGET_FILE_DIR:colorful-linux>"
@@ -210,6 +213,12 @@ if(WIN32)
             "${MPV_RUNTIME}" "$<TARGET_FILE_DIR:colorful-linux>"
         VERBATIM
     )
+    qt_add_executable(colorful-credential-helper
+        src/credentialhelpermain.cpp
+        src/credentialstore.cpp
+        src/credentialstore.h
+    )
+    target_link_libraries(colorful-credential-helper PRIVATE Qt6::Core Crypt32)
 endif()
 
 install(TARGETS colorful-linux RUNTIME DESTINATION bin)

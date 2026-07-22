@@ -775,6 +775,12 @@ void Backend::startProviderHost()
         sourceRoot + QStringLiteral("/packages/provider-host/src/main.ts"));
     m_provider.setWorkingDirectory(sourceRoot);
     m_provider.setProcessChannelMode(QProcess::SeparateChannels);
+#if defined(Q_OS_WIN)
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("COLORFUL_SECRET_HELPER"),
+                       QCoreApplication::applicationDirPath() + QStringLiteral("/colorful-credential-helper.exe"));
+    m_provider.setProcessEnvironment(environment);
+#endif
     m_provider.start(bun, {host});
     if (!m_provider.waitForStarted(3000)) {
         setStatus(QStringLiteral("Could not launch provider host: %1").arg(m_provider.errorString()));
