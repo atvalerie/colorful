@@ -35,10 +35,9 @@ Secret Service; Windows adds SMTC, WASAPI, and per-user DPAPI encryption.
 - action toasts, settings/storage/account views, qualified listening history,
   and the optional owner-only Discord statistics widget.
 
-Encrypted device sync and parties are not implemented yet. Linux release
-packaging still needs a reproducible AppImage build; the desktop now supports a
-compiled `colorful-provider` beside the executable so that package will not
-depend on Bun or the source tree.
+Encrypted device sync and parties are not implemented yet. Linux packaging
+produces an AppImage and portable AppDir archive with a compiled
+`colorful-provider`, so installed users do not need Bun or the source tree.
 
 ## Requirements and launch
 
@@ -66,6 +65,33 @@ For an immediate relaunch of an already-built binary:
 ```bash
 ./scripts/run-linux.sh --no-build
 ```
+
+### Release packages
+
+Validate the development machine before building:
+
+```bash
+./scripts/check-linux-deps.sh build
+```
+
+The first package build needs the official linuxdeploy tools and standalone
+yt-dlp binary. The provisioner downloads these into the ignored `.cache`
+directory and verifies yt-dlp against its published SHA-256 list:
+
+```bash
+./scripts/provision-linux-packaging.sh
+./scripts/package-linux.sh
+```
+
+Artifacts are written to `dist/` as an AppImage and a portable `.tar.gz`
+containing the AppDir. The package contains the Qt/libmpv runtime,
+checksum-verified static FFmpeg/ffprobe, standalone yt-dlp, the Rust core, and
+the compiled provider host. Desktop Secret Service access still uses the
+distribution's `secret-tool` and session
+D-Bus services. The bundle audit can also enforce a release ceiling, for
+example `COLORFUL_MAX_GLIBC=2.35 ./scripts/package-linux.sh` on an Ubuntu 22.04
+builder. A package made on a newer host remains suitable for local testing but
+will generally not run on distributions with older glibc.
 
 Set `COLORFUL_YT_DLP` to select a different `yt-dlp` executable, or
 `COLORFUL_DISABLE_DISCORD_RPC=1` to disable local Rich Presence IPC.

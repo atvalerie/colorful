@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>sh.valerie.colorful</id>
+  <name>colorful</name>
+  <summary>A local-first, album-colored music player</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>
+      colorful is a personal cross-provider music player with offline storage,
+      a persistent queue, lyrics, equalization, and desktop media controls.
+    </p>
+  </description>
+  <launchable type="desktop-id">sh.valerie.colorful.desktop</launchable>
+  <provides>
+    <binary>colorful-linux</binary>
+  </provides>
+  <developer id="sh.valerie">
+    <name>colorful contributors</name>
+  </developer>
+  <url type="homepage">https://github.com/atvalerie/colorful</url>
+  <content_rating type="oars-1.1"/>
+</component>

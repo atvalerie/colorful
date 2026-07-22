@@ -179,6 +179,23 @@ changes, use `./scripts/run-linux.sh --no-build`.
 See [the Linux client guide](apps/linux/README.md) for the manual test flow,
 MPRIS checks, and troubleshooting.
 
+Check the host toolchain and create distributable Linux artifacts with:
+
+```bash
+./scripts/check-linux-deps.sh build
+./scripts/provision-linux-packaging.sh # first package build only
+./scripts/package-linux.sh
+```
+
+The package command builds a Release AppDir, compiles the provider sidecar,
+bundles Qt, libmpv, checksum-verified static FFmpeg/ffprobe, and a
+checksum-verified standalone yt-dlp, then writes an AppImage and portable
+AppDir archive beneath `dist/`. It also
+runs an ELF dependency audit and reports the newest required glibc symbol.
+Public release artifacts should be built on the oldest Linux base the project
+intends to support; packaging on a newer distribution cannot make its glibc
+requirements older.
+
 ## Building Windows
 
 The active Windows client is the same Qt/QML desktop shell. Install Visual

@@ -1,5 +1,6 @@
 /target/
 /build/
+/.cache/
 /apps/android/.gradle/
 /apps/android/.idea/
 /apps/android/build/

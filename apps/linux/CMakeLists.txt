@@ -93,7 +93,12 @@ if(WIN32)
     set(COLORFUL_CORE_IMPORT_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/colorful_core.dll.lib"
         CACHE FILEPATH "Path to the colorful-core MSVC import library")
 else()
-    set(COLORFUL_CORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/libcolorful_core.so"
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        set(_COLORFUL_CORE_PROFILE release)
+    else()
+        set(_COLORFUL_CORE_PROFILE debug)
+    endif()
+    set(COLORFUL_CORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/${_COLORFUL_CORE_PROFILE}/libcolorful_core.so"
         CACHE FILEPATH "Path to the colorful-core shared library")
 endif()
 add_library(colorful-core SHARED IMPORTED GLOBAL)
@@ -231,7 +236,14 @@ if(WIN32)
     install(FILES "${COLORFUL_CORE_LIBRARY}" "${MPV_RUNTIME}" DESTINATION bin)
 else()
     install(FILES "${COLORFUL_CORE_LIBRARY}" DESTINATION lib)
-    install(FILES applications/colorful.desktop DESTINATION share/applications)
+    install(FILES applications/colorful.desktop
+        DESTINATION share/applications
+        RENAME sh.valerie.colorful.desktop
+    )
+    install(FILES applications/colorful.metainfo.xml
+        DESTINATION share/metainfo
+        RENAME sh.valerie.colorful.appdata.xml
+    )
     install(FILES ../../assets/branding/colorful.svg
         DESTINATION share/icons/hicolor/scalable/apps
         RENAME colorful.svg
