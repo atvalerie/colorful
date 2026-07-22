@@ -6,7 +6,9 @@ param(
     [string]$MpvRoot = $env:COLORFUL_MPV_ROOT
 )
 
-$ErrorActionPreference = 'Stop'
+# WinRM promotes native stderr (Cargo/CMake progress included) to the
+# PowerShell error stream. Every native command below is checked by exit code.
+$ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
