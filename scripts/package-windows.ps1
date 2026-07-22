@@ -57,7 +57,14 @@ if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCOD
 
 $zip = Join-Path $distRoot "$artifactName-portable.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+$tar = Get-Command tar.exe -ErrorAction Stop
+Push-Location $stage
+try {
+    & $tar.Source -a -c -f $zip '.'
+    if ($LASTEXITCODE -ne 0) { throw "tar.exe failed with exit code $LASTEXITCODE" }
+} finally {
+    Pop-Location
+}
 Write-Host "Portable archive: $zip"
 
 if ($Installer) {
