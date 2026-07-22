@@ -24,24 +24,29 @@ type SoundCloudTranscoding = {
   format?: { protocol?: unknown; mime_type?: unknown };
 };
 
-export function selectSoundCloudTranscoding(transcodings: SoundCloudTranscoding[]): SoundCloudTranscoding | null {
-  const score = (transcoding: SoundCloudTranscoding) => {
-    const protocol = string(transcoding.format?.protocol);
-    const mime = string(transcoding.format?.mime_type);
-    const preset = string(transcoding.preset);
-    const quality = string(transcoding.quality);
-    // Protocol is not a quality signal. SoundCloud's current preferred stream
-    // is AAC 160 HLS; progressive MP3 is a legacy 128 kbps fallback.
-    if (preset.includes("aac_160")) return 600;
-    if (preset === "abr_sq") return 550;
-    if (preset.includes("aac_96")) return 500;
-    return (quality === "sq" ? 200 : quality === "lq" ? 100 : 0)
-      + (mime.includes("mp4a") || mime.includes("audio/mp4") ? 60
-        : mime.includes("mpeg") ? 40 : mime.includes("opus") ? 30 : 0)
-      + (protocol === "hls" ? 10 : 0);
-  };
+function transcodingScore(transcoding: SoundCloudTranscoding): number {
+  const protocol = string(transcoding.format?.protocol);
+  const mime = string(transcoding.format?.mime_type);
+  const preset = string(transcoding.preset);
+  const quality = string(transcoding.quality);
+  // Protocol is not a quality signal. SoundCloud's current preferred stream
+  // is AAC 160 HLS; progressive MP3 is a legacy 128 kbps fallback.
+  if (preset.includes("aac_160")) return 600;
+  if (preset === "abr_sq") return 550;
+  if (preset.includes("aac_96")) return 500;
+  return (quality === "sq" ? 200 : quality === "lq" ? 100 : 0)
+    + (mime.includes("mp4a") || mime.includes("audio/mp4") ? 60
+      : mime.includes("mpeg") ? 40 : mime.includes("opus") ? 30 : 0)
+    + (protocol === "hls" ? 10 : 0);
+}
+
+function rankedSoundCloudTranscodings(transcodings: SoundCloudTranscoding[]): SoundCloudTranscoding[] {
   return transcodings.filter((value) => string(value.url))
-    .sort((left, right) => score(right) - score(left))[0] ?? null;
+    .sort((left, right) => transcodingScore(right) - transcodingScore(left));
+}
+
+export function selectSoundCloudTranscoding(transcodings: SoundCloudTranscoding[]): SoundCloudTranscoding | null {
+  return rankedSoundCloudTranscodings(transcodings)[0] ?? null;
 }
 
 type SoundCloudTrack = {
@@ -576,18 +581,40 @@ export async function soundCloudSource(id: string, preferOriginal = false): Prom
     }
   }
   const transcodings = array(track.media?.transcodings).filter((value): value is SoundCloudTranscoding => Boolean(value) && typeof value === "object");
-  const selected = selectSoundCloudTranscoding(transcodings);
-  if (!selected) throw new Error("SoundCloud did not expose a playable transcoding");
-  const resolved = await api<{ url?: unknown }>(string(selected.url), {
-    track_authorization: string(track.track_authorization),
-  });
-  const uri = string(resolved.url);
-  if (!uri) throw new Error("SoundCloud returned an empty playback URL");
-  return {
-    uri,
-    referrer: `${WEB_ORIGIN}/`,
-    webpageUrl: string(track.permalink_url) || `${WEB_ORIGIN}/`,
-    sourceKind: "transcoding",
-    preset: string(selected.preset),
-  };
+  const candidates = rankedSoundCloudTranscodings(transcodings);
+  if (!candidates.length) throw new Error("SoundCloud did not expose a playable transcoding");
+  let lastError: unknown = null;
+  for (const [candidateIndex, selected] of candidates.entries()) {
+    // The preferred AAC edge occasionally yields an HTML error document at a
+    // signed HLS URL. Resolve it afresh before falling back to another format.
+    const attempts = candidateIndex === 0 ? 3 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const resolved = await api<{ url?: unknown }>(string(selected.url), {
+          track_authorization: string(track.track_authorization),
+        });
+        const uri = string(resolved.url);
+        if (!uri) throw new Error("SoundCloud returned an empty playback URL");
+        if (string(selected.format?.protocol) === "hls") {
+          const manifest = await fetch(uri, {
+            cache: "no-store",
+            headers: { accept: "application/vnd.apple.mpegurl, application/x-mpegURL, */*", referer: `${WEB_ORIGIN}/` },
+          });
+          const body = manifest.ok ? await manifest.text() : "";
+          if (!manifest.ok || !body.trimStart().startsWith("#EXTM3U"))
+            throw new Error(`SoundCloud returned an invalid HLS manifest${manifest.ok ? "" : ` (HTTP ${manifest.status})`}`);
+        }
+        return {
+          uri,
+          referrer: `${WEB_ORIGIN}/`,
+          webpageUrl: string(track.permalink_url) || `${WEB_ORIGIN}/`,
+          sourceKind: "transcoding",
+          preset: string(selected.preset),
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("SoundCloud could not resolve a playable stream");
 }
