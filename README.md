@@ -186,7 +186,7 @@ and libmpv and launch from PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\run-windows-qt.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 ```
 
 The build uses libmpv's WASAPI output, supports shared and exclusive modes,

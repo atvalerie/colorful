@@ -75,7 +75,7 @@ and Git. From PowerShell at the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\run-windows-qt.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 ```
 
 The provisioner installs a local Qt 6.8.3 MSVC build and libmpv development

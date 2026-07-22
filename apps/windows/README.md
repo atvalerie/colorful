@@ -27,7 +27,7 @@ From PowerShell at the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\run-windows-qt.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 ```
 
 The provisioner installs Qt and a libmpv development bundle under the current
@@ -36,12 +36,11 @@ the Qt application, then deploys its runtime dependencies to
 `build\windows-qt`. Relaunch an existing build with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run-windows-qt.ps1 -NoBuild
+powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1 -NoBuild
 ```
 
-The old C#/WinUI prototype remains in this directory as an archived experiment;
-`build-windows.ps1` and `run-windows.ps1` target that prototype and are not the
-current client.
+The old C#/WinUI prototype remains in this directory as an archived experiment,
+but the standard Windows scripts now target the Qt client.
 
 The engine database and encrypted credential files live beneath the current
 user's local application-data directory. Secrets never enter SQLite.
