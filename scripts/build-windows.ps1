@@ -7,8 +7,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$arguments = @('-Configuration', $Configuration)
-if ($QtRoot) { $arguments += @('-QtRoot', $QtRoot) }
-if ($MpvRoot) { $arguments += @('-MpvRoot', $MpvRoot) }
+$arguments = @{ Configuration = $Configuration }
+if ($QtRoot) { $arguments.QtRoot = $QtRoot }
+if ($MpvRoot) { $arguments.MpvRoot = $MpvRoot }
 & (Join-Path $PSScriptRoot 'build-windows-qt.ps1') @arguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

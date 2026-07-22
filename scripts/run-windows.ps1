@@ -6,6 +6,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$arguments = @('-Configuration', $Configuration)
-if ($NoBuild) { $arguments += '-NoBuild' }
+$arguments = @{ Configuration = $Configuration }
+if ($NoBuild) { $arguments.NoBuild = $true }
 & (Join-Path $PSScriptRoot 'run-windows-qt.ps1') @arguments
