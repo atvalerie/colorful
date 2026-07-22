@@ -41,4 +41,14 @@ $executable = Join-Path $repoRoot 'build\windows-qt\colorful.exe'
 if (-not (Test-Path $executable)) {
     throw "The Qt Windows executable was not found at $executable"
 }
+$buildDirectory = Split-Path -Parent $executable
+$stagedProvider = Join-Path $buildDirectory 'colorful-provider.next.exe'
+$provider = Join-Path $buildDirectory 'colorful-provider.exe'
+if (Test-Path $stagedProvider) {
+    try {
+        Move-Item $stagedProvider $provider -Force
+    } catch {
+        throw 'A colorful process is still using the old provider. Close colorful, then launch it again.'
+    }
+}
 Start-Process -FilePath $executable -WorkingDirectory (Split-Path -Parent $executable)
