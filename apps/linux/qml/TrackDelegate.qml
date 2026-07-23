@@ -46,6 +46,7 @@ ItemDelegate {
     property string removeActionText: ""
     property int queueIndex: -1
     property int queueCount: 0
+    property var contextMenuObject: null
     signal playRequested()
     signal addRequested()
     signal removeRequested()
@@ -67,66 +68,72 @@ ItemDelegate {
 
     TapHandler {
         acceptedButtons: Qt.RightButton
-        onTapped: contextMenu.popup()
+        onTapped: {
+            if (!contextMenuObject)
+                contextMenuObject = contextMenuComponent.createObject(root)
+            if (contextMenuObject) contextMenuObject.popup()
+        }
     }
 
-    Menu {
-        id: contextMenu
-        implicitWidth: 176
-        padding: 4
-        margins: 0
+    Component {
+        id: contextMenuComponent
+        Menu {
+                implicitWidth: 176
+                padding: 4
+                margins: 0
 
-        background: Rectangle {
-            color: "#0d0d0f"
-            border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.2)
-        }
+                background: Rectangle {
+                    color: "#0d0d0f"
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.2)
+                }
 
-        CompactMenuItem { text: "Play"; onTriggered: root.playRequested() }
-        CompactMenuItem {
-            visible: !root.queueMode
-            text: "Play next"
-            onTriggered: root.playNextRequested()
+                CompactMenuItem { text: "Play"; onTriggered: root.playRequested() }
+                CompactMenuItem {
+                    visible: !root.queueMode
+                    text: "Play next"
+                    onTriggered: root.playNextRequested()
+                }
+                CompactMenuItem { text: "Start radio"; onTriggered: root.startRadioRequested() }
+                CompactSeparator {}
+                CompactMenuItem {
+                    text: root.queueMode ? (root.removeActionText || "Remove from queue") : "Add to queue"
+                    onTriggered: root.queueMode ? root.removeRequested() : root.addRequested()
+                }
+                CompactMenuItem {
+                    visible: root.queueMode
+                    enabled: root.queueIndex > 0
+                    text: "Move up"
+                    onTriggered: root.moveUpRequested()
+                }
+                CompactMenuItem {
+                    visible: root.queueMode
+                    enabled: root.queueIndex + 1 < root.queueCount
+                    text: "Move down"
+                    onTriggered: root.moveDownRequested()
+                }
+                CompactMenuItem {
+                    visible: root.libraryMode
+                    text: root.removeActionText || "Remove from library"
+                    onTriggered: root.removeRequested()
+                }
+                CompactMenuItem {
+                    visible: root.showSaveAction
+                    text: "Save to library"
+                    onTriggered: root.saveRequested()
+                }
+                CompactMenuItem {
+                    text: "Add to playlist…"
+                    onTriggered: colorful.showPlaylistPicker(root.track)
+                }
+                CompactMenuItem {
+                    visible: root.showDownloadAction
+                    text: "Download"
+                    onTriggered: root.downloadRequested()
+                }
+                CompactSeparator {}
+                CompactMenuItem { text: "Open details"; onTriggered: root.detailsRequested() }
         }
-        CompactMenuItem { text: "Start radio"; onTriggered: root.startRadioRequested() }
-        CompactSeparator {}
-        CompactMenuItem {
-            text: root.queueMode ? (root.removeActionText || "Remove from queue") : "Add to queue"
-            onTriggered: root.queueMode ? root.removeRequested() : root.addRequested()
-        }
-        CompactMenuItem {
-            visible: root.queueMode
-            enabled: root.queueIndex > 0
-            text: "Move up"
-            onTriggered: root.moveUpRequested()
-        }
-        CompactMenuItem {
-            visible: root.queueMode
-            enabled: root.queueIndex + 1 < root.queueCount
-            text: "Move down"
-            onTriggered: root.moveDownRequested()
-        }
-        CompactMenuItem {
-            visible: root.libraryMode
-            text: root.removeActionText || "Remove from library"
-            onTriggered: root.removeRequested()
-        }
-        CompactMenuItem {
-            visible: root.showSaveAction
-            text: "Save to library"
-            onTriggered: root.saveRequested()
-        }
-        CompactMenuItem {
-            text: "Add to playlist…"
-            onTriggered: colorful.showPlaylistPicker(root.track)
-        }
-        CompactMenuItem {
-            visible: root.showDownloadAction
-            text: "Download"
-            onTriggered: root.downloadRequested()
-        }
-        CompactSeparator {}
-        CompactMenuItem { text: "Open details"; onTriggered: root.detailsRequested() }
     }
 
     Drag.active: queueDrag.active

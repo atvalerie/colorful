@@ -15,20 +15,13 @@ Item {
         anchors.fill: parent
         spacing: 16
 
-        RowLayout {
+        ProviderHeader {
             Layout.fillWidth: true
-            Text { text: "YouTube Music"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-            Text {
-                text: ((colorful.youtubeHub.account || {}).channelHandle)
-                      || ((colorful.youtubeHub.account || {}).accountName) || ""
-                visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10
-            }
-            Item { Layout.fillWidth: true }
-            ColorButton {
-                text: "Refresh"; quiet: true
-                enabled: colorful.youtubeLinked && !colorful.youtubeHubLoading
-                onClicked: colorful.loadYouTubeHub(true)
-            }
+            title: "YouTube Music"
+            accountText: ((colorful.youtubeHub.account || {}).channelHandle)
+                         || ((colorful.youtubeHub.account || {}).accountName) || ""
+            refreshEnabled: colorful.youtubeLinked && !colorful.youtubeHubLoading
+            onRefreshRequested: colorful.loadYouTubeHub(true)
         }
 
         Row {
@@ -55,33 +48,52 @@ Item {
                     id: tracks
                     anchors.fill: parent; model: colorful.youtubeHub.tracks || []
                     clip: true; pixelAligned: true; boundsBehavior: Flickable.StopAtBounds
+                    cacheBuffer: 400; reuseItems: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     header: Column {
                         width: tracks.width; spacing: 14
                         visible: !root.collectionEmpty; height: visible ? implicitHeight : 0
-                        Text { visible: (colorful.youtubeHub.artists || []).length > 0; text: "Library artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                        ListView {
+                        RowLayout { width: parent.width; visible: (colorful.youtubeHub.artists || []).length > 0
+                            Text { text: "Library artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Item {
                             width: parent.width; height: visible ? 190 : 0
                             visible: (colorful.youtubeHub.artists || []).length > 0
-                            orientation: ListView.Horizontal; model: colorful.youtubeHub.artists || []
-                            spacing: 8; clip: true; pixelAligned: true
-                            delegate: CatalogCard {
-                                required property var modelData
-                                entry: modelData; artistMode: true
-                                onOpenRequested: window.openArtistItem(modelData)
+                            ListView {
+                                id: youtubeArtistsShelf
+                                anchors.fill: parent
+                                orientation: ListView.Horizontal; model: colorful.youtubeHub.artists || []
+                                spacing: 8; clip: true; pixelAligned: true
+                                cacheBuffer: width; reuseItems: true
+                                delegate: CatalogCard {
+                                    required property var modelData
+                                    entry: modelData; artistMode: true
+                                    onOpenRequested: window.openArtistItem(modelData)
+                                }
                             }
+                            ShelfScrollButtons { view: youtubeArtistsShelf }
                         }
-                        Text { visible: (colorful.youtubeHub.albums || []).length > 0; text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                        ListView {
+                        RowLayout { width: parent.width; visible: (colorful.youtubeHub.albums || []).length > 0
+                            Text { text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Item {
                             width: parent.width; height: visible ? 206 : 0
                             visible: (colorful.youtubeHub.albums || []).length > 0
-                            orientation: ListView.Horizontal; model: colorful.youtubeHub.albums || []
-                            spacing: 8; clip: true; pixelAligned: true
-                            delegate: CatalogCard {
-                                required property var modelData
-                                entry: modelData
-                                onOpenRequested: window.openAlbumItem(modelData)
+                            ListView {
+                                id: youtubeAlbumsShelf
+                                anchors.fill: parent
+                                orientation: ListView.Horizontal; model: colorful.youtubeHub.albums || []
+                                spacing: 8; clip: true; pixelAligned: true
+                                cacheBuffer: width; reuseItems: true
+                                delegate: CatalogCard {
+                                    required property var modelData
+                                    entry: modelData
+                                    onOpenRequested: window.openAlbumItem(modelData)
+                                }
                             }
+                            ShelfScrollButtons { view: youtubeAlbumsShelf }
                         }
                         Text { visible: (colorful.youtubeHub.tracks || []).length > 0; text: "Library songs"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
                     }
@@ -109,21 +121,31 @@ Item {
                     id: playlists
                     anchors.fill: parent; model: colorful.youtubeHub.playlists || []
                     clip: true; spacing: 8; pixelAligned: true; boundsBehavior: Flickable.StopAtBounds
+                    cacheBuffer: 300; reuseItems: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     header: Column {
                         width: playlists.width; spacing: 12
                         visible: !root.playlistsEmpty; height: visible ? implicitHeight : 0
-                        Text { visible: (colorful.youtubeHub.mixes || []).length > 0; text: "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                        ListView {
+                        RowLayout { width: parent.width; visible: (colorful.youtubeHub.mixes || []).length > 0
+                            Text { text: "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Item {
                             width: parent.width; height: visible ? 204 : 0
                             visible: (colorful.youtubeHub.mixes || []).length > 0
-                            orientation: ListView.Horizontal; model: colorful.youtubeHub.mixes || []
-                            spacing: 8; clip: true; pixelAligned: true
-                            delegate: PlaylistCard {
-                                required property var modelData
-                                entry: modelData
-                                onOpenRequested: window.openPlaylist(modelData.id, "youtube")
+                            ListView {
+                                id: youtubeMixesShelf
+                                anchors.fill: parent
+                                orientation: ListView.Horizontal; model: colorful.youtubeHub.mixes || []
+                                spacing: 8; clip: true; pixelAligned: true
+                                cacheBuffer: width; reuseItems: true
+                                delegate: PlaylistCard {
+                                    required property var modelData
+                                    entry: modelData
+                                    onOpenRequested: window.openPlaylist(modelData.id, "youtube")
+                                }
                             }
+                            ShelfScrollButtons { view: youtubeMixesShelf }
                         }
                         Text { visible: (colorful.youtubeHub.playlists || []).length > 0; text: "Your playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
                     }

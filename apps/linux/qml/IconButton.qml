@@ -4,6 +4,7 @@ import QtQuick.Controls
 Button {
     id: control
     property url iconSource
+    property url darkIconSource
     property bool selected: false
     property bool strong: false
     property string tooltipText: ""
@@ -16,7 +17,9 @@ Button {
         anchors.centerIn: parent
         width: control.strong ? 20 : 18
         height: width
-        iconSource: control.iconSource
+        iconSource: control.strong && control.darkIconSource.toString().length > 0
+                    && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56
+                    ? control.darkIconSource : control.iconSource
         opacity: control.enabled ? (control.hovered || control.selected || control.strong ? 1 : 0.58) : 0.25
     }
 

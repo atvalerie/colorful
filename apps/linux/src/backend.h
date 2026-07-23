@@ -87,6 +87,7 @@ class Backend final : public QObject
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
     Q_PROPERTY(bool soundcloudOriginalDownloads READ soundcloudOriginalDownloads WRITE setSoundcloudOriginalDownloads NOTIFY downloadPreferencesChanged)
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
+    Q_PROPERTY(bool onboardingCompleted READ onboardingCompleted WRITE setOnboardingCompleted NOTIFY onboardingCompletedChanged)
     Q_PROPERTY(QVariantList equalizerBands READ equalizerBands NOTIFY audioProcessingChanged)
     Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
@@ -169,6 +170,7 @@ public:
     QString streamQuality() const { return m_streamQuality; }
     bool soundcloudOriginalDownloads() const { return m_soundcloudOriginalDownloads; }
     bool normalizationEnabled() const { return m_normalizationEnabled; }
+    bool onboardingCompleted() const { return m_onboardingCompleted; }
     QVariantList equalizerBands() const { return m_equalizerBands; }
     QString equalizerPreset() const { return m_equalizerPreset; }
     QVariantMap listenStats() const { return m_listenStats; }
@@ -273,6 +275,7 @@ public:
     Q_INVOKABLE void setStreamQuality(const QString &quality);
     Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
+    Q_INVOKABLE void setOnboardingCompleted(bool completed);
     Q_INVOKABLE void setEqualizerBand(int index, double gainDb);
     Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
     Q_INVOKABLE void setAccentMode(const QString &mode);
@@ -327,6 +330,7 @@ signals:
     void streamQualityChanged();
     void downloadPreferencesChanged();
     void audioProcessingChanged();
+    void onboardingCompletedChanged();
     void listenStatsChanged();
     void discordWidgetChanged();
     void toastRequested(const QString &message, const QString &kind);
@@ -521,6 +525,7 @@ private:
     bool m_shuffleEnabled = false;
     QString m_playbackError;
     bool m_normalizationEnabled = false;
+    bool m_onboardingCompleted = false;
     QVariantList m_equalizerBands;
     QString m_equalizerPreset = QStringLiteral("Flat");
     bool m_relatedPending = false;

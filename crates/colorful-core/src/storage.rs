@@ -1,5 +1,7 @@
 use crate::download::{DownloadJob, DownloadState};
-use crate::history::{ListenEvent, ListenStats, TopAlbum, TopArtist, TopTrack};
+use crate::history::{
+    ListenEvent, ListenStats, ProviderListenStats, TopAlbum, TopArtist, TopTrack,
+};
 use crate::media::{ArtistCredit, Artwork, MediaId, Provider, Track};
 use crate::playback::RepeatMode;
 use crate::playlist::LocalPlaylist;
@@ -411,6 +413,35 @@ impl Storage {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
 
+        let provider_stats = {
+            let mut statement = self.connection.prepare(
+                "SELECT provider, SUM(listened_ms), COUNT(*)
+                 FROM listen_events WHERE ended_at_ms >= ?1
+                 GROUP BY provider
+                 ORDER BY SUM(listened_ms) DESC, COUNT(*) DESC, provider",
+            )?;
+            statement
+                .query_map([since], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })?
+                .map(|row| {
+                    let (provider, listened_ms, plays) = row?;
+                    Ok(ProviderListenStats {
+                        provider: Provider::from_wire_name(&provider)
+                            .ok_or_else(|| StorageError::InvalidProvider(provider.clone()))?,
+                        listened_ms: listened_ms
+                            .try_into()
+                            .map_err(|_| StorageError::InvalidMediaId)?,
+                        play_count: plays.try_into().map_err(|_| StorageError::InvalidMediaId)?,
+                    })
+                })
+                .collect::<StorageResult<Vec<_>>>()?
+        };
+
         let track_rows = {
             let mut statement = self.connection.prepare(
                 "SELECT provider, provider_id, SUM(listened_ms), COUNT(*)
@@ -564,6 +595,7 @@ impl Storage {
             play_count: play_count
                 .try_into()
                 .map_err(|_| StorageError::InvalidMediaId)?,
+            provider_stats,
             top_tracks,
             top_artists,
             top_albums,
@@ -1158,6 +1190,10 @@ mod tests {
         let stats = storage.listen_stats(None, 5).unwrap();
         assert_eq!(stats.total_listened_ms, 140_000);
         assert_eq!(stats.play_count, 2);
+        assert_eq!(stats.provider_stats.len(), 1);
+        assert_eq!(stats.provider_stats[0].provider, Provider::Tidal);
+        assert_eq!(stats.provider_stats[0].listened_ms, 140_000);
+        assert_eq!(stats.provider_stats[0].play_count, 2);
         assert_eq!(stats.top_tracks[0].track.id, first.id);
         assert_eq!(stats.top_tracks[0].listened_ms, 100_000);
         assert_eq!(stats.top_artists[0].name, "Someone");
@@ -1167,6 +1203,30 @@ mod tests {
         assert_eq!(stats.top_albums[0].listened_ms, 140_000);
         assert_eq!(stats.top_albums[0].play_count, 2);
         assert_eq!(stats.top_albums[0].artists[0].name, "Someone");
+    }
+
+    #[test]
+    fn listening_history_ranks_provider_usage_by_listened_time() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        let tidal = track("tidal-track");
+        let mut youtube = track("youtube-track");
+        youtube.id = MediaId::new(Provider::YouTube, "youtube-track").unwrap();
+        youtube.artists[0].id = MediaId::new(Provider::YouTube, "youtube-artist");
+        youtube.album_id = MediaId::new(Provider::YouTube, "youtube-album");
+
+        storage
+            .record_listen(&tidal, &listen_event(&tidal, "tidal-event", 30_000))
+            .unwrap();
+        storage
+            .record_listen(&youtube, &listen_event(&youtube, "youtube-event", 90_000))
+            .unwrap();
+
+        let stats = storage.listen_stats(None, 5).unwrap();
+        assert_eq!(stats.provider_stats.len(), 2);
+        assert_eq!(stats.provider_stats[0].provider, Provider::YouTube);
+        assert_eq!(stats.provider_stats[0].listened_ms, 90_000);
+        assert_eq!(stats.provider_stats[1].provider, Provider::Tidal);
+        assert_eq!(stats.provider_stats[1].listened_ms, 30_000);
     }
 
     #[test]

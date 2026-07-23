@@ -130,6 +130,9 @@ qt_add_qml_module(colorful-linux
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/HomePage.qml
+        qml/ShelfScrollButtons.qml
+        qml/ProviderHeader.qml
         qml/AppIcon.qml
         qml/ColorButton.qml
         qml/IconButton.qml
@@ -149,6 +152,7 @@ qt_add_qml_module(colorful-linux
         qml/AccountCard.qml
         qml/ProviderAccountCard.qml
         qml/SettingsPage.qml
+        qml/OnboardingPage.qml
         qml/MetadataLink.qml
         qml/ArtworkImage.qml
     RESOURCES

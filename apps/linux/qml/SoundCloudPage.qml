@@ -14,21 +14,14 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 14
+        spacing: 16
 
-        RowLayout {
+        ProviderHeader {
             Layout.fillWidth: true
-            Text { text: "SoundCloud"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-            Text {
-                text: (root.hub.account || {}).username || ""
-                visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10
-            }
-            Item { Layout.fillWidth: true }
-            ColorButton {
-                text: "Refresh"; quiet: true
-                enabled: colorful.soundcloudLinked && !colorful.soundcloudHubLoading
-                onClicked: colorful.loadSoundCloudHub(true)
-            }
+            title: "SoundCloud"
+            accountText: (root.hub.account || {}).username || ""
+            refreshEnabled: colorful.soundcloudLinked && !colorful.soundcloudHubLoading
+            onRefreshRequested: colorful.loadSoundCloudHub(true)
         }
 
         Row {
@@ -63,34 +56,56 @@ Item {
                     anchors.fill: parent; model: root.hub.homeSections || []
                     spacing: 14; clip: true; pixelAligned: true
                     boundsBehavior: Flickable.StopAtBounds
+                    cacheBuffer: 400; reuseItems: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     header: Column {
                         width: homeList.width; spacing: 8
                         visible: (root.hub.suggestedArtists || []).length > 0
                         height: visible ? 246 : 0
-                        Text { text: "Who to follow"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                        ListView {
-                            width: parent.width; height: 212; orientation: ListView.Horizontal
-                            model: root.hub.suggestedArtists || []; spacing: 8; clip: true; pixelAligned: true
-                            delegate: CatalogCard {
-                                required property var modelData
-                                entry: modelData; artistMode: true
-                                onOpenRequested: window.openArtistItem(modelData)
+                        RowLayout { width: parent.width
+                            Text { text: "Who to follow"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Item {
+                            width: parent.width; height: 212
+                            ListView {
+                                id: suggestedArtistsShelf
+                                anchors.fill: parent
+                                orientation: ListView.Horizontal
+                                model: root.hub.suggestedArtists || []; spacing: 8; clip: true; pixelAligned: true
+                                cacheBuffer: width; reuseItems: true
+                                delegate: CatalogCard {
+                                    required property var modelData
+                                    entry: modelData; artistMode: true
+                                    onOpenRequested: window.openArtistItem(modelData)
+                                }
                             }
+                            ShelfScrollButtons { view: suggestedArtistsShelf }
                         }
                     }
                     delegate: Column {
+                        id: soundcloudShelf
                         required property var modelData
                         width: homeList.width; height: 252; spacing: 8
-                        Text { text: modelData.title || "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                        ListView {
-                            width: parent.width; height: 212; orientation: ListView.Horizontal
-                            model: modelData.items || []; spacing: 8; clip: true; pixelAligned: true
-                            delegate: CatalogCard {
-                                required property var modelData
-                                entry: modelData
-                                onOpenRequested: window.openAlbumItem(modelData)
+                        RowLayout { width: parent.width
+                            Text { text: soundcloudShelf.modelData.title || "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Item {
+                            width: parent.width; height: 212
+                            ListView {
+                                id: soundcloudSectionList
+                                anchors.fill: parent
+                                orientation: ListView.Horizontal
+                                model: soundcloudShelf.modelData.items || []; spacing: 8; clip: true; pixelAligned: true
+                                cacheBuffer: width; reuseItems: true
+                                delegate: CatalogCard {
+                                    required property var modelData
+                                    entry: modelData
+                                    onOpenRequested: window.openAlbumItem(modelData)
+                                }
                             }
+                            ShelfScrollButtons { view: soundcloudSectionList }
                         }
                     }
                     footer: Item { width: homeList.width; height: 36 }
@@ -108,21 +123,31 @@ Item {
                     id: tracks
                     anchors.fill: parent; model: root.hub.tracks || []
                     clip: true; pixelAligned: true; boundsBehavior: Flickable.StopAtBounds
+                    cacheBuffer: 400; reuseItems: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     header: Column {
                         width: tracks.width; spacing: 12
                         visible: !root.libraryEmpty; height: visible ? implicitHeight + 10 : 0
-                        Text { visible: (root.hub.artists || []).length > 0; text: "Following"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                        ListView {
+                        RowLayout { width: parent.width; visible: (root.hub.artists || []).length > 0
+                            Text { text: "Following"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Item {
                             width: parent.width; height: visible ? 212 : 0
                             visible: (root.hub.artists || []).length > 0
-                            orientation: ListView.Horizontal; model: root.hub.artists || []
-                            spacing: 8; clip: true; pixelAligned: true
-                            delegate: CatalogCard {
-                                required property var modelData
-                                entry: modelData; artistMode: true
-                                onOpenRequested: window.openArtistItem(modelData)
+                            ListView {
+                                id: soundcloudArtistsShelf
+                                anchors.fill: parent
+                                orientation: ListView.Horizontal; model: root.hub.artists || []
+                                spacing: 8; clip: true; pixelAligned: true
+                                cacheBuffer: width; reuseItems: true
+                                delegate: CatalogCard {
+                                    required property var modelData
+                                    entry: modelData; artistMode: true
+                                    onOpenRequested: window.openArtistItem(modelData)
+                                }
                             }
+                            ShelfScrollButtons { view: soundcloudArtistsShelf }
                         }
                         ColorButton {
                             visible: Boolean((root.hub.cursors || {}).artists)
@@ -130,17 +155,26 @@ Item {
                             quiet: true; enabled: !colorful.soundcloudMoreLoading
                             onClicked: colorful.loadMoreSoundCloud("artists")
                         }
-                        Text { visible: (root.hub.albums || []).length > 0; text: "Sets & playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                        ListView {
+                        RowLayout { width: parent.width; visible: (root.hub.albums || []).length > 0
+                            Text { text: "Sets & playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Item {
                             width: parent.width; height: visible ? 220 : 0
                             visible: (root.hub.albums || []).length > 0
-                            orientation: ListView.Horizontal; model: root.hub.albums || []
-                            spacing: 8; clip: true; pixelAligned: true
-                            delegate: CatalogCard {
-                                required property var modelData
-                                entry: modelData
-                                onOpenRequested: window.openAlbumItem(modelData)
+                            ListView {
+                                id: soundcloudAlbumsShelf
+                                anchors.fill: parent
+                                orientation: ListView.Horizontal; model: root.hub.albums || []
+                                spacing: 8; clip: true; pixelAligned: true
+                                cacheBuffer: width; reuseItems: true
+                                delegate: CatalogCard {
+                                    required property var modelData
+                                    entry: modelData
+                                    onOpenRequested: window.openAlbumItem(modelData)
+                                }
                             }
+                            ShelfScrollButtons { view: soundcloudAlbumsShelf }
                         }
                         ColorButton {
                             visible: Boolean((root.hub.cursors || {}).albums)

@@ -117,6 +117,8 @@ Rectangle {
             clip: true
             spacing: root.synced ? 10 : 4
             boundsBehavior: Flickable.StopAtBounds
+            cacheBuffer: 400
+            reuseItems: true
             pixelAligned: true
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             onCountChanged: if (count > 0) Qt.callLater(function() { root.centerActiveLine(false) })

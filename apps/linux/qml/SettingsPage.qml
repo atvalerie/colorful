@@ -704,6 +704,11 @@ Item {
                     Image { source: "qrc:/assets/branding/colorful.svg"; Layout.preferredWidth: 70; Layout.preferredHeight: 70; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true }
                     Text { text: "colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 26 }
                     Text { text: "A local-first personal music client."; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: 13 }
+                    ColorButton {
+                        text: "Run setup again"
+                        quiet: true
+                        onClicked: colorful.onboardingCompleted = false
+                    }
                     AccountCard {
                         Layout.fillWidth: true
                         title: "Build"

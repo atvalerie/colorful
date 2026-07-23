@@ -120,6 +120,8 @@ Item {
             clip: true
             pixelAligned: true
             boundsBehavior: Flickable.StopAtBounds
+            cacheBuffer: 400
+            reuseItems: true
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Rectangle {

@@ -21,6 +21,7 @@ Item {
     }
 
     component MixShelf: Column {
+        id: mixShelf
         required property string shelfTitle
         required property var entries
         required property string cursorSection
@@ -29,26 +30,32 @@ Item {
         visible: entries.length > 0
         spacing: 9
 
-        Text {
-            text: parent.shelfTitle
-            color: "#f5f5f5"
-            font.bold: true
-            font.pixelSize: 17
+        RowLayout {
+            width: parent.width
+            Text { text: mixShelf.shelfTitle; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+            Item { Layout.fillWidth: true }
         }
-        ListView {
+        Item {
             width: parent.width
             height: 204
-            orientation: ListView.Horizontal
-            model: parent.entries
-            spacing: 8
-            clip: true
-            pixelAligned: true
-            boundsBehavior: Flickable.StopAtBounds
-            delegate: PlaylistCard {
-                required property var modelData
-                entry: modelData
-                onOpenRequested: window.openPlaylist(modelData.id, "tidal")
+            ListView {
+                id: mixShelfList
+                anchors.fill: parent
+                orientation: ListView.Horizontal
+                model: mixShelf.entries
+                spacing: 8
+                clip: true
+                pixelAligned: true
+                boundsBehavior: Flickable.StopAtBounds
+                cacheBuffer: width
+                reuseItems: true
+                delegate: PlaylistCard {
+                    required property var modelData
+                    entry: modelData
+                    onOpenRequested: window.openPlaylist(modelData.id, "tidal")
+                }
             }
+            ShelfScrollButtons { view: mixShelfList }
         }
         ColorButton {
             visible: Boolean((colorful.tidalHub.cursors || {})[parent.cursorSection])
@@ -63,29 +70,12 @@ Item {
         anchors.fill: parent
         spacing: 16
 
-        RowLayout {
+        ProviderHeader {
             Layout.fillWidth: true
-            spacing: 8
-            Text {
-                text: "TIDAL"
-                color: "#f5f5f5"
-                font.bold: true
-                font.pixelSize: 24
-            }
-            Text {
-                text: root.accountValue("countryCode", "")
-                visible: text.length > 0
-                color: Qt.rgba(1, 1, 1, 0.42)
-                font.pixelSize: 10
-                font.letterSpacing: 1.2
-            }
-            Item { Layout.fillWidth: true }
-            ColorButton {
-                text: "Refresh"
-                quiet: true
-                enabled: colorful.linked && !colorful.tidalHubLoading
-                onClicked: colorful.loadTidalHub(true)
-            }
+            title: "TIDAL"
+            accountText: root.accountValue("countryCode", "")
+            refreshEnabled: colorful.linked && !colorful.tidalHubLoading
+            onRefreshRequested: colorful.loadTidalHub(true)
         }
 
         Row {
@@ -173,24 +163,35 @@ Item {
                     spacing: 0
                     pixelAligned: true
                     boundsBehavior: Flickable.StopAtBounds
+                    cacheBuffer: 400
+                    reuseItems: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     header: Column {
                     width: collectionTracks.width
                     spacing: 14
                     visible: !root.collectionEmpty
                     height: visible ? implicitHeight : 0
-                    Text { visible: (colorful.tidalHub.artists || []).length > 0; text: "Saved artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                    ListView {
+                    RowLayout { width: parent.width; visible: (colorful.tidalHub.artists || []).length > 0
+                        Text { text: "Saved artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                        Item { Layout.fillWidth: true }
+                    }
+                    Item {
                         width: parent.width; height: visible ? 190 : 0
                         visible: (colorful.tidalHub.artists || []).length > 0
-                        orientation: ListView.Horizontal
-                        model: colorful.tidalHub.artists || []
-                        spacing: 8; clip: true; pixelAligned: true
-                        delegate: CatalogCard {
-                            required property var modelData
-                            entry: modelData; artistMode: true
-                            onOpenRequested: window.openArtistItem({ id: modelData.id, provider: "tidal" })
+                        ListView {
+                            id: tidalArtistsShelf
+                            anchors.fill: parent
+                            orientation: ListView.Horizontal
+                            model: colorful.tidalHub.artists || []
+                            spacing: 8; clip: true; pixelAligned: true
+                            cacheBuffer: width; reuseItems: true
+                            delegate: CatalogCard {
+                                required property var modelData
+                                entry: modelData; artistMode: true
+                                onOpenRequested: window.openArtistItem({ id: modelData.id, provider: "tidal" })
+                            }
                         }
+                        ShelfScrollButtons { view: tidalArtistsShelf }
                     }
                     ColorButton {
                         visible: Boolean((colorful.tidalHub.cursors || {}).artists)
@@ -198,18 +199,27 @@ Item {
                         quiet: true; enabled: !colorful.tidalMoreLoading
                         onClicked: colorful.loadMoreTidal("artists")
                     }
-                    Text { visible: (colorful.tidalHub.albums || []).length > 0; text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                    ListView {
+                    RowLayout { width: parent.width; visible: (colorful.tidalHub.albums || []).length > 0
+                        Text { text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                        Item { Layout.fillWidth: true }
+                    }
+                    Item {
                         width: parent.width; height: visible ? 206 : 0
                         visible: (colorful.tidalHub.albums || []).length > 0
-                        orientation: ListView.Horizontal
-                        model: colorful.tidalHub.albums || []
-                        spacing: 8; clip: true; pixelAligned: true
-                        delegate: CatalogCard {
-                            required property var modelData
-                            entry: modelData
-                            onOpenRequested: window.openAlbumItem({ id: modelData.id, provider: "tidal" })
+                        ListView {
+                            id: tidalAlbumsShelf
+                            anchors.fill: parent
+                            orientation: ListView.Horizontal
+                            model: colorful.tidalHub.albums || []
+                            spacing: 8; clip: true; pixelAligned: true
+                            cacheBuffer: width; reuseItems: true
+                            delegate: CatalogCard {
+                                required property var modelData
+                                entry: modelData
+                                onOpenRequested: window.openAlbumItem({ id: modelData.id, provider: "tidal" })
+                            }
                         }
+                        ShelfScrollButtons { view: tidalAlbumsShelf }
                     }
                     ColorButton {
                         visible: Boolean((colorful.tidalHub.cursors || {}).albums)
@@ -256,6 +266,7 @@ Item {
                     model: colorful.tidalHub.playlists || []
                     clip: true; spacing: 8; pixelAligned: true
                     boundsBehavior: Flickable.StopAtBounds
+                    cacheBuffer: 300; reuseItems: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     header: Column {
                     width: playlistList.width
@@ -269,6 +280,7 @@ Item {
                         orientation: ListView.Horizontal
                         model: colorful.tidalHub.mixes || []
                         spacing: 8; clip: true; pixelAligned: true
+                        cacheBuffer: width; reuseItems: true
                         delegate: PlaylistCard {
                             required property var modelData
                             entry: modelData

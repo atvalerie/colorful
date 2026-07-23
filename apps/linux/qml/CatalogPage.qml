@@ -8,10 +8,12 @@ Item {
     property bool loading: false
 
     readonly property string kind: page.kind || ""
-    readonly property string pageIdentity: kind + ":" + (page.resourceId || "")
+    readonly property string pageIdentity: (page.provider || "tidal") + ":" + kind + ":" + (page.resourceId || "")
     property string lastScrolledPageIdentity: ""
     property real paginationAnchorY: 0
     property string paginationAnchorIdentity: ""
+    property string pendingScrollIdentity: ""
+    property real pendingScrollY: 0
     readonly property bool moreLoading: colorful.catalogMoreLoading
     readonly property var primary: kind === "track" ? (page.track || {})
                                            : kind === "album" ? (page.album || {})
@@ -21,14 +23,36 @@ Item {
                                          : (kind === "album" || kind === "playlist") ? (page.tracks || [])
                                                             : (page.topTracks || [])
 
+    function scrollPosition() {
+        return Math.max(0, catalogList.contentY - catalogList.originY)
+    }
+
+    function restoreNext(identity, position) {
+        pendingScrollIdentity = identity
+        pendingScrollY = Math.max(0, position || 0)
+    }
+
     onPageIdentityChanged: {
-        if (!page.resourceId || pageIdentity === lastScrolledPageIdentity) return
+        if (!page.resourceId) {
+            lastScrolledPageIdentity = ""
+            return
+        }
+        if (pageIdentity === lastScrolledPageIdentity) return
         lastScrolledPageIdentity = pageIdentity
-        catalogScroll.contentY = 0
+        const restore = pendingScrollIdentity === pageIdentity
+        const targetY = restore ? pendingScrollY : 0
+        pendingScrollIdentity = ""
+        pendingScrollY = 0
+        Qt.callLater(function() {
+            if (root.pageIdentity !== root.lastScrolledPageIdentity) return
+            catalogList.contentY = Math.max(catalogList.originY,
+                Math.min(catalogList.originY + targetY,
+                         Math.max(catalogList.originY, catalogList.contentHeight - catalogList.height)))
+        })
     }
     onMoreLoadingChanged: {
         if (moreLoading) {
-            paginationAnchorY = catalogScroll.contentY
+            paginationAnchorY = catalogList.contentY
             paginationAnchorIdentity = pageIdentity
             return
         }
@@ -36,8 +60,8 @@ Item {
         const restoreIdentity = paginationAnchorIdentity
         Qt.callLater(function() {
             if (root.pageIdentity !== restoreIdentity) return
-            catalogScroll.contentY = Math.max(catalogScroll.originY,
-                Math.min(restoreY, catalogScroll.contentHeight - catalogScroll.height))
+            catalogList.contentY = Math.max(catalogList.originY,
+                Math.min(restoreY, catalogList.contentHeight - catalogList.height))
         })
     }
 
@@ -49,19 +73,20 @@ Item {
         return Math.floor(minutes / 60) + " hr " + (minutes % 60) + " min"
     }
 
-    Flickable {
-        id: catalogScroll
-        pixelAligned: true
+    ListView {
+        id: catalogList
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: body.implicitHeight + 40
+        model: root.tracks
         clip: true
+        spacing: 0
+        pixelAligned: true
         boundsBehavior: Flickable.StopAtBounds
+        cacheBuffer: Math.max(height, 800)
+        reuseItems: true
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-        ColumnLayout {
-            id: body
-            width: parent.width
+        header: ColumnLayout {
+            width: catalogList.width
             spacing: 22
 
             RowLayout {
@@ -104,7 +129,7 @@ Item {
                     ArtworkImage {
                         anchors.fill: parent
                         source: root.kind === "artist" ? (root.primary.pictureUrl || "") : (root.primary.coverUrl || "")
-                        decodeSize: 768
+                        decodeSize: 512
                     }
                     AppIcon {
                         anchors.centerIn: parent
@@ -242,36 +267,37 @@ Item {
                 font.bold: true
                 font.pixelSize: 18
             }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
-                Repeater {
-                    model: root.tracks
-                    delegate: TrackDelegate {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        track: modelData
-                        showSaveAction: true
-                        showDownloadAction: ["tidal", "youtube", "soundcloud"].includes(modelData.provider || "tidal")
-                        onPlayRequested: colorful.playCatalogTrack(modelData)
-                        onAddRequested: colorful.enqueueCatalogTrack(modelData)
-                        onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
-                        onSaveRequested: colorful.saveCatalogTrack(modelData)
-                        onDownloadRequested: colorful.downloadTrack(modelData)
-                        onDetailsRequested: window.openTrackItem(modelData)
-                        onStartRadioRequested: colorful.startRadio(modelData)
-                    }
-                }
-            }
+        }
+
+        delegate: TrackDelegate {
+            required property var modelData
+            width: ListView.view.width
+            track: modelData
+            showSaveAction: true
+            showDownloadAction: ["tidal", "youtube", "soundcloud"].includes(modelData.provider || "tidal")
+            onPlayRequested: colorful.playCatalogTrack(modelData)
+            onAddRequested: colorful.enqueueCatalogTrack(modelData)
+            onPlayNextRequested: colorful.playNextCatalogTrack(modelData)
+            onSaveRequested: colorful.saveCatalogTrack(modelData)
+            onDownloadRequested: colorful.downloadTrack(modelData)
+            onDetailsRequested: window.openTrackItem(modelData)
+            onStartRadioRequested: colorful.startRadio(modelData)
+        }
+
+        footer: ColumnLayout {
+            width: catalogList.width
+            height: implicitHeight
+            spacing: 14
+
             ColorButton {
                 Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 8
                 visible: Boolean(root.page.trackCursor)
                 quiet: true
                 text: colorful.catalogMoreLoading ? "Loading…" : "Show more tracks"
                 enabled: !colorful.catalogMoreLoading
                 onClicked: colorful.loadMoreCatalog("tracks")
             }
-
             Text {
                 visible: root.kind === "artist" && (root.page.albums || []).length > 0
                 text: "Releases"
@@ -279,18 +305,22 @@ Item {
                 font.bold: true
                 font.pixelSize: 18
             }
-            Flow {
+            ListView {
                 Layout.fillWidth: true
-                Layout.preferredHeight: childrenRect.height
+                Layout.preferredHeight: visible ? 212 : 0
+                visible: root.kind === "artist" && (root.page.albums || []).length > 0
+                orientation: ListView.Horizontal
+                model: root.page.albums || []
                 spacing: 10
-                visible: root.kind === "artist"
-                Repeater {
-                    model: root.page.albums || []
-                    delegate: CatalogCard {
-                        required property var modelData
-                        entry: modelData
-                        onOpenRequested: window.openAlbumItem(modelData)
-                    }
+                clip: true
+                pixelAligned: true
+                boundsBehavior: Flickable.StopAtBounds
+                cacheBuffer: width
+                reuseItems: true
+                delegate: CatalogCard {
+                    required property var modelData
+                    entry: modelData
+                    onOpenRequested: window.openAlbumItem(modelData)
                 }
             }
             ColorButton {
@@ -301,6 +331,7 @@ Item {
                 enabled: !colorful.catalogMoreLoading
                 onClicked: colorful.loadMoreCatalog("albums")
             }
+            Item { Layout.preferredHeight: 24 }
         }
     }
 

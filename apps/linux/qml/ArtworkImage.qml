@@ -12,8 +12,6 @@ Item {
         asynchronous: true
         cache: true
         smooth: true
-        mipmap: true
-        antialiasing: true
         sourceSize.width: root.decodeSize
         sourceSize.height: root.decodeSize
     }

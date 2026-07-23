@@ -17,27 +17,31 @@ ApplicationWindow {
     readonly property color mutedInk: Qt.rgba(1, 1, 1, 0.5)
     readonly property var now: colorful.currentTrack
     property bool queueOpen: false
+    property real queueWidth: 380
     property bool lyricsOpen: false
     property string submittedQuery: ""
     property string searchProvider: "all"
-    property string currentSection: "search"
+    property string currentSection: "home"
     property var navigationBackStack: []
     property var navigationForwardStack: []
+    property int sectionNavigationGeneration: 0
+    property bool sectionNavigationPending: false
+    readonly property bool onboardingVisible: !colorful.onboardingCompleted
     readonly property bool canNavigateBack: navigationBackStack.length > 0
     readonly property bool canNavigateForward: navigationForwardStack.length > 0
-    readonly property var visibleSearchTracks: searchProvider === "all" ? colorful.searchResults
-        : colorful.searchResults.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
-    readonly property var visibleSearchAlbums: searchProvider === "all" ? colorful.searchAlbums
-        : colorful.searchAlbums.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
-    readonly property var visibleSearchArtists: searchProvider === "all" ? colorful.searchArtists
-        : colorful.searchArtists.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
+    readonly property var visibleSearchTracks: prioritizedSearch(colorful.searchResults)
+    readonly property var visibleSearchAlbums: prioritizedSearch(colorful.searchAlbums)
+    readonly property var visibleSearchArtists: prioritizedSearch(colorful.searchArtists)
     readonly property var searchMoreProviders: ["tidal", "youtube", "soundcloud"].filter(function(provider) {
         if (searchProvider !== "all" && searchProvider !== provider) return false
         const cursor = colorful.searchCursors[provider]
         if (typeof cursor === "string") return cursor.length > 0
         return cursor && Object.keys(cursor).length > 0
     })
-    onCurrentSectionChanged: Qt.callLater(function() { resultsList.positionViewAtBeginning() })
+    onCurrentSectionChanged: {
+        if (currentSection === "search")
+            Qt.callLater(function() { resultsList.positionViewAtBeginning() })
+    }
 
     Connections {
         target: colorful
@@ -54,6 +58,31 @@ ApplicationWindow {
         if (!milliseconds || milliseconds < 0) return "0:00"
         const seconds = Math.floor(milliseconds / 1000)
         return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0")
+    }
+
+    function searchProviderRank(provider) {
+        const resolved = provider || "tidal"
+        const stats = colorful.listenStats.providerStats || []
+        for (let index = 0; index < stats.length; ++index) {
+            if (stats[index].provider === resolved) return index
+        }
+        const fallback = ["tidal", "youtube", "soundcloud", "local"]
+        const fallbackIndex = fallback.indexOf(resolved)
+        return stats.length + (fallbackIndex >= 0 ? fallbackIndex : fallback.length)
+    }
+
+    function prioritizedSearch(entries) {
+        const values = entries || []
+        if (searchProvider !== "all")
+            return values.filter(function(entry) { return (entry.provider || "tidal") === searchProvider })
+        return values.map(function(entry, index) {
+            return { entry: entry, originalIndex: index }
+        }).sort(function(left, right) {
+            const providerDifference = searchProviderRank(left.entry.provider)
+                                     - searchProviderRank(right.entry.provider)
+            return providerDifference !== 0 ? providerDifference
+                                            : left.originalIndex - right.originalIndex
+        }).map(function(value) { return value.entry })
     }
 
     // Keep the backend/MPRIS contract as linear output amplitude while giving
@@ -78,17 +107,17 @@ ApplicationWindow {
         colorful.setVolume(volumePositionToOutput(next))
     }
 
-    Shortcut { sequence: "Space"; enabled: !window.textEntryFocused(); onActivated: colorful.togglePlay() }
-    Shortcut { sequence: "M"; enabled: !window.textEntryFocused(); onActivated: colorful.muted = !colorful.muted }
-    Shortcut { sequence: "Left"; enabled: !window.textEntryFocused(); onActivated: colorful.seekBy(-5000) }
-    Shortcut { sequence: "Right"; enabled: !window.textEntryFocused(); onActivated: colorful.seekBy(5000) }
-    Shortcut { sequence: "Ctrl+Left"; enabled: !window.textEntryFocused(); onActivated: colorful.previous() }
-    Shortcut { sequence: "Ctrl+Right"; enabled: !window.textEntryFocused(); onActivated: colorful.next() }
-    Shortcut { sequence: "Alt+Left"; onActivated: window.navigateBack() }
-    Shortcut { sequence: "Alt+Right"; onActivated: window.navigateForward() }
+    Shortcut { sequence: "Space"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.togglePlay() }
+    Shortcut { sequence: "M"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.muted = !colorful.muted }
+    Shortcut { sequence: "Left"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.seekBy(-5000) }
+    Shortcut { sequence: "Right"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.seekBy(5000) }
+    Shortcut { sequence: "Ctrl+Left"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.previous() }
+    Shortcut { sequence: "Ctrl+Right"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.next() }
+    Shortcut { sequence: "Alt+Left"; enabled: !window.onboardingVisible; onActivated: window.navigateBack() }
+    Shortcut { sequence: "Alt+Right"; enabled: !window.onboardingVisible; onActivated: window.navigateForward() }
     Shortcut { sequence: "Escape"; enabled: colorful.authPending; onActivated: colorful.cancelLogin() }
-    Shortcut { sequence: "Up"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(0.04) }
-    Shortcut { sequence: "Down"; enabled: !window.textEntryFocused(); onActivated: window.adjustVolume(-0.04) }
+    Shortcut { sequence: "Up"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: window.adjustVolume(0.04) }
+    Shortcut { sequence: "Down"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: window.adjustVolume(-0.04) }
 
     function runSearch() {
         const query = searchField.text.trim()
@@ -109,7 +138,7 @@ ApplicationWindow {
     }
 
     function isCatalogSection(section) {
-        return ["search", "library", "tidal", "youtube", "soundcloud"].includes(section)
+        return ["home", "search", "library", "tidal", "youtube", "soundcloud"].includes(section)
     }
 
     function sectionForProvider(provider) {
@@ -124,12 +153,13 @@ ApplicationWindow {
             state.catalogKind = page.kind
             state.catalogId = page.resourceId
             state.catalogProvider = page.provider || "tidal"
+            state.catalogScrollY = catalogPage.scrollPosition()
         }
         return state
     }
 
     function navigationKey(state) {
-        return [state.section || "search", state.settingsTab === undefined ? "" : state.settingsTab,
+        return [state.section || "home", state.settingsTab === undefined ? "" : state.settingsTab,
                 state.catalogKind || "", state.catalogProvider || "",
                 state.catalogId || ""].join("|")
     }
@@ -145,21 +175,32 @@ ApplicationWindow {
     }
 
     function activateSection(section) {
-        currentSection = section || "search"
+        currentSection = section || "home"
         if (currentSection === "youtube") colorful.loadYouTubeHub(false)
         else if (currentSection === "soundcloud") colorful.loadSoundCloudHub(false)
         else if (currentSection === "tidal") colorful.loadTidalHub(false)
     }
 
     function navigateToSection(section) {
-        const target = { section: section || "search" }
+        const target = { section: section || "home" }
         if (navigationKey(navigationState()) === navigationKey(target)) return
         pushCurrentNavigation()
-        colorful.closeCatalog()
+        const generation = ++sectionNavigationGeneration
+        sectionNavigationPending = true
         activateSection(target.section)
+        // Let the target section become visible before destroying a potentially
+        // large catalog model. This keeps navigation responsive even when the
+        // old page contains hundreds of tracks.
+        Qt.callLater(function() {
+            if (generation !== sectionNavigationGeneration) return
+            colorful.closeCatalog()
+            sectionNavigationPending = false
+        })
     }
 
     function beginCatalogNavigation(provider) {
+        ++sectionNavigationGeneration
+        sectionNavigationPending = false
         pushCurrentNavigation()
         if (!isCatalogSection(currentSection)) activateSection(sectionForProvider(provider || "tidal"))
     }
@@ -200,6 +241,8 @@ ApplicationWindow {
 
     function requestCatalogState(state) {
         const item = { id: state.catalogId, provider: state.catalogProvider || "tidal" }
+        catalogPage.restoreNext([item.provider, state.catalogKind, item.id].join(":"),
+                                state.catalogScrollY || 0)
         if (state.catalogKind === "track") colorful.openTrackItem(item)
         else if (state.catalogKind === "album") colorful.openAlbumItem(item)
         else if (state.catalogKind === "artist") colorful.openArtistItem(item)
@@ -207,37 +250,53 @@ ApplicationWindow {
     }
 
     function restoreNavigation(state) {
-        colorful.closeCatalog()
-        activateSection(state.section || "search")
+        ++sectionNavigationGeneration
+        sectionNavigationPending = false
+        activateSection(state.section || "home")
         if (state.section === "settings" && state.settingsTab !== undefined)
             settingsPage.tab = state.settingsTab
         if (state.catalogKind && state.catalogId) requestCatalogState(state)
+        else colorful.closeCatalog()
     }
 
     function navigateBack() {
+        if (onboardingVisible) return
         if (!canNavigateBack) return
         const current = navigationState()
-        const target = navigationBackStack[navigationBackStack.length - 1]
-        navigationBackStack = navigationBackStack.slice(0, -1)
+        const currentKey = navigationKey(current)
+        const remaining = navigationBackStack.slice()
+        let target = null
+        while (remaining.length > 0) {
+            const candidate = remaining.pop()
+            if (navigationKey(candidate) !== currentKey) {
+                target = candidate
+                break
+            }
+        }
+        navigationBackStack = remaining
+        if (!target) return
         navigationForwardStack = navigationForwardStack.concat([current]).slice(-100)
         restoreNavigation(target)
     }
 
     function navigateForward() {
+        if (onboardingVisible) return
         if (!canNavigateForward) return
         const current = navigationState()
-        const target = navigationForwardStack[navigationForwardStack.length - 1]
-        navigationForwardStack = navigationForwardStack.slice(0, -1)
+        const currentKey = navigationKey(current)
+        const remaining = navigationForwardStack.slice()
+        let target = null
+        while (remaining.length > 0) {
+            const candidate = remaining.pop()
+            if (navigationKey(candidate) !== currentKey) {
+                target = candidate
+                break
+            }
+        }
+        navigationForwardStack = remaining
+        if (!target) return
         navigationBackStack = navigationBackStack.concat([current]).slice(-100)
         restoreNavigation(target)
-    }
-
-    TapHandler {
-        acceptedButtons: Qt.BackButton | Qt.ForwardButton
-        onTapped: function(eventPoint, button) {
-            if (button === Qt.BackButton) window.navigateBack()
-            else if (button === Qt.ForwardButton) window.navigateForward()
-        }
     }
 
     Rectangle {
@@ -252,6 +311,13 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 100
         z: 997
+    }
+
+    OnboardingPage {
+        anchors.fill: parent
+        visible: window.onboardingVisible
+        z: 999
+        onOpenAccountsRequested: window.openSettings(0)
     }
 
     Rectangle {
@@ -410,9 +476,9 @@ ApplicationWindow {
                         IconButton {
                             anchors.fill: parent
                             iconSource: "icons/home.svg"
-                            selected: window.currentSection === "search"
-                            tooltipText: "Search"
-                            onClicked: window.navigateToSection("search")
+                            selected: window.currentSection === "home"
+                            tooltipText: "Home"
+                            onClicked: window.navigateToSection("home")
                         }
                     }
 
@@ -556,35 +622,48 @@ ApplicationWindow {
                         spacing: 14
 
                         CatalogPage {
+                            id: catalogPage
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            visible: (window.currentSection === "search" || window.currentSection === "library"
+                            visible: (window.currentSection === "home" || window.currentSection === "search" || window.currentSection === "library"
                                       || window.currentSection === "tidal" || window.currentSection === "youtube"
                                       || window.currentSection === "soundcloud")
+                                     && !window.sectionNavigationPending
                                      && (colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0)
                             page: colorful.catalogPage
                             loading: colorful.catalogLoading
+                        }
+
+                        HomePage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: window.currentSection === "home"
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                         }
 
                         TidalPage {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "tidal"
-                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                         }
 
                         YouTubePage {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "youtube"
-                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                         }
 
                         SoundCloudPage {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "soundcloud"
-                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                         }
 
                         SettingsPage {
@@ -604,12 +683,14 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "library"
-                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                         }
 
                         RowLayout {
                             visible: window.currentSection === "search"
-                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                             Layout.fillWidth: true
                             spacing: 10
 
@@ -651,11 +732,14 @@ ApplicationWindow {
                             Layout.fillHeight: true
                             model: window.visibleSearchTracks
                             visible: window.currentSection === "search"
-                                     && !colorful.catalogLoading && !(colorful.catalogPage.kind || "")
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                             spacing: 0
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
                             pixelAligned: true
+                            cacheBuffer: 400
+                            reuseItems: true
                             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                             delegate: TrackDelegate {
@@ -680,50 +764,62 @@ ApplicationWindow {
                                          && (window.visibleSearchAlbums.length > 0 || window.visibleSearchArtists.length > 0)
                                 height: visible ? implicitHeight + 18 : 0
 
-                                Text {
+                                RowLayout {
+                                    width: parent.width
                                     visible: window.visibleSearchArtists.length > 0
-                                    text: "Artists & channels"
-                                    color: window.ink
-                                    font.bold: true
-                                    font.pixelSize: 16
+                                    Text { text: "Artists & channels"; color: window.ink; font.bold: true; font.pixelSize: 16 }
+                                    Item { Layout.fillWidth: true }
                                 }
-                                ListView {
+                                Item {
                                     width: parent.width
                                     height: visible ? 190 : 0
                                     visible: window.visibleSearchArtists.length > 0
-                                    orientation: ListView.Horizontal
-                                    spacing: 8
-                                    clip: true
-                                    pixelAligned: true
-                                    model: window.visibleSearchArtists
-                                    delegate: CatalogCard {
-                                        required property var modelData
-                                        entry: modelData
-                                        artistMode: true
-                                        onOpenRequested: window.openArtistItem(modelData)
+                                    ListView {
+                                        id: searchArtistsShelf
+                                        anchors.fill: parent
+                                        orientation: ListView.Horizontal
+                                        spacing: 8
+                                        clip: true
+                                        pixelAligned: true
+                                        model: window.visibleSearchArtists
+                                        cacheBuffer: width
+                                        reuseItems: true
+                                        delegate: CatalogCard {
+                                            required property var modelData
+                                            entry: modelData
+                                            artistMode: true
+                                            onOpenRequested: window.openArtistItem(modelData)
+                                        }
                                     }
+                                    ShelfScrollButtons { view: searchArtistsShelf }
                                 }
-                                Text {
+                                RowLayout {
+                                    width: parent.width
                                     visible: window.visibleSearchAlbums.length > 0
-                                    text: "Albums"
-                                    color: window.ink
-                                    font.bold: true
-                                    font.pixelSize: 16
+                                    Text { text: "Albums"; color: window.ink; font.bold: true; font.pixelSize: 16 }
+                                    Item { Layout.fillWidth: true }
                                 }
-                                ListView {
+                                Item {
                                     width: parent.width
                                     height: visible ? 190 : 0
                                     visible: window.visibleSearchAlbums.length > 0
-                                    orientation: ListView.Horizontal
-                                    spacing: 8
-                                    clip: true
-                                    pixelAligned: true
-                                    model: window.visibleSearchAlbums
-                                    delegate: CatalogCard {
-                                        required property var modelData
-                                        entry: modelData
-                                        onOpenRequested: window.openAlbumItem(modelData)
+                                    ListView {
+                                        id: searchAlbumsShelf
+                                        anchors.fill: parent
+                                        orientation: ListView.Horizontal
+                                        spacing: 8
+                                        clip: true
+                                        pixelAligned: true
+                                        model: window.visibleSearchAlbums
+                                        cacheBuffer: width
+                                        reuseItems: true
+                                        delegate: CatalogCard {
+                                            required property var modelData
+                                            entry: modelData
+                                            onOpenRequested: window.openAlbumItem(modelData)
+                                        }
                                     }
+                                    ShelfScrollButtons { view: searchAlbumsShelf }
                                 }
                                 Text {
                                     visible: window.visibleSearchTracks.length > 0
@@ -792,16 +888,49 @@ ApplicationWindow {
                     }
 
                     Rectangle {
-                        Layout.preferredWidth: window.queueOpen ? 330 : 0
+                        Layout.preferredWidth: window.queueOpen
+                                               ? Math.min(window.queueWidth, Math.max(300, window.width * 0.58)) : 0
                         Layout.fillHeight: true
                         visible: window.queueOpen
                         color: Qt.rgba(0.032, 0.032, 0.038, 0.96)
                         border.width: 1
                         border.color: Qt.rgba(1, 1, 1, 0.09)
 
+                        Rectangle {
+                            id: queueResizeHandle
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: 7
+                            z: 2
+                            color: queueResizeHover.hovered || queueResizeDrag.active
+                                   ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.7)
+                                   : Qt.rgba(1, 1, 1, 0.08)
+                            HoverHandler { id: queueResizeHover; cursorShape: Qt.SplitHCursor }
+                            DragHandler {
+                                id: queueResizeDrag
+                                target: null
+                                xAxis.enabled: true
+                                yAxis.enabled: false
+                                property real startingWidth: window.queueWidth
+                                onActiveChanged: if (active) startingWidth = window.queueWidth
+                                onTranslationChanged: {
+                                    if (active)
+                                        window.queueWidth = Math.max(300, Math.min(window.width * 0.58,
+                                            startingWidth - translation.x))
+                                }
+                            }
+                            TapHandler {
+                                onDoubleTapped: window.queueWidth = 380
+                            }
+                        }
+
                         ColumnLayout {
                             anchors.fill: parent
-                            anchors.margins: 16
+                            anchors.leftMargin: 17
+                            anchors.rightMargin: 14
+                            anchors.topMargin: 14
+                            anchors.bottomMargin: 14
                             spacing: 10
 
                             RowLayout {
@@ -815,24 +944,13 @@ ApplicationWindow {
                                     font.pixelSize: 18
                                     Layout.alignment: Qt.AlignVCenter
                                 }
+                                Text {
+                                    text: colorful.queue.length + (colorful.queue.length === 1 ? " track" : " tracks")
+                                    color: Qt.rgba(1, 1, 1, 0.34)
+                                    font.pixelSize: 10
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
                                 Item { Layout.fillWidth: true }
-                                ColorButton {
-                                    text: colorful.autoplayEnabled ? "Autoplay on" : "Autoplay off"
-                                    quiet: true
-                                    implicitWidth: 94
-                                    implicitHeight: 32
-                                    Layout.alignment: Qt.AlignVCenter
-                                    onClicked: colorful.autoplayEnabled = !colorful.autoplayEnabled
-                                }
-                                ColorButton {
-                                    text: "Clear"
-                                    quiet: true
-                                    enabled: colorful.queue.length > 0
-                                    implicitWidth: 52
-                                    implicitHeight: 32
-                                    Layout.alignment: Qt.AlignVCenter
-                                    onClicked: colorful.clearQueue()
-                                }
                                 IconButton {
                                     implicitWidth: 32
                                     implicitHeight: 32
@@ -840,6 +958,32 @@ ApplicationWindow {
                                     iconSource: "icons/close.svg"
                                     tooltipText: "Close queue"
                                     onClicked: window.queueOpen = false
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 34
+                                spacing: 6
+                                ColorButton {
+                                    text: colorful.autoplayEnabled ? "Autoplay on" : "Autoplay off"
+                                    quiet: true
+                                    implicitHeight: 32
+                                    onClicked: colorful.autoplayEnabled = !colorful.autoplayEnabled
+                                }
+                                ColorButton {
+                                    text: "Clear queue"
+                                    quiet: true
+                                    enabled: colorful.queue.length > 0
+                                    implicitHeight: 32
+                                    onClicked: colorful.clearQueue()
+                                }
+                                Item { Layout.fillWidth: true }
+                                Text {
+                                    text: "Drag the left edge to resize"
+                                    visible: parent.width >= 430
+                                    color: Qt.rgba(1, 1, 1, 0.26)
+                                    font.pixelSize: 9
                                 }
                             }
 
@@ -851,6 +995,8 @@ ApplicationWindow {
                                 spacing: 0
                                 clip: true
                                 pixelAligned: true
+                                cacheBuffer: 400
+                                reuseItems: true
                                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                                 delegate: TrackDelegate {
                                     required property int index
@@ -1102,7 +1248,8 @@ ApplicationWindow {
                         IconButton {
                             implicitWidth: 42
                             implicitHeight: 42
-                            iconSource: colorful.playing ? "icons/pause-dark.svg" : "icons/play-dark.svg"
+                            iconSource: colorful.playing ? "icons/pause.svg" : "icons/play.svg"
+                            darkIconSource: colorful.playing ? "icons/pause-dark.svg" : "icons/play-dark.svg"
                             tooltipText: colorful.playing ? "Pause" : "Play"
                             strong: true
                             enabled: Object.keys(window.now).length > 0
@@ -1292,7 +1439,8 @@ ApplicationWindow {
                                 Text {
                                     anchors.centerIn: parent
                                     text: colorful.queue.length
-                                    color: "#08080a"
+                                    color: (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56
+                                           ? "#08080a" : "#f5f5f5"
                                     font.bold: true
                                     font.pixelSize: 8
                                 }
@@ -1445,6 +1593,8 @@ ApplicationWindow {
                 clip: true
                 spacing: 2
                 boundsBehavior: Flickable.StopAtBounds
+                cacheBuffer: 300
+                reuseItems: true
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 delegate: ItemDelegate {
                     required property var modelData

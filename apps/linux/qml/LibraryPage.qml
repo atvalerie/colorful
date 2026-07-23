@@ -102,6 +102,8 @@ Item {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             pixelAligned: true
+            cacheBuffer: 400
+            reuseItems: true
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             delegate: TrackDelegate {
                 required property int index
@@ -135,6 +137,8 @@ Item {
             spacing: 4
             clip: true
             boundsBehavior: Flickable.StopAtBounds
+            cacheBuffer: 300
+            reuseItems: true
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             delegate: ItemDelegate {
                 required property var modelData
@@ -178,6 +182,8 @@ Item {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             pixelAligned: true
+            cacheBuffer: 400
+            reuseItems: true
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             delegate: TrackDelegate {
                 required property int index

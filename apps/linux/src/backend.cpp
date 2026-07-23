@@ -141,6 +141,7 @@ Backend::Backend(QObject *parent)
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
     m_soundcloudOriginalDownloads = settings.value(QStringLiteral("downloads/soundcloudOriginal"), false).toBool();
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
+    m_onboardingCompleted = settings.value(QStringLiteral("ui/onboardingCompleted"), false).toBool();
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
     m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
@@ -1713,8 +1714,13 @@ void Backend::openCatalog(const QString &kind, const QString &id, bool preserveC
     const bool cacheIsFresh = hasCachedPage && cacheAgeMs >= 0
         && cacheAgeMs <= CatalogCacheFreshMs;
     if (hasCachedPage) {
-        if (preserveCurrent && !m_catalogPage.isEmpty() && m_catalogPage != cached.value().page)
-            m_catalogHistory.append(m_catalogPage);
+        if (preserveCurrent && !m_catalogPage.isEmpty()) {
+            const auto currentKey = catalogCacheKey(
+                m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString(),
+                m_catalogPage.value(QStringLiteral("kind")).toString(),
+                m_catalogPage.value(QStringLiteral("resourceId")).toString());
+            if (currentKey != cacheKey) m_catalogHistory.append(m_catalogPage);
+        }
         cached.value().accessedAtMs = now;
         m_catalogPage = cached.value().page;
         m_catalogLoading = false;
@@ -3014,6 +3020,14 @@ void Backend::setOfflineStorageLimitBytes(qint64 bytes)
     m_offlineStorageLimitBytes = next;
     QSettings().setValue(QStringLiteral("storage/offlineLimitBytes"), next);
     emit offlineStorageLimitChanged();
+}
+
+void Backend::setOnboardingCompleted(bool completed)
+{
+    if (m_onboardingCompleted == completed) return;
+    m_onboardingCompleted = completed;
+    QSettings().setValue(QStringLiteral("ui/onboardingCompleted"), completed);
+    emit onboardingCompletedChanged();
 }
 
 void Backend::openDownloadsFolder()
