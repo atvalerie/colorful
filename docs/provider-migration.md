@@ -111,7 +111,9 @@ WEB_REMIX request and uses the pinned `youtubei.js` player implementation to
 transform its ciphered URL. The extracted URL is byte-range probed before being
 returned. A native refresh-and-retry clears cached bootstrap/player state if
 that transformation fails. Offline downloads use the same native
-source contract and resumable FFmpeg chunk pipeline as the other providers.
+source contract, but checkpoint exact bounded HTTP byte ranges before FFmpeg
+remuxes the completed source; this avoids the real-time pacing that may affect
+one long continuous Googlevideo transfer.
 Radio/automix now uses a typed `next` request with a native `RDAMVM<videoId>`
 queue. The host reconstructs YouTube Music's opaque protobuf continuation from
 the final watch endpoint and prefetches another radio window near the end of

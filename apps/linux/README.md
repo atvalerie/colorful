@@ -20,6 +20,11 @@ Secret Service; Windows adds SMTC, WASAPI, and per-user DPAPI encryption.
 - public SoundCloud search, profiles, sets, playback, related stations, and
   optional OAuth-session access to personalized home shelves, liked tracks,
   followed profiles, owned sets, and account recommendations;
+- a first-launch setup flow and a cross-provider Home feed that gives the
+  most-listened service priority while still including shelves from other
+  connected services;
+- provider-prioritized combined search: provider relevance is preserved, while
+  tracks, albums, artists, and channels from the most-listened service appear first;
 - persistent queue/library/position, drag reordering, play-next insertion,
   shuffle, three-state repeat, autoplay, prepared-next playback, and gapless
   transitions;
@@ -124,8 +129,11 @@ alter samples when enabled.
 
 The compact player exposes shuffle, repeat-off/queue/track, mute, output volume,
 queue, and retry state directly. Queue rows can be dragged to reorder them, and
-track context menus include **Play next**. Playback settings contain the libmpv
-audio-output selector; **System default** continues to follow PipeWire routing.
+track context menus include **Play next**. The queue panel can be resized from
+its left edge; double-clicking the handle restores its default width. Long
+horizontal shelves expose inset edge arrows only while more content exists in
+that direction. Playback settings contain the libmpv audio-output selector;
+**System default** continues to follow PipeWire routing.
 
 Keyboard controls are `Space` for play/pause, `M` for mute, left/right to seek
 five seconds, Ctrl+left/right for previous/next, and up/down for perceptual
@@ -168,7 +176,9 @@ suite from the repository root:
 ./scripts/test-linux.sh
 ```
 
-A shorter manual playback pass should cover all three providers, seeking,
+A shorter manual pass should cover first-launch setup and its rerun action,
+provider ordering on Home and combined Search, shelf edge controls, queue-panel
+resizing, all three providers, seeking,
 next-track transition, rapid skipping, repeat/shuffle, queue reordering,
 mute/volume restoration, output switching, a paused/resumed download, offline
 playback, MPRIS controls, and restoration after restarting the app. YouTube

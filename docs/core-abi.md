@@ -61,7 +61,9 @@ Qualified listens enter through `record_listen`. The shell supplies a globally
 unique event ID and originating device ID, while the core validates the event,
 stores its track metadata transactionally, and ignores duplicate IDs. Snapshots
 expose `listenStats` with total audible time, play count, and top tracks,
-artists, and albums.
+artists, and albums. Its `providerStats` array contains listened time and play
+count grouped by provider in descending usage order; native shells use that
+local aggregate for presentation such as Home and combined-search priority.
 Platform shells decide what counts as audible time; forward seeks, buffering,
 and pauses must not inflate the supplied duration.
 

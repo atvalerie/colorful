@@ -2,7 +2,10 @@
 
 The active Windows target is the shared Qt Quick/QML desktop client under
 `apps/linux` (the directory name is historical). It provides the same catalog,
-library, downloads, queue, lyrics, settings, and player UI as Linux.
+library, downloads, resizable queue, lyrics, settings, first-launch setup, and
+player UI as Linux. The shared Home feed and combined Search prioritize
+providers using device-local listening time, while retaining each provider's
+own result ordering.
 
 That shared feature set includes TIDAL, public and optionally authenticated
 YouTube Music, and SoundCloud. YouTube catalog/radio/playback use typed native

@@ -6,6 +6,10 @@ file unless it provides necessary context for the next milestone.
 ## Next milestone: Android feature parity
 
 - replace the compact engineering UI with the colorful product design;
+- add first-launch provider/playback/storage setup and a personalized
+  cross-provider Home ordered by device-local provider listening time;
+- apply the same provider priority to combined search while retaining each
+  service's own relevance order;
 - add complete TIDAL catalog, account, library, playlist, mix, album, artist,
   and track pages;
 - add YouTube Music account, catalog, radio, queue, and playback support;
@@ -64,4 +68,3 @@ The detailed security and merge model lives in [sync.md](sync.md).
 - deeper appearance and accent customization;
 - optional encrypted local-file transfer between trusted devices;
 - provider write actions only if they become an explicit product requirement.
-

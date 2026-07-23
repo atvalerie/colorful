@@ -72,7 +72,7 @@ This is a migration, not a rewrite performed all at once.
 - queue, repeat, shuffle, current selection, and playback directives
 - SQLite repositories and migrations
 - durable offline-job records and downloaded-file paths
-- idempotent listening events and aggregate statistics
+- idempotent listening events and aggregate statistics, including per-provider usage
 - provider-neutral settings
 
 The sync journal, party transport, cache quotas/eviction, and portable provider
@@ -129,9 +129,9 @@ remain incomplete.
 ## Current delivery state
 
 - Complete: domain contracts, queue state machine, SQLite schema, stable ABI,
-  provider fixtures, Linux TIDAL/public-YouTube alpha, Linux downloads/gapless
-  playback/DSP, and the Android TIDAL playback vertical slice.
+  provider fixtures, desktop TIDAL/YouTube Music/SoundCloud alpha, desktop
+  downloads/gapless playback/DSP, and the Android TIDAL playback vertical slice.
 - Next: validate and package the shared Windows desktop build, add Android
   feature parity, and migrate more provider behavior away from the Bun host.
-- Later: SoundCloud, encrypted device sync and active-device presence, parties,
-  then iOS and its cloud build/signing workflow.
+- Later: Android SoundCloud parity, encrypted device sync and active-device
+  presence, parties, then iOS and its cloud build/signing workflow.

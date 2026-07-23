@@ -20,7 +20,9 @@ events. Each event records its originating device, track reference, wall-clock
 interval, and actual audible milliseconds. The event ID is the primary key, so
 replaying an event received through multi-device sync cannot increment
 statistics twice. Aggregates are derived locally; no listening profile needs to
-be uploaded to a colorful service.
+be uploaded to a colorful service. The same query surface derives per-provider
+audible time and play counts, allowing native clients to personalize ordering
+without sending listening history back to a provider or colorful service.
 
 `0003_local_playlists.sql` adds colorful-owned playlists and ordered playlist
 items. A playlist may contain tracks from different providers and may contain

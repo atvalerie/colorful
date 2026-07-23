@@ -66,12 +66,16 @@ colorful is an early personal alpha, not a packaged consumer release.
 - public SoundCloud mixed search, tracks, profiles, sets, related radio, catalog pagination, playback, quality-aware downloads, and optional uploader originals on Linux
 - optional locally stored SoundCloud OAuth session for personalized home shelves, liked tracks, sets, owned playlists, followed profiles, and account recommendations
 - independent TIDAL, YouTube, and SoundCloud search continuation without resetting the visible result list
+- a personalized cross-provider desktop Home assembled from connected-service
+  mixes and recommendations, ordered by locally measured provider listening time
+- combined desktop search that groups tracks, albums, artists, and channels by
+  the same most-listened-provider order without disturbing provider relevance
 - bounded desktop catalog-page caching with instant history restoration and
   stale-while-refresh behavior
 - lossless/adaptive playback with accurate duration and seeking
 - persisted perceptual desktop volume, real mute, and selectable Linux output
 - prepared-next, gapless Linux playback with prefetched autoplay
-- persistent reorderable queue, play-next insertion, repeat/shuffle, playback
+- persistent reorderable and width-adjustable desktop queue, play-next insertion, repeat/shuffle, playback
   position, autoplay, and related tracks
 - provider-neutral local playlists with ordered duplicates, create/rename/delete,
   collection-wide adds, and editing from every desktop track surface
@@ -86,8 +90,11 @@ colorful is an early personal alpha, not a packaged consumer release.
   artwork, local-file playback, storage summaries, configurable quotas, and
   confirmed bulk cleanup
 - a persistent low-data mode that avoids loading remote artwork and profile images
-- qualified local listening history and top-track/top-artist/top-album statistics
+- qualified local listening history with per-provider usage plus
+  top-track/top-artist/top-album statistics
 - opt-in Discord profile statistics publishing with Secret Service token storage
+- first-launch desktop setup for optional provider connections, playback
+  defaults, and offline storage, with a Settings action to rerun it
 - desktop settings for accounts, stream quality, autoplay, EQ/normalization, Discord integrations, appearance, low-data behavior, storage, and build information
 - sync-ready, idempotent history event identities
 
