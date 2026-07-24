@@ -16,9 +16,21 @@ $buildDirectory = Join-Path $repoRoot 'build\windows-qt'
 $executable = Join-Path $buildDirectory 'colorful.exe'
 if (-not (Test-Path $executable)) { throw "colorful.exe was not found at $executable" }
 
+$version = (Get-Content (Join-Path $repoRoot 'VERSION') -Raw).Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+$') {
+    throw 'VERSION must contain a three-part numeric version such as 0.2.0.'
+}
+$embeddedVersion = (Get-Item $executable).VersionInfo.ProductVersion
+$embeddedVersionMatch = [regex]::Match($embeddedVersion, '^(\d+\.\d+\.\d+)')
+if (-not $embeddedVersionMatch.Success) {
+    throw "colorful.exe has no usable embedded product version. Rebuild it before packaging."
+}
+$builtVersion = $embeddedVersionMatch.Groups[1].Value
+if ($builtVersion -ne $version) {
+    throw "colorful.exe is version $builtVersion, but VERSION is $version. Rebuild it before packaging."
+}
 $git = Get-Command git.exe -ErrorAction Stop
 $commit = (& $git.Source -C $repoRoot rev-parse --short=12 HEAD).Trim()
-$version = '0.1.0'
 $artifactName = "colorful-windows-x64-$version-$commit"
 $distRoot = Join-Path $repoRoot 'dist'
 $stage = Join-Path $distRoot $artifactName
@@ -69,8 +81,17 @@ Write-Host "Portable archive: $zip"
 
 if ($Installer) {
     $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if (-not $iscc) {
+        $isccCandidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+        ) | Where-Object { $_ -and (Test-Path $_) }
+        $iscc = $isccCandidates | Select-Object -First 1
+    }
     if (-not $iscc) { throw 'Inno Setup 6 was not found. Install it or package without -Installer.' }
-    & $iscc.Source "/DSourceDir=$stage" "/DOutputDir=$distRoot" "/DAppVersion=$version" "/DCommit=$commit" `
+    $isccPath = if ($iscc -is [System.Management.Automation.CommandInfo]) { $iscc.Source } else { $iscc }
+    & $isccPath "/DSourceDir=$stage" "/DOutputDir=$distRoot" "/DAppVersion=$version" "/DCommit=$commit" `
         (Join-Path $repoRoot 'packaging\windows\colorful.iss')
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 }

@@ -1,4 +1,5 @@
 #include "discordwidget.h"
+#include "buildinfo_generated.h"
 #if defined(Q_OS_WIN)
 #include "credentialstore.h"
 #endif
@@ -423,7 +424,10 @@ void DiscordWidgetExporter::publish(bool manual)
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArray("Bot ") + m_token);
-    request.setRawHeader("User-Agent", "DiscordBot (https://github.com/atvalerie/colorful, 0.1.0)");
+    request.setRawHeader(
+        "User-Agent",
+        QByteArray("DiscordBot (https://github.com/atvalerie/colorful, ")
+            + QByteArray(COLORFUL_VERSION) + QByteArray(")"));
 
     setBusy(true);
     const auto publishedPayload = m_pendingPayload;

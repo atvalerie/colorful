@@ -3,7 +3,42 @@
 This is the canonical implementation backlog. Keep completed work out of this
 file unless it provides necessary context for the next milestone.
 
-## Next milestone: Android feature parity
+## Next milestone: desktop distribution
+
+- test Linux AppImage and portable AppDir packages on clean machines rather
+  than development hosts;
+- validate and publish Linux artifacts from the containerized Ubuntu 22.04
+  builder with its glibc 2.35 ceiling;
+- test the Windows portable ZIP and a two-version in-place installer upgrade
+  in a clean Windows VM;
+- exercise the tag-driven GitHub release workflow on a private/test release
+  before treating it as the public release path;
+- decide whether Windows releases will be code-signed before wider publishing;
+- verify bundled playback dependencies, codecs, credential storage, Discord
+  RPC, downloads, and provider helpers on both platforms;
+- continue fixing playback, provider, layout, and packaging bugs found by
+  real-world testing.
+
+## Local music library
+
+- add configurable library folders, recursive scanning, file watching, and a
+  persistent local-media index;
+- play local files through the shared desktop playback, queue, history,
+  ReplayGain, artwork, lyrics, and Discord RPC paths;
+- browse local music by artist, album, album artist, genre, year, folder,
+  recently added, and recently played;
+- allow provider-neutral playlists and queues to mix local and streaming
+  tracks;
+- add safe single-track and batch tag editing for title, artist, album artist,
+  album, track and disc numbers, year, genre, lyrics, and cover artwork;
+- preserve unknown metadata where possible and use atomic writes, backups,
+  rescanning, and undo for destructive tag changes;
+- add smart playlists, duplicate detection, and missing-file cleanup after the
+  core library and tag workflows are reliable;
+- consider transcoding, format conversion, CD support, and deeper
+  Strawberry-style library tools later.
+
+## Deferred: Android feature parity
 
 - replace the compact engineering UI with the colorful product design;
 - add first-launch provider/playback/storage setup and a personalized
@@ -50,19 +85,10 @@ already exercised before each remote macOS build cycle.
 
 The detailed security and merge model lives in [sync.md](sync.md).
 
-## Desktop and release follow-up
-
-- test Linux and Windows packages on clean machines rather than development
-  hosts;
-- build public Linux artifacts on an older supported glibc base;
-- add a polished Windows installer and decide whether releases will be signed;
-- continue fixing playback, provider, layout, and packaging bugs found by
-  real-world testing;
-- migrate provider behavior away from the transitional Bun sidecar where a
-  shared or native implementation is practical.
-
 ## Later
 
+- migrate provider behavior away from the transitional Bun sidecar where a
+  shared or native implementation is practical;
 - listening parties over LAN, peer-to-peer connectivity, and relay fallback;
 - customizable Discord statistics widgets and profile-board layouts;
 - deeper appearance and accent customization;

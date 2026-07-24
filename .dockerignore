@@ -1,0 +1,4 @@
+**
+!packaging/
+!packaging/linux/
+!packaging/linux/Dockerfile

@@ -4,16 +4,23 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 tools_dir="${COLORFUL_LINUXDEPLOY_DIR:-$repo_dir/.cache/linuxdeploy}"
+build_root="${COLORFUL_BUILD_ROOT:-$repo_dir/build}"
+target_dir="${CARGO_TARGET_DIR:-$repo_dir/target}"
 linuxdeploy="${COLORFUL_LINUXDEPLOY:-$tools_dir/linuxdeploy-x86_64.AppImage}"
 qt_plugin="${COLORFUL_LINUXDEPLOY_QT:-$tools_dir/linuxdeploy-plugin-qt}"
 appimagetool="${COLORFUL_APPIMAGETOOL:-$tools_dir/appimagetool-x86_64.AppImage}"
 appimage_runtime="${COLORFUL_APPIMAGE_RUNTIME:-$tools_dir/runtime-x86_64}"
 ffmpeg="${COLORFUL_PACKAGING_FFMPEG:-$tools_dir/ffmpeg/bin/ffmpeg}"
 ffprobe="${COLORFUL_PACKAGING_FFPROBE:-$tools_dir/ffmpeg/bin/ffprobe}"
-build_dir="$repo_dir/build/linux-release"
-dist_dir="$repo_dir/dist"
+build_dir="$build_root/linux-release"
+dist_dir="${COLORFUL_DIST_DIR:-$repo_dir/dist}"
 commit="$(git -C "$repo_dir" rev-parse --short=12 HEAD)"
-artifact="colorful-0.1.0-$commit-x86_64"
+version="$(tr -d '[:space:]' < "$repo_dir/VERSION")"
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "VERSION must contain a three-part numeric version such as 0.2.0" >&2
+  exit 1
+fi
+artifact="colorful-$version-$commit-x86_64"
 appdir="$dist_dir/$artifact.AppDir"
 
 "$script_dir/check-linux-deps.sh" build
@@ -53,6 +60,8 @@ else
 fi
 
 qt_plugins="$($real_qmake -query QT_INSTALL_PLUGINS)"
+qt_libraries="$($real_qmake -query QT_INSTALL_LIBS)"
+export LD_LIBRARY_PATH="$qt_libraries${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 plugin_stage="$build_dir/qt-plugins-for-package"
 rm -rf -- "$plugin_stage"
 mkdir -p "$plugin_stage"/{platforms,platforminputcontexts,imageformats,tls,xcbglintegrations}
@@ -123,7 +132,7 @@ install -Dm755 "$staged_install/colorful-linux" "$appdir/usr/bin/colorful-linux"
 install -Dm755 "$build_dir/colorful-provider" "$appdir/usr/bin/colorful-provider"
 install -Dm755 "$ffmpeg" "$appdir/usr/bin/ffmpeg"
 install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
-install -Dm644 "$repo_dir/target/release/libcolorful_core.so" "$appdir/usr/lib/libcolorful_core.so"
+install -Dm644 "$target_dir/release/libcolorful_core.so" "$appdir/usr/lib/libcolorful_core.so"
 install -Dm755 "$script_dir/AppRun-linux" "$appdir/AppRun"
 
 "$script_dir/check-linux-deps.sh" bundle "$appdir"

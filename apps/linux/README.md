@@ -78,16 +78,24 @@ For an immediate relaunch of an already-built binary:
 
 ### Release packages
 
-Validate the development machine before building:
+The supported public-release path uses the pinned Ubuntu 22.04 Docker builder:
+
+```bash
+./scripts/package-linux-docker.sh
+```
+
+The first run downloads the container toolchain and packaging utilities.
+Subsequent runs reuse compiler, Bun, linuxdeploy, and FFmpeg caches beneath
+`.cache/container`. The container runs with the invoking user's UID and GID,
+keeps its build tree separate from native host builds, writes the final
+AppImage and portable `.tar.gz` to `dist/`, and enforces a glibc 2.35 ceiling.
+It does not require FUSE access or a privileged container.
+
+For native packaging development, validate the host and provision the official
+linuxdeploy tools directly:
 
 ```bash
 ./scripts/check-linux-deps.sh build
-```
-
-The first package build needs the official linuxdeploy tools. The provisioner
-downloads these into the ignored `.cache` directory:
-
-```bash
 ./scripts/provision-linux-packaging.sh
 ./scripts/package-linux.sh
 ```
@@ -97,10 +105,9 @@ containing the AppDir. The package contains the Qt/libmpv runtime,
 checksum-verified static FFmpeg/ffprobe, the Rust core, and
 the compiled provider host. Desktop Secret Service access still uses the
 distribution's `secret-tool` and session
-D-Bus services. The bundle audit can also enforce a release ceiling, for
-example `COLORFUL_MAX_GLIBC=2.35 ./scripts/package-linux.sh` on an Ubuntu 22.04
-builder. A package made on a newer host remains suitable for local testing but
-will generally not run on distributions with older glibc.
+D-Bus services. Native builds can also enforce a release ceiling with
+`COLORFUL_MAX_GLIBC=2.35 ./scripts/package-linux.sh`, but a package made on a
+newer host generally cannot run on distributions with older glibc.
 
 Set `COLORFUL_DISABLE_DISCORD_RPC=1` to disable local Rich Presence IPC.
 

@@ -29,6 +29,7 @@ Windows-specific integration includes:
 - a current Windows 10/11 SDK
 - Rust stable with the `x86_64-pc-windows-msvc` host
 - Bun, CMake, Ninja, and Git
+- Inno Setup 6 for setup executables (`winget install JRSoftware.InnoSetup`)
 
 ## Build and run
 
@@ -70,6 +71,41 @@ These artifacts are currently unsigned, so Windows SmartScreen may warn the
 recipient. The ZIP is no-install portable; settings, downloads, and encrypted
 sessions intentionally remain in the recipient's local application-data
 directory.
+
+## Versions and installer upgrades
+
+`VERSION` at the repository root is the authoritative desktop release version.
+It is a numeric `major.minor.patch` value and is embedded in the Qt executable,
+shown in Settings diagnostics, and used for every artifact and installer
+registry entry. Increment it once for every setup release:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\set-version.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1 -Installer
+```
+
+Commit the version change with the release. The installer has a permanent
+Inno Setup `AppId`; never regenerate or change it. Running a newer setup over
+an installed copy therefore updates the same per-user installation and
+Add/Remove Programs entry. It reuses the previous destination, asks to close a
+running copy, replaces the private runtime bundle, and preserves the database,
+downloads, settings, and encrypted sessions stored outside the install
+directory. An older setup refuses to overwrite an executable with a newer
+embedded version.
+
+Before sharing a release, test an actual two-version upgrade in a clean VM:
+
+1. Install the previous setup and sign into the intended providers.
+2. Play a track, alter a setting, and create or resume a download.
+3. Build a setup with a higher `VERSION` and run it without uninstalling.
+4. Confirm there is one installed-app entry with the new version.
+5. Confirm the executable reports the new version and the prior data survives.
+6. Exercise playback, credentials, media controls, Discord, and downloads.
+
+Once the Windows and Linux packages pass their clean-machine checks, create and
+push an annotated `vMAJOR.MINOR.PATCH` tag matching `VERSION`. The GitHub
+Actions release workflow builds both platforms and creates one GitHub Release
+containing all four desktop artifacts. A platform failure prevents publication.
 
 The engine database and encrypted credential files live beneath the current
 user's local application-data directory. Secrets never enter SQLite.

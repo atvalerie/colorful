@@ -574,7 +574,8 @@ void LinuxPlayback::drainEvents()
             setSeekSilence(false);
             const auto *end = static_cast<mpv_event_end_file *>(event->data);
             if (end) DebugLog::write(u"mpv", QStringLiteral("end-file reason=%1 error=%2 role=%3 host=%4")
-                                                   .arg(endFileReason(end->reason), mpvError(end->error),
+                                                   .arg(endFileReason(static_cast<mpv_end_file_reason>(end->reason)),
+                                                        mpvError(end->error),
                                                         m_currentWasPrepared ? QStringLiteral("prepared-promoted")
                                                                              : QStringLiteral("active"),
                                                         m_source.host()));

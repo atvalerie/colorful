@@ -194,21 +194,26 @@ changes, use `./scripts/run-linux.sh --no-build`.
 See [the Linux client guide](apps/linux/README.md) for the manual test flow,
 MPRIS checks, and troubleshooting.
 
-Check the host toolchain and create distributable Linux artifacts with:
+Create distributable Linux artifacts in the Ubuntu 22.04 release container:
+
+```bash
+./scripts/package-linux-docker.sh
+```
+
+The image pins Qt, Rust, Bun, and CMake, builds as the invoking user, keeps
+download and compiler caches under `.cache/container`, and writes an AppImage
+and portable AppDir archive beneath `dist/`. The package bundles Qt, libmpv,
+and checksum-verified static FFmpeg/ffprobe, then enforces a glibc 2.35 ceiling.
+Docker is only the release build environment; finished packages still need
+testing in a normal desktop session.
+
+A native host build remains available for packaging development:
 
 ```bash
 ./scripts/check-linux-deps.sh build
-./scripts/provision-linux-packaging.sh # first package build only
+./scripts/provision-linux-packaging.sh
 ./scripts/package-linux.sh
 ```
-
-The package command builds a Release AppDir, compiles the provider sidecar,
-bundles Qt, libmpv, and checksum-verified static FFmpeg/ffprobe, then writes an AppImage and portable
-AppDir archive beneath `dist/`. It also
-runs an ELF dependency audit and reports the newest required glibc symbol.
-Public release artifacts should be built on the oldest Linux base the project
-intends to support; packaging on a newer distribution cannot make its glibc
-requirements older.
 
 ## Building Windows
 
@@ -238,6 +243,38 @@ Pass `-Installer` when Inno Setup 6 is installed to produce a per-user setup
 executable from the same staged files. Artifacts are written beneath `dist`.
 The portable ZIP does not install files, but account sessions and settings
 remain per-user in Windows application data rather than beside the executable.
+
+Desktop release versions come from the repository-root `VERSION` file. Before
+giving someone a newer installer, increment it and commit that change:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\set-version.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1 -Installer
+```
+
+The Windows executable, Settings diagnostics, ZIP, setup filename, and
+Add/Remove Programs entry all receive that version. Setup releases retain one
+permanent application identity, reuse the existing install directory, close a
+running copy before replacement, and update the existing installation in
+place. Do not change the installer `AppId`. Portable ZIPs remain portable and
+are not an upgrade mechanism.
+
+Linux uses the identical version in its runtime diagnostics, AppImage, and
+portable archive names. After both desktop packages have been tested, push a
+matching annotated tag to build and publish a GitHub Release:
+
+```bash
+./scripts/set-version.sh 0.1.1
+# commit and test the 0.1.1 release
+git tag -a v0.1.1 -m "colorful 0.1.1"
+git push origin v0.1.1
+```
+
+The release workflow rejects a tag that does not exactly match `v$(cat
+VERSION)`. It builds Linux inside the pinned container, builds Windows on a
+Windows runner, and publishes the AppImage, Linux archive, Windows ZIP, and
+upgradeable setup executable together. The release is published only after
+both platform jobs succeed.
 
 ## Building Android
 

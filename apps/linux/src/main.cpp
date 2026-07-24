@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "buildinfo_generated.h"
 #include "debuglog.h"
 #if defined(Q_OS_LINUX)
 #include "mpris.h"
@@ -161,6 +162,7 @@ int main(int argc, char *argv[])
     TerminationSignalBridge terminationSignals(app);
 #endif
     QGuiApplication::setApplicationName(QStringLiteral("colorful"));
+    QGuiApplication::setApplicationVersion(QString::fromLatin1(COLORFUL_VERSION));
     QGuiApplication::setDesktopFileName(QStringLiteral("colorful"));
     QGuiApplication::setOrganizationName(QStringLiteral("colorful"));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/branding/colorful.svg")));

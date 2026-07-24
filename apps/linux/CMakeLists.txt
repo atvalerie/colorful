@@ -1,6 +1,16 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(colorfulDesktop VERSION 0.1.0 LANGUAGES CXX)
+set(COLORFUL_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
+file(STRINGS "${COLORFUL_VERSION_FILE}" COLORFUL_APP_VERSION LIMIT_COUNT 1)
+if(NOT COLORFUL_APP_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain a three-part numeric version such as 0.2.0")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${COLORFUL_VERSION_FILE}")
+
+project(colorfulDesktop VERSION "${COLORFUL_APP_VERSION}" LANGUAGES CXX)
+if(WIN32)
+    enable_language(RC)
+endif()
 
 execute_process(
     COMMAND git rev-parse --short=12 HEAD
@@ -75,11 +85,17 @@ if(UNIX AND NOT APPLE)
     list(APPEND COLORFUL_DESKTOP_SOURCES src/mpris.cpp src/mpris.h)
 endif()
 if(WIN32)
+    configure_file(
+        src/colorful.rc.in
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/colorful.rc"
+        @ONLY
+    )
     list(APPEND COLORFUL_DESKTOP_SOURCES
         src/credentialstore.cpp
         src/credentialstore.h
         src/windowsmedia.cpp
         src/windowsmedia.h
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/colorful.rc"
     )
 endif()
 
