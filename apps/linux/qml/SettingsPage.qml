@@ -704,16 +704,34 @@ Item {
                     Image { source: "qrc:/assets/branding/colorful.svg"; Layout.preferredWidth: 70; Layout.preferredHeight: 70; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true }
                     Text { text: "colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 26 }
                     Text { text: "A local-first personal music client."; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: 13 }
-                    ColorButton {
-                        text: "Run setup again"
-                        quiet: true
-                        onClicked: colorful.onboardingCompleted = false
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        ColorButton {
+                            text: "Run setup again"
+                            quiet: true
+                            onClicked: colorful.onboardingCompleted = false
+                        }
+                        ColorButton {
+                            text: updater.state === "checking" ? "Checking…" : "Check for updates"
+                            quiet: true
+                            enabled: updater.state !== "checking" && updater.state !== "downloading"
+                            onClicked: updater.checkForUpdates(true)
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: updater.status
+                            color: updater.state === "error" ? "#ff8585" : Qt.rgba(1, 1, 1, 0.42)
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
                     }
                     AccountCard {
                         Layout.fillWidth: true
                         title: "Build"
                         rows: [
                             ["Version", colorful.buildInfo.version || "unknown"],
+                            ["Channel", colorful.buildInfo.channel || "release"],
                             ["Commit", colorful.buildInfo.commit || "unknown"],
                             ["System", colorful.buildInfo.system || "Linux"],
                             ["Architecture", colorful.buildInfo.architecture || "unknown"],

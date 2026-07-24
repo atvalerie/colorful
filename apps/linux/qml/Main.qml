@@ -9,7 +9,7 @@ ApplicationWindow {
     minimumWidth: 920
     minimumHeight: 620
     visible: true
-    title: "colorful"
+    title: colorful.buildInfo.channel === "dev" ? "colorful · DEV" : "colorful"
     color: "#101012"
     flags: Qt.Window | Qt.FramelessWindowHint
 
@@ -42,6 +42,10 @@ ApplicationWindow {
         if (currentSection === "search")
             Qt.callLater(function() { resultsList.positionViewAtBeginning() })
     }
+    onOnboardingVisibleChanged: {
+        if (!onboardingVisible && updater.updateAvailable)
+            updatePopup.open()
+    }
 
     Connections {
         target: colorful
@@ -50,6 +54,13 @@ ApplicationWindow {
         }
         function onCurrentTrackChanged() {
             if (window.lyricsOpen) colorful.loadLyrics(false)
+        }
+    }
+    Connections {
+        target: updater
+        function onUpdateFound() {
+            if (!window.onboardingVisible)
+                updatePopup.open()
         }
     }
     onLyricsOpenChanged: if (lyricsOpen) colorful.loadLyrics(false)
@@ -1641,6 +1652,111 @@ ApplicationWindow {
                         pickerPlaylistName.text = ""
                         playlistPicker.close()
                     }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: updatePopup
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(700, window.width - 80)
+        height: Math.min(560, window.height - 80)
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        padding: 0
+
+        background: Rectangle {
+            color: "#19191e"
+            border.width: 1
+            border.color: Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.72)
+        }
+
+        contentItem: ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 24
+            spacing: 12
+
+            Text {
+                text: "colorful " + ((updater.release || {}).version || "") + " is available"
+                color: window.ink
+                font.weight: Font.Bold
+                font.pixelSize: 22
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "You’re running " + (colorful.buildInfo.version || "an older version")
+                color: window.mutedInk
+                font.pixelSize: 12
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: Qt.rgba(1, 1, 1, 0.025)
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.1)
+
+                Flickable {
+                    id: updateNotes
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    contentWidth: width
+                    contentHeight: updateNotesText.paintedHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    Text {
+                        id: updateNotesText
+                        width: updateNotes.width - 14
+                        text: ((updater.release || {}).notes || "See the release page for details.")
+                        textFormat: Text.MarkdownText
+                        color: Qt.rgba(1, 1, 1, 0.72)
+                        linkColor: colorful.accent
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 12
+                        onLinkActivated: link => Qt.openUrlExternally(link)
+                    }
+                }
+            }
+            ProgressBar {
+                Layout.fillWidth: true
+                visible: updater.state === "downloading"
+                from: 0
+                to: 1
+                value: updater.progress
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: updater.state === "downloading" || updater.state === "error"
+                text: updater.status
+                color: updater.state === "error" ? "#ff8585" : window.mutedInk
+                font.pixelSize: 11
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                ColorButton {
+                    text: "View on GitHub"
+                    quiet: true
+                    onClicked: updater.openReleasePage()
+                }
+                Item { Layout.fillWidth: true }
+                ColorButton {
+                    text: "Later"
+                    quiet: true
+                    enabled: updater.state !== "downloading"
+                    onClicked: {
+                        updater.dismiss()
+                        updatePopup.close()
+                    }
+                }
+                ColorButton {
+                    text: updater.canInstall ? "Install update"
+                                            : ((updater.release || {}).assetName ? "Download update"
+                                                                               : "Open release")
+                    enabled: updater.state === "available"
+                    onClicked: updater.startUpdate()
                 }
             }
         }

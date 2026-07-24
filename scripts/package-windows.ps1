@@ -31,7 +31,16 @@ if ($builtVersion -ne $version) {
 }
 $git = Get-Command git.exe -ErrorAction Stop
 $commit = (& $git.Source -C $repoRoot rev-parse --short=12 HEAD).Trim()
-$artifactName = "colorful-windows-x64-$version-$commit"
+$buildChannel = if ($env:COLORFUL_BUILD_CHANNEL) { $env:COLORFUL_BUILD_CHANNEL } else { 'release' }
+switch ($buildChannel) {
+    'release' { $artifactVersion = $version }
+    'dev' {
+        $buildNumber = if ($env:COLORFUL_BUILD_NUMBER) { $env:COLORFUL_BUILD_NUMBER } else { 'local' }
+        $artifactVersion = "$version-dev.$buildNumber"
+    }
+    default { throw 'COLORFUL_BUILD_CHANNEL must be release or dev.' }
+}
+$artifactName = "colorful-windows-x64-$artifactVersion-$commit"
 $distRoot = Join-Path $repoRoot 'dist'
 $stage = Join-Path $distRoot $artifactName
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
@@ -91,7 +100,8 @@ if ($Installer) {
     }
     if (-not $iscc) { throw 'Inno Setup 6 was not found. Install it or package without -Installer.' }
     $isccPath = if ($iscc -is [System.Management.Automation.CommandInfo]) { $iscc.Source } else { $iscc }
-    & $isccPath "/DSourceDir=$stage" "/DOutputDir=$distRoot" "/DAppVersion=$version" "/DCommit=$commit" `
+    & $isccPath "/DSourceDir=$stage" "/DOutputDir=$distRoot" "/DAppVersion=$version" `
+        "/DBuildLabel=$artifactVersion" "/DCommit=$commit" `
         (Join-Path $repoRoot 'packaging\windows\colorful.iss')
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 }

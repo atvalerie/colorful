@@ -107,6 +107,21 @@ push an annotated `vMAJOR.MINOR.PATCH` tag matching `VERSION`. The GitHub
 Actions release workflow builds both platforms and creates one GitHub Release
 containing all four desktop artifacts. A platform failure prevents publication.
 
+Every non-documentation push to `main` also runs the desktop dev-build workflow.
+It produces 14-day Windows and Linux artifacts labelled
+`MAJOR.MINOR.PATCH-dev.RUN+COMMIT` inside the application; artifact and
+installer filenames carry the same `dev.RUN` marker. A manual workflow run can
+build only Windows, only Linux, or both. Dev installers retain the permanent
+application identity and numeric base version, so a subsequent higher stable
+release upgrades the same installation normally.
+
+The client checks the latest stable GitHub Release periodically and previews
+its Markdown changelog in-app. Choosing **Install update** streams the matching
+setup executable to a temporary file, verifies the SHA-256 digest published by
+GitHub for that release asset, starts the installer, and exits colorful.
+Missing or mismatched integrity metadata is never executed and falls back to
+the release page.
+
 The engine database and encrypted credential files live beneath the current
 user's local application-data directory. Secrets never enter SQLite.
 The public TIDAL clients are built in. Both the native executable and launcher
@@ -127,4 +142,14 @@ The application prints its rotating diagnostic-log path at launch. The log is
 stored under the current user's local application-data directory and records
 sanitized provider, playback, and YouTube range-transfer timing. Signed media
 URLs, cookies, and authorization values are redacted and must not be included
-in bug reports.
+in bug reports. Its `display` entry records the active screen resolution,
+logical DPI, Qt scale factor, and text renderer.
+
+For display regressions, report the Windows **Settings > System > Display >
+Scale** value; "2K" resolution alone does not identify the effective UI scale.
+Test 2560x1440 at 100%, 125%, and 150%, then move the running window between
+monitors with different scale factors. Text, controls, hit targets, and layout
+should remain crisp and retain the same logical size after the move. Also open
+the executable's **Properties > Compatibility > Change high DPI settings** and
+leave **Override high DPI scaling behavior** unchecked: a `System` override
+causes Windows to bitmap-scale the whole application and makes it blurry.

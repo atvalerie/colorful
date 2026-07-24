@@ -23,6 +23,24 @@ if(NOT COLORFUL_GIT_COMMIT)
     set(COLORFUL_GIT_COMMIT "unknown")
 endif()
 
+set(COLORFUL_BUILD_CHANNEL "$ENV{COLORFUL_BUILD_CHANNEL}")
+if(NOT COLORFUL_BUILD_CHANNEL)
+    set(COLORFUL_BUILD_CHANNEL "release")
+endif()
+if(NOT COLORFUL_BUILD_CHANNEL MATCHES "^(release|dev)$")
+    message(FATAL_ERROR "COLORFUL_BUILD_CHANNEL must be release or dev")
+endif()
+set(COLORFUL_BUILD_NUMBER "$ENV{COLORFUL_BUILD_NUMBER}")
+if(COLORFUL_BUILD_CHANNEL STREQUAL "dev")
+    if(NOT COLORFUL_BUILD_NUMBER)
+        set(COLORFUL_BUILD_NUMBER "local")
+    endif()
+    set(COLORFUL_DISPLAY_VERSION
+        "${PROJECT_VERSION}-dev.${COLORFUL_BUILD_NUMBER}+${COLORFUL_GIT_COMMIT}")
+else()
+    set(COLORFUL_DISPLAY_VERSION "${PROJECT_VERSION}")
+endif()
+
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file(
     src/buildinfo_generated.h.in
@@ -70,6 +88,8 @@ set(COLORFUL_DESKTOP_SOURCES
     src/backend.h
     src/buildinfo.cpp
     src/buildinfo.h
+    src/updatemanager.cpp
+    src/updatemanager.h
     src/corebridge.cpp
     src/corebridge.h
     src/debuglog.cpp

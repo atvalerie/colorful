@@ -20,7 +20,21 @@ if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must contain a three-part numeric version such as 0.2.0" >&2
   exit 1
 fi
-artifact="colorful-$version-$commit-x86_64"
+build_channel="${COLORFUL_BUILD_CHANNEL:-release}"
+case "$build_channel" in
+  release)
+    artifact_version="$version"
+    ;;
+  dev)
+    build_number="${COLORFUL_BUILD_NUMBER:-local}"
+    artifact_version="$version-dev.$build_number"
+    ;;
+  *)
+    echo "COLORFUL_BUILD_CHANNEL must be release or dev" >&2
+    exit 1
+    ;;
+esac
+artifact="colorful-$artifact_version-$commit-x86_64"
 appdir="$dist_dir/$artifact.AppDir"
 
 "$script_dir/check-linux-deps.sh" build

@@ -20,6 +20,7 @@ QVariantMap colorfulBuildInfo()
 #endif
     return {
         {QStringLiteral("version"), QString::fromLatin1(COLORFUL_VERSION)},
+        {QStringLiteral("channel"), QString::fromLatin1(COLORFUL_BUILD_CHANNEL)},
         {QStringLiteral("commit"), QString::fromLatin1(COLORFUL_GIT_COMMIT)},
         {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
         {QStringLiteral("mpv"), QString::fromLatin1(COLORFUL_MPV_VERSION)},

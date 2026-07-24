@@ -276,6 +276,24 @@ Windows runner, and publishes the AppImage, Linux archive, Windows ZIP, and
 upgradeable setup executable together. The release is published only after
 both platform jobs succeed.
 
+Non-documentation pushes to `main` create 14-day development artifacts for
+both desktop platforms without publishing a release. These builds are visibly
+labelled `VERSION-dev.RUN+COMMIT` in Settings and can also be requested
+manually for only Windows or Linux from the **Desktop dev builds** workflow.
+
+New commits follow the Conventional Commits format described in
+[CONTRIBUTING.md](CONTRIBUTING.md). An annotated release tag's message is
+prepended to the categorized changelog generated from those subjects, allowing
+each release to have a hand-written introduction without maintaining a
+changelog file.
+
+Desktop clients check the latest stable GitHub Release at most once every six
+hours and show its Markdown changelog in-app. The Windows action downloads the
+setup executable, verifies GitHub's published SHA-256 asset digest, starts the
+installer, and exits the running client. Linux downloads and verifies the
+AppImage into the user's Downloads directory; portable Linux replacement
+remains explicit rather than modifying a running bundle.
+
 ## Building Android
 
 Install Android Studio with SDK 36, NDK `30.0.15729638`, CMake 4.1.2, an

@@ -10,6 +10,9 @@
 #ifndef Commit
   #define Commit "unknown"
 #endif
+#ifndef BuildLabel
+  #define BuildLabel AppVersion
+#endif
 #define AppPackedVersion StrToVersion(AppVersion + ".0")
 
 [Setup]
@@ -17,7 +20,7 @@
 AppId={{E85A677C-2A51-4D06-87C6-A2788D50AEF8}
 AppName=colorful
 AppVersion={#AppVersion}
-AppVerName=colorful {#AppVersion}
+AppVerName=colorful {#BuildLabel}
 AppPublisher=valerie.sh
 AppPublisherURL=https://github.com/atvalerie/colorful
 AppSupportURL=https://github.com/atvalerie/colorful/issues
@@ -29,7 +32,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
-OutputBaseFilename=colorful-windows-x64-{#AppVersion}-{#Commit}-setup
+OutputBaseFilename=colorful-windows-x64-{#BuildLabel}-{#Commit}-setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -38,7 +41,7 @@ RestartApplications=no
 UsePreviousAppDir=yes
 SetupLogging=yes
 UninstallDisplayIcon={app}\colorful.exe
-UninstallDisplayName=colorful {#AppVersion}
+UninstallDisplayName=colorful {#BuildLabel}
 LicenseFile={#SourceDir}\LICENSE
 VersionInfoVersion={#AppVersion}.0
 VersionInfoProductVersion={#AppVersion}

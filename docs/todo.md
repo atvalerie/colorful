@@ -11,8 +11,8 @@ file unless it provides necessary context for the next milestone.
   builder with its glibc 2.35 ceiling;
 - test the Windows portable ZIP and a two-version in-place installer upgrade
   in a clean Windows VM;
-- exercise the tag-driven GitHub release workflow on a private/test release
-  before treating it as the public release path;
+- test in-app update discovery, changelog rendering, verified Windows setup
+  handoff, and verified Linux AppImage downloads against the next release;
 - decide whether Windows releases will be code-signed before wider publishing;
 - verify bundled playback dependencies, codecs, credential storage, Discord
   RPC, downloads, and provider helpers on both platforms;

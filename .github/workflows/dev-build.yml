@@ -1,0 +1,116 @@
+name: Desktop dev builds
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Platform packages to build
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - windows
+          - linux
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COLORFUL_BUILD_CHANNEL: dev
+  COLORFUL_BUILD_NUMBER: ${{ github.run_number }}
+
+jobs:
+  linux:
+    name: Build Linux dev packages
+    if: github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'linux'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - name: Build cached Linux packaging image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/linux/Dockerfile
+          load: true
+          tags: colorful-linux-builder:ubuntu-22.04
+          cache-from: type=gha,scope=colorful-linux-builder
+          cache-to: type=gha,mode=max,scope=colorful-linux-builder
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/container/cargo
+            .cache/container/target
+            .cache/container/bun
+            .cache/container/linuxdeploy
+          key: linux-dev-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/linux/Dockerfile') }}
+          restore-keys: linux-dev-
+      - name: Build AppImage and portable archive
+        env:
+          COLORFUL_SKIP_LINUX_BUILDER_BUILD: "1"
+        run: ./scripts/package-linux-docker.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colorful-linux-dev-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            dist/*.AppImage
+            dist/*-portable.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  windows:
+    name: Build Windows dev packages
+    if: github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'windows'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\Qt\6.8.3\msvc2022_64
+            ~\colorful-deps
+          key: windows-desktop-deps-v1-qt-6.8.3
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-desktop-dev
+      - name: Install installer compiler
+        shell: powershell
+        run: choco install innosetup --yes --no-progress
+      - name: Install provider dependencies
+        shell: powershell
+        run: bun install --cwd packages/provider-host --frozen-lockfile
+      - name: Provision Qt and media dependencies
+        shell: powershell
+        run: .\scripts\provision-windows-qt.ps1
+      - name: Build portable archive and installer
+        shell: powershell
+        run: .\scripts\package-windows.ps1 -Installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colorful-windows-dev-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            dist/*-portable.zip
+            dist/*-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

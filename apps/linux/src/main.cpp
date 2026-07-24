@@ -1,6 +1,7 @@
 #include "backend.h"
 #include "buildinfo_generated.h"
 #include "debuglog.h"
+#include "updatemanager.h"
 #if defined(Q_OS_LINUX)
 #include "mpris.h"
 #elif defined(Q_OS_WIN)
@@ -16,7 +17,9 @@
 #include <QProcessEnvironment>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickWindow>
 #include <QQuickStyle>
+#include <QScreen>
 #include <QSet>
 #if defined(Q_OS_LINUX)
 #include <QSocketNotifier>
@@ -151,11 +154,36 @@ void importDevelopmentEnvironment()
     importEnvironmentFile(sourceRoot.filePath(QStringLiteral(".env")), inherited);
     importEnvironmentFile(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral(".env")), inherited);
 }
+
+void logDisplayState(QWindow *window)
+{
+    if (!window || !window->screen()) return;
+    const auto *screen = window->screen();
+    const auto geometry = screen->geometry();
+    DebugLog::write(u"display",
+                    QStringLiteral("screen=%1 geometry=%2x%3 logicalDpi=%4 scale=%5 textRenderer=%6")
+                        .arg(screen->name())
+                        .arg(geometry.width())
+                        .arg(geometry.height())
+                        .arg(screen->logicalDotsPerInch(), 0, 'f', 1)
+                        .arg(window->devicePixelRatio(), 0, 'f', 2)
+#if defined(Q_OS_WIN)
+                        .arg(QStringLiteral("native")));
+#else
+                        .arg(QStringLiteral("qt")));
+#endif
+}
 }
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+#if defined(Q_OS_WIN)
+    // Qt Quick's default distance-field renderer can look ragged at Windows
+    // fractional scale factors. DirectWrite-backed native glyph rendering is
+    // sharper for this UI, whose text is not continuously transformed.
+    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+#endif
 #if defined(Q_OS_LINUX)
     // Start listening before backend construction so a signal received during
     // startup remains queued until Qt's event loop can perform a clean exit.
@@ -176,6 +204,7 @@ int main(int argc, char *argv[])
     std::setlocale(LC_NUMERIC, "C");
 
     Backend backend;
+    UpdateManager updater;
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &backend, [&backend] {
         backend.shutdownDiscordPresence();
     });
@@ -184,11 +213,17 @@ int main(int argc, char *argv[])
 #endif
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("colorful"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("updater"), &updater);
     engine.loadFromModule(QStringLiteral("colorful"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty()) return 1;
 
     auto *rootObject = engine.rootObjects().constFirst();
     auto *window = qobject_cast<QWindow *>(rootObject);
+    logDisplayState(window);
+    if (window) {
+        QObject::connect(window, &QWindow::screenChanged, window,
+                         [window](QScreen *) { logDisplayState(window); });
+    }
     NavigationMouseFilter navigationMouse(rootObject, &app);
     app.installEventFilter(&navigationMouse);
 #if defined(Q_OS_WIN)
