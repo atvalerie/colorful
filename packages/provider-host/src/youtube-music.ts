@@ -12,6 +12,7 @@ const PLAYLIST_BROWSE_CURSOR = "youtube-music-browse:";
 const PLAYLIST_WATCH_CURSOR = "youtube-music-watch:";
 const AUTOMIX_CURSOR = "youtube-music-automix:";
 const ARTIST_TRACKS_CURSOR = "youtube-music-artist-tracks:";
+const YOUTUBE_REQUEST_TIMEOUT_MS = 15_000;
 let accessTokenProvider: (() => Promise<string>) | null = null;
 let browserHeadersProvider: (() => Promise<Record<string, string>>) | null = null;
 let visitorIdPromise: Promise<string> | null = null;
@@ -569,6 +570,7 @@ export async function youtubei(endpoint: YouTubeiEndpoint, body: JsonObject,
   const browserClientVersion = browserHeaders["x-youtube-client-version"] || clientVersion();
   const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json${browserCookie ? `&key=${MUSIC_API_KEY}` : ""}`, {
     method: "POST",
+    signal: AbortSignal.timeout(YOUTUBE_REQUEST_TIMEOUT_MS),
     headers: {
       "Content-Type": "application/json",
       "Accept": "*/*",
@@ -730,7 +732,7 @@ export interface YouTubeMusicAutomixPage {
   cursor: string;
 }
 
-function mapYouTubeMusicAutomixDocument(document: JsonObject, excludedVideo = ""): YouTubeMusicAutomixPage {
+export function mapYouTubeMusicAutomixDocument(document: JsonObject, excludedVideo = ""): YouTubeMusicAutomixPage {
   const renderers = children(document, "playlistPanelVideoRenderer");
   const tracks = renderers.map(mapPlaylistTrack)
     .filter((track): track is TrackSummary => track !== null && track.id !== excludedVideo);
@@ -739,10 +741,12 @@ function mapYouTubeMusicAutomixDocument(document: JsonObject, excludedVideo = ""
   return { tracks: unique, cursor: continuation ? `${AUTOMIX_CURSOR}${continuation}` : "" };
 }
 
-export async function youtubeMusicAutomixPage(video: string): Promise<YouTubeMusicAutomixPage> {
+export async function youtubeMusicAutomixPage(video: string, includeSeed = false): Promise<YouTubeMusicAutomixPage> {
   const startedAt = Date.now();
   const document = await youtubei("next", youtubeMusicAutomixRequest(video));
-  const page = mapYouTubeMusicAutomixDocument(document, video);
+  // Related-track callers must not enqueue the track that is already playing,
+  // while a radio card must start with the track pictured on that card.
+  const page = mapYouTubeMusicAutomixDocument(document, includeSeed ? "" : video);
   if (!page.tracks.length) throw new Error("YouTube Music returned an empty automix queue");
   debugLog("youtube.automix", "page_resolved", {
     videoId: video, trackCount: page.tracks.length, hasCursor: Boolean(page.cursor), elapsedMs: Date.now() - startedAt,
@@ -1057,13 +1061,42 @@ export function mapYouTubeMusicCollectionDocuments(documents: {
     albums: albumsFromDocument(documents.albums),
     artists: artistsFromDocument(documents.artists),
     playlists,
-    mixes: homePlaylists.filter((playlist) => playlist.id.startsWith("RD") || !playlists.some((item) => item.id === playlist.id)),
+    // Home also contains albums and track cards with incidental watch
+    // playlist IDs. Only YouTube's RD-prefixed radio/mix IDs belong on the
+    // mixes shelf.
+    mixes: homePlaylists.filter((playlist) => playlist.id.startsWith("RD")),
     cursors: {},
   };
 }
 
+export function youtubeMusicRadioVideoId(playlistId: string): string {
+  const cleanId = playlistId.replace(/^VL/, "");
+  const videoId = cleanId.startsWith("RDAMVM") ? cleanId.slice("RDAMVM".length) : "";
+  return /^[A-Za-z0-9_-]{11}$/.test(videoId) ? videoId : "";
+}
+
 export async function youtubeMusicPlaylist(playlistId: string): Promise<PlaylistPage> {
   const cleanId = playlistId.replace(/^VL/, "");
+  const radioVideoId = youtubeMusicRadioVideoId(cleanId);
+  if (radioVideoId) {
+    const page = await youtubeMusicAutomixPage(radioVideoId, true);
+    return {
+      kind: "playlist",
+      playlist: {
+        id: cleanId,
+        name: "YouTube Music radio",
+        description: null,
+        coverUrl: page.tracks[0]?.coverUrl ?? null,
+        durationMs: null,
+        numberOfItems: page.tracks.length,
+        playlistType: "Mix",
+        createdAt: null,
+        lastModifiedAt: null,
+      },
+      tracks: page.tracks,
+      ...(page.cursor ? { trackCursor: page.cursor } : {}),
+    };
+  }
   const document = await youtubei("browse", { browseId: `VL${cleanId}` }, accessTokenProvider !== null || browserHeadersProvider !== null);
   return mapYouTubeMusicPlaylistDocument(document, cleanId);
 }
@@ -1134,6 +1167,8 @@ function watchContinuationToken(document: JsonObject): string {
 
 export async function youtubeMusicShuffledPlaylist(playlistId: string): Promise<{ tracks: TrackSummary[]; cursor: string }> {
   const cleanId = playlistId.replace(/^VL/, "");
+  const radioVideoId = youtubeMusicRadioVideoId(cleanId);
+  if (radioVideoId) return youtubeMusicAutomixPage(radioVideoId, true);
   const document = await youtubei("next", {
     playlistId: cleanId,
     params: "wAEB8gECKAE%3D",

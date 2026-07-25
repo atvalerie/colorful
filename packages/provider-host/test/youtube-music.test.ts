@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument, parseYouTubeMusicBootstrap, parseYouTubeSignatureTimestamp, youtubeMusicAutomixContinuation, youtubeMusicAutomixRequest, youtubeMusicContinuationToken, youtubeMusicPremiumStatusFromHtml } from "../src/youtube-music";
+import { mapYouTubeMusicAutomixDocument, mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument, parseYouTubeMusicBootstrap, parseYouTubeSignatureTimestamp, youtubeMusicAutomixContinuation, youtubeMusicAutomixRequest, youtubeMusicContinuationToken, youtubeMusicPremiumStatusFromHtml, youtubeMusicRadioVideoId } from "../src/youtube-music";
 import { parseYouTubeBrowserHeaders, selectYouTubeBrowserHeaders } from "../src/youtube-auth";
 
 describe("authenticated YouTube Music mapping", () => {
@@ -62,7 +62,11 @@ describe("authenticated YouTube Music mapping", () => {
     const result = mapYouTubeMusicCollectionDocuments({
       songs: {}, albums: {}, artists: {},
       playlists: { contents: [playlist("Private list", "PL_PRIVATE")] },
-      home: { contents: [playlist("My Mix", "RDCLAK_MIX")] },
+      home: { contents: [
+        playlist("My Mix", "RDCLAK_MIX"),
+        playlist("Recommended album", "OLAK5uy_NOT_A_MIX"),
+        playlist("Recommended playlist", "PL_PUBLIC"),
+      ] },
     });
     expect(result.playlists).toEqual([expect.objectContaining({
       id: "PL_PRIVATE", name: "Private list", numberOfItems: 12,
@@ -70,6 +74,13 @@ describe("authenticated YouTube Music mapping", () => {
     expect(result.mixes).toEqual([expect.objectContaining({
       id: "RDCLAK_MIX", name: "My Mix", playlistType: "Mix",
     })]);
+  });
+
+  test("recognizes watch radios that must use the automix endpoint", () => {
+    expect(youtubeMusicRadioVideoId("RDAMVMabcdefghijk")).toBe("abcdefghijk");
+    expect(youtubeMusicRadioVideoId("VLRDAMVMabcdefghijk")).toBe("abcdefghijk");
+    expect(youtubeMusicRadioVideoId("RDTMAK5uy_personalized")).toBe("");
+    expect(youtubeMusicRadioVideoId("RDAMVMtoo-short")).toBe("");
   });
 
   test("keeps a playlist's total count instead of the loaded track count", () => {
@@ -126,6 +137,22 @@ describe("authenticated YouTube Music mapping", () => {
     expect(request).not.toHaveProperty("clickTracking");
     expect(request).not.toHaveProperty("loggingContext");
     expect(request).not.toHaveProperty("responsiveSignals");
+  });
+
+  test("keeps the seed for radio playback but can exclude it from related tracks", () => {
+    const item = (id: string, title: string) => ({ playlistPanelVideoRenderer: {
+      title: { runs: [{ text: title }] },
+      navigationEndpoint: { watchEndpoint: { videoId: id } },
+      longBylineText: { runs: [{ text: "Artist" }] },
+    } });
+    const document = { panel: { playlistPanelRenderer: { contents: [
+      item("abcdefghijk", "Seed"),
+      item("bcdefghijkl", "Recommendation"),
+    ] } } };
+    expect(mapYouTubeMusicAutomixDocument(document).tracks.map((track) => track.id))
+      .toEqual(["abcdefghijk", "bcdefghijkl"]);
+    expect(mapYouTubeMusicAutomixDocument(document, "abcdefghijk").tracks.map((track) => track.id))
+      .toEqual(["bcdefghijkl"]);
   });
 
   test("reconstructs YouTube Music's radio continuation from the last queue item", () => {
