@@ -1,5 +1,7 @@
 #include "discordpresence.h"
 
+#include "debuglog.h"
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -14,11 +16,9 @@ namespace {
 constexpr auto defaultApplicationId = "1528095256820842606";
 constexpr quint32 maximumFrameSize = 1024 * 1024;
 
+#if !defined(Q_OS_WIN)
 QString discordRuntimeDirectory()
 {
-#if defined(Q_OS_WIN)
-    return QStringLiteral("\\\\?\\pipe");
-#else
     const auto environment = QProcessEnvironment::systemEnvironment();
     for (const auto &name : {QStringLiteral("XDG_RUNTIME_DIR"), QStringLiteral("TMPDIR"),
                              QStringLiteral("TMP"), QStringLiteral("TEMP")}) {
@@ -26,8 +26,8 @@ QString discordRuntimeDirectory()
         if (!value.isEmpty()) return value;
     }
     return QStringLiteral("/tmp");
-#endif
 }
+#endif
 }
 
 DiscordPresence::DiscordPresence(QObject *parent)
@@ -53,6 +53,13 @@ DiscordPresence::DiscordPresence(QObject *parent)
     connect(&m_socket, &QLocalSocket::errorOccurred, this, [this](QLocalSocket::LocalSocketError) {
         if (m_shuttingDown || m_socket.state() != QLocalSocket::UnconnectedState) return;
         ++m_candidateIndex;
+        if (m_candidateIndex >= m_candidates.size() && !m_unavailableLogged) {
+            m_unavailableLogged = true;
+            DebugLog::write(u"discord",
+                            QStringLiteral("RPC unavailable after %1 candidates: %2")
+                                .arg(m_candidates.size())
+                                .arg(m_socket.errorString()));
+        }
         QTimer::singleShot(0, this, &DiscordPresence::connectToDiscord);
     });
     connectToDiscord();
@@ -164,8 +171,10 @@ void DiscordPresence::connectToDiscord()
         m_candidateIndex = 0;
         for (int index = 0; index < 10; ++index) {
 #if defined(Q_OS_WIN)
-            const auto path = discordRuntimeDirectory() + QStringLiteral("\\discord-ipc-%1").arg(index);
-            m_candidates.append(path);
+            // QLocalSocket adds Windows' \\.\pipe\ namespace itself. Passing
+            // Discord's documented full \\?\pipe\ path would make Qt prepend
+            // a second, incompatible pipe namespace.
+            m_candidates.append(QStringLiteral("discord-ipc-%1").arg(index));
 #else
             const QDir runtime(discordRuntimeDirectory());
             const auto path = runtime.filePath(QStringLiteral("discord-ipc-%1").arg(index));
@@ -183,6 +192,9 @@ void DiscordPresence::connectToDiscord()
 
 void DiscordPresence::handleConnected()
 {
+    m_unavailableLogged = false;
+    DebugLog::write(u"discord",
+                    QStringLiteral("RPC pipe connected candidate=%1").arg(m_candidateIndex));
     m_ready = false;
     m_readBuffer.clear();
     writeFrame(Opcode::Handshake, {
@@ -243,6 +255,7 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
                                 .value(QStringLiteral("id")).toString();
         if (!userId.isEmpty()) emit userIdResolved(userId);
         m_ready = true;
+        DebugLog::write(u"discord", QStringLiteral("RPC ready"));
         if (m_staleProcessId > 0) {
             clearActivityForProcess(m_staleProcessId);
             m_staleProcessId = 0;

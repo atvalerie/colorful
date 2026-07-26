@@ -55,4 +55,5 @@ private:
     bool m_ready = false;
     bool m_hasDesiredActivity = false;
     bool m_shuttingDown = false;
+    bool m_unavailableLogged = false;
 };
