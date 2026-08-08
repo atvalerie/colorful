@@ -10,8 +10,10 @@ Item {
     Image {
         anchors.fill: parent
         source: root.iconSource
+        sourceSize: Qt.size(Math.max(1, Math.round(width * Screen.devicePixelRatio)),
+                            Math.max(1, Math.round(height * Screen.devicePixelRatio)))
         fillMode: Image.PreserveAspectFit
         smooth: true
-        mipmap: true
+        mipmap: false
     }
 }
