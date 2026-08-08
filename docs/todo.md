@@ -11,11 +11,8 @@ file unless it provides necessary context for the next milestone.
   builder with its glibc 2.35 ceiling;
 - test the Windows portable ZIP and a two-version in-place installer upgrade
   in a clean Windows VM;
-- test in-app update discovery, changelog rendering, verified Windows setup
-  handoff, and verified Linux AppImage downloads against the next release;
-- decide whether Windows releases will be code-signed before wider publishing;
-- verify bundled playback dependencies, codecs, credential storage, Discord
-  RPC, downloads, and provider helpers on both platforms;
+- verify bundled playback dependencies, codecs, credential storage, downloads,
+  and provider helpers on both platforms;
 - continue fixing playback, provider, layout, and packaging bugs found by
   real-world testing.
 
@@ -90,7 +87,6 @@ The detailed security and merge model lives in [sync.md](sync.md).
 - migrate provider behavior away from the transitional Bun sidecar where a
   shared or native implementation is practical;
 - listening parties over LAN, peer-to-peer connectivity, and relay fallback;
-- customizable Discord statistics widgets and profile-board layouts;
 - deeper appearance and accent customization;
 - optional encrypted local-file transfer between trusted devices;
 - provider write actions only if they become an explicit product requirement.

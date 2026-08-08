@@ -34,8 +34,8 @@ DiscordPresence::DiscordPresence(QObject *parent)
     : QObject(parent)
 {
     QSettings settings;
-    m_applicationId = settings.value(QStringLiteral("discord/applicationId"),
-                                     QString::fromLatin1(defaultApplicationId)).toString();
+    m_applicationId = QString::fromLatin1(defaultApplicationId);
+    settings.remove(QStringLiteral("discord/applicationId"));
     const auto currentProcessId = QCoreApplication::applicationPid();
     const auto previousProcessId = settings.value(QStringLiteral("discord/lastRpcProcessId"), 0).toLongLong();
     if (previousProcessId > 0 && previousProcessId != currentProcessId) {
@@ -68,24 +68,6 @@ DiscordPresence::DiscordPresence(QObject *parent)
 DiscordPresence::~DiscordPresence()
 {
     shutdown();
-}
-
-void DiscordPresence::setApplicationId(const QString &applicationId)
-{
-    const auto trimmed = applicationId.trimmed();
-    if (trimmed == m_applicationId) return;
-    if (m_ready && m_socket.state() == QLocalSocket::ConnectedState) {
-        clearActivityForProcess(QCoreApplication::applicationPid());
-        flushActivity(300);
-    }
-    m_applicationId = trimmed;
-    m_ready = false;
-    m_readBuffer.clear();
-    m_candidates.clear();
-    m_candidateIndex = 0;
-    m_reconnectTimer.stop();
-    m_socket.abort();
-    QTimer::singleShot(0, this, &DiscordPresence::connectToDiscord);
 }
 
 void DiscordPresence::shutdown()
@@ -250,10 +232,6 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
     const auto message = document.object();
     if (message.value(QStringLiteral("cmd")).toString() == QStringLiteral("DISPATCH")
         && message.value(QStringLiteral("evt")).toString() == QStringLiteral("READY")) {
-        const auto userId = message.value(QStringLiteral("data")).toObject()
-                                .value(QStringLiteral("user")).toObject()
-                                .value(QStringLiteral("id")).toString();
-        if (!userId.isEmpty()) emit userIdResolved(userId);
         m_ready = true;
         DebugLog::write(u"discord", QStringLiteral("RPC ready"));
         if (m_staleProcessId > 0) {

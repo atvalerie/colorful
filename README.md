@@ -47,7 +47,7 @@ colorful is an early personal alpha, not a packaged consumer release.
 
 | Target | Status | Current implementation |
 | --- | --- | --- |
-| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence and statistics widget, Secret Service, TIDAL, YouTube Music, and SoundCloud, persistent queue/library |
+| Linux | Usable alpha | Qt 6/QML, embedded libmpv, MPRIS, Discord Rich Presence, Secret Service, TIDAL, YouTube Music, and SoundCloud, persistent queue/library |
 | Android | Working vertical slice | Kotlin/Compose, Media3 `MediaSessionService`, Android Keystore, TIDAL device linking/search/playback, and Rust/SQLite queue persistence |
 | Windows | Qt alpha build | The same Qt/QML desktop shell as Linux, embedded libmpv over WASAPI, Windows media controls, DPAPI credentials, and the Rust/SQLite engine |
 | iOS | Planned | SwiftUI, AVFoundation/AVAudioEngine, Keychain, system Now Playing integration |
@@ -352,14 +352,7 @@ and [local storage contract](docs/storage.md) for the longer version.
 ## Discord integrations
 
 Desktop Rich Presence publishes the active local track through Discord's local
-IPC connection. The separate owner-only profile widget publishes aggregate
-all-time listening statistics and can eventually include mobile listens
-received through encrypted sync. Its Application ID is editable so each user
-can connect an application and widget configuration they own. Bot tokens stay
-in the platform credential store and are kept separate per application.
-
-Setup and the published field contract are documented in the
-[Discord statistics widget guide](docs/discord-widget.md).
+IPC connection.
 
 ## Contributing and AI-generated code
 

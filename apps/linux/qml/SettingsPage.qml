@@ -441,67 +441,7 @@ Item {
                     id: integrationsBody
                     width: Math.min(parent.width, 820); spacing: 12
                     Text { text: "Integrations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
-                    Text { text: "Discord Rich Presence starts automatically. The optional profile widget publishes your local listening statistics."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                    Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 62
-                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
-                        RowLayout { anchors.fill: parent; anchors.margins: 13
-                            ColumnLayout { Layout.fillWidth: true; spacing: 2
-                                Text { text: "Discord profile widget"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
-                                Text { text: colorful.discordWidgetStatus; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(10 * colorful.textScale); elide: Text.ElideRight; Layout.fillWidth: true }
-                            }
-                            Text { text: colorful.discordWidgetEnabled ? "ENABLED" : "DISABLED"; color: colorful.discordWidgetEnabled ? "#55dca0" : Qt.rgba(1, 1, 1, 0.36); font.bold: true; font.pixelSize: Math.round(10 * colorful.textScale); font.letterSpacing: 1 }
-                        }
-                    }
-                    Text { text: "Application"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
-                    TextField {
-                        id: discordApplicationId
-                        Layout.fillWidth: true; implicitHeight: 40; enabled: !colorful.discordWidgetBusy
-                        text: colorful.discordApplicationId; inputMethodHints: Qt.ImhDigitsOnly
-                        validator: RegularExpressionValidator { regularExpression: /^[0-9]{15,22}$/ }
-                        placeholderText: "Discord Application ID"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.34); color: "#f5f5f5"; selectByMouse: true
-                        background: Rectangle { color: Qt.rgba(0.025, 0.025, 0.03, 0.86); border.width: 1; border.color: root.fieldBackground(discordApplicationId) }
-                    }
-                    RowLayout { Layout.fillWidth: true; spacing: 8
-                        ColorButton { text: "Save application ID"; enabled: discordApplicationId.acceptableInput && discordApplicationId.text !== colorful.discordApplicationId && !colorful.discordWidgetBusy; onClicked: colorful.discordApplicationId = discordApplicationId.text }
-                        ColorButton { text: "Authorize widget"; quiet: true; enabled: !colorful.discordWidgetBusy; onClicked: colorful.authorizeDiscordWidget() }
-                        Item { Layout.fillWidth: true }
-                    }
-                    TextField {
-                        id: discordRedirectUri
-                        Layout.fillWidth: true; implicitHeight: 40; enabled: !colorful.discordWidgetBusy
-                        text: colorful.discordRedirectUri; placeholderText: "OAuth2 redirect URI"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.34); color: "#f5f5f5"; selectByMouse: true
-                        background: Rectangle { color: Qt.rgba(0.025, 0.025, 0.03, 0.86); border.width: 1; border.color: root.fieldBackground(discordRedirectUri) }
-                    }
-                    ColorButton { text: "Save redirect URI"; Layout.alignment: Qt.AlignLeft; enabled: discordRedirectUri.text.trim().length > 0 && discordRedirectUri.text !== colorful.discordRedirectUri && !colorful.discordWidgetBusy; onClicked: colorful.discordRedirectUri = discordRedirectUri.text.trim() }
-                    Text { text: "Widget owner"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 6 }
-                    TextField {
-                        id: discordWidgetUserId
-                        Layout.fillWidth: true; implicitHeight: 40; enabled: !colorful.discordWidgetBusy
-                        text: colorful.discordWidgetUserId; inputMethodHints: Qt.ImhDigitsOnly
-                        validator: RegularExpressionValidator { regularExpression: /^[0-9]{15,22}$/ }
-                        placeholderText: "Discord owner user ID"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.34); color: "#f5f5f5"; selectByMouse: true
-                        background: Rectangle { color: Qt.rgba(0.025, 0.025, 0.03, 0.86); border.width: 1; border.color: root.fieldBackground(discordWidgetUserId) }
-                    }
-                    RowLayout { Layout.fillWidth: true; spacing: 8
-                        ColorButton { text: "Save owner ID"; enabled: discordWidgetUserId.acceptableInput && discordWidgetUserId.text !== colorful.discordWidgetUserId && !colorful.discordWidgetBusy; onClicked: colorful.discordWidgetUserId = discordWidgetUserId.text }
-                        ColorButton { quiet: true; text: colorful.discordWidgetUserIdAutomatic ? "Using Discord IPC" : "Use detected Discord user"; enabled: !colorful.discordWidgetUserIdAutomatic && !colorful.discordWidgetBusy; onClicked: colorful.useDetectedDiscordWidgetUserId() }
-                        Item { Layout.fillWidth: true }
-                    }
-                    Text { text: "Publishing credential"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 6 }
-                    TextField {
-                        id: discordWidgetToken
-                        Layout.fillWidth: true; implicitHeight: 40; enabled: !colorful.discordWidgetBusy; echoMode: TextInput.Password
-                        placeholderText: colorful.discordWidgetConfigured ? "Replace stored bot token" : "Bot token"; placeholderTextColor: Qt.rgba(1, 1, 1, 0.34); color: "#f5f5f5"; selectByMouse: true
-                        background: Rectangle { color: Qt.rgba(0.025, 0.025, 0.03, 0.86); border.width: 1; border.color: root.fieldBackground(discordWidgetToken) }
-                    }
-                    RowLayout { Layout.fillWidth: true; spacing: 8
-                        ColorButton { text: colorful.discordWidgetConfigured ? "Replace token" : "Store token"; enabled: discordWidgetToken.text.trim().length > 0 && !colorful.discordWidgetBusy; onClicked: { colorful.storeDiscordWidgetToken(discordWidgetToken.text); discordWidgetToken.clear() } }
-                        ColorButton { quiet: true; text: colorful.discordWidgetEnabled ? "Disable widget" : "Enable widget"; enabled: colorful.discordWidgetConfigured && !colorful.discordWidgetBusy; onClicked: colorful.discordWidgetEnabled = !colorful.discordWidgetEnabled }
-                        ColorButton { quiet: true; text: "Publish now"; enabled: colorful.discordWidgetEnabled && colorful.discordWidgetConfigured && !colorful.discordWidgetBusy && colorful.listenStats.playCount > 0; onClicked: colorful.publishDiscordWidgetNow() }
-                        Item { Layout.fillWidth: true }
-                        ColorButton { quiet: true; text: "Forget token"; enabled: colorful.discordWidgetConfigured && !colorful.discordWidgetBusy; onClicked: colorful.forgetDiscordWidgetToken() }
-                    }
+                    Text { text: "Discord Rich Presence starts automatically while Discord is running."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 }
             }
 

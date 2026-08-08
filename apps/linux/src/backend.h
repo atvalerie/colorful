@@ -1,7 +1,6 @@
 #pragma once
 
 #include "discordpresence.h"
-#include "discordwidget.h"
 #include "corebridge.h"
 #include "linuxplayback.h"
 
@@ -94,14 +93,6 @@ class Backend final : public QObject
     Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
     Q_PROPERTY(QVariantMap buildInfo READ buildInfo CONSTANT)
-    Q_PROPERTY(bool discordWidgetEnabled READ discordWidgetEnabled WRITE setDiscordWidgetEnabled NOTIFY discordWidgetChanged)
-    Q_PROPERTY(bool discordWidgetConfigured READ discordWidgetConfigured NOTIFY discordWidgetChanged)
-    Q_PROPERTY(bool discordWidgetBusy READ discordWidgetBusy NOTIFY discordWidgetChanged)
-    Q_PROPERTY(QString discordWidgetStatus READ discordWidgetStatus NOTIFY discordWidgetChanged)
-    Q_PROPERTY(QString discordApplicationId READ discordApplicationId WRITE setDiscordApplicationId NOTIFY discordWidgetChanged)
-    Q_PROPERTY(QString discordRedirectUri READ discordRedirectUri WRITE setDiscordRedirectUri NOTIFY discordWidgetChanged)
-    Q_PROPERTY(QString discordWidgetUserId READ discordWidgetUserId WRITE setDiscordWidgetUserId NOTIFY discordWidgetChanged)
-    Q_PROPERTY(bool discordWidgetUserIdAutomatic READ discordWidgetUserIdAutomatic NOTIFY discordWidgetChanged)
 
 public:
     explicit Backend(QObject *parent = nullptr);
@@ -179,15 +170,6 @@ public:
     QString equalizerPreset() const { return m_equalizerPreset; }
     QVariantMap listenStats() const { return m_listenStats; }
     QVariantMap buildInfo() const;
-    bool discordWidgetEnabled() const { return m_discordWidget.enabled(); }
-    bool discordWidgetConfigured() const { return m_discordWidget.configured(); }
-    bool discordWidgetBusy() const { return m_discordWidget.busy(); }
-    QString discordWidgetStatus() const { return m_discordWidget.status(); }
-    QString discordApplicationId() const { return m_discordWidget.applicationId(); }
-    QString discordRedirectUri() const { return m_discordWidget.redirectUri(); }
-    QString discordWidgetUserId() const { return m_discordWidget.userId(); }
-    bool discordWidgetUserIdAutomatic() const { return m_discordWidget.userIdAutomatic(); }
-
     QString playbackStatus() const;
     QVariantMap mprisMetadata() const;
     bool canGoNext() const;
@@ -288,15 +270,6 @@ public:
     Q_INVOKABLE void setLowDataMode(bool enabled);
     Q_INVOKABLE void setHardwareAccelerationEnabled(bool enabled);
     Q_INVOKABLE void setTextScale(double scale);
-    Q_INVOKABLE void setDiscordWidgetEnabled(bool enabled);
-    Q_INVOKABLE void setDiscordApplicationId(const QString &applicationId);
-    Q_INVOKABLE void setDiscordRedirectUri(const QString &redirectUri);
-    Q_INVOKABLE void setDiscordWidgetUserId(const QString &userId);
-    Q_INVOKABLE void useDetectedDiscordWidgetUserId();
-    Q_INVOKABLE void authorizeDiscordWidget();
-    Q_INVOKABLE void storeDiscordWidgetToken(const QString &token);
-    Q_INVOKABLE void forgetDiscordWidgetToken();
-    Q_INVOKABLE void publishDiscordWidgetNow();
     void shutdownDiscordPresence() { m_discordPresence.shutdown(); }
 
 signals:
@@ -339,7 +312,6 @@ signals:
     void audioProcessingChanged();
     void onboardingCompletedChanged();
     void listenStatsChanged();
-    void discordWidgetChanged();
     void toastRequested(const QString &message, const QString &kind);
     void seeked(qint64 positionMs);
     void quitRequested();
@@ -445,7 +417,6 @@ private:
     qint64 m_resumePositionMs = 0;
     qint64 m_displayPositionOverride = -1;
     DiscordPresence m_discordPresence;
-    DiscordWidgetExporter m_discordWidget;
     QNetworkAccessManager m_network;
     QVariantAnimation m_accentAnimation;
     QVariantList m_searchResults;

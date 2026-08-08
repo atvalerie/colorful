@@ -42,7 +42,7 @@ Secret Service; Windows adds SMTC, WASAPI, and per-user DPAPI encryption.
 - album-derived or fixed contrast-safe accents, plus a no-artwork low-data
   mode;
 - action toasts, settings/storage/account views, qualified listening history,
-  and the optional owner-only Discord statistics widget.
+  and Discord Rich Presence.
 
 Encrypted device sync and parties are not implemented yet. Linux packaging
 produces an AppImage and portable AppDir archive with a compiled

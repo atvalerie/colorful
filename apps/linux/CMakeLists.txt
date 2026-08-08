@@ -98,8 +98,6 @@ set(COLORFUL_DESKTOP_SOURCES
     src/linuxplayback.h
     src/discordpresence.cpp
     src/discordpresence.h
-    src/discordwidget.cpp
-    src/discordwidget.h
 )
 if(UNIX AND NOT APPLE)
     list(APPEND COLORFUL_DESKTOP_SOURCES src/mpris.cpp src/mpris.h)

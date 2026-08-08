@@ -194,15 +194,6 @@ Backend::Backend(QObject *parent)
         resolveCurrentSource(0, m_manualSkipAutoplay && playing());
     });
 
-    connect(&m_discordWidget, &DiscordWidgetExporter::stateChanged,
-            this, &Backend::discordWidgetChanged);
-    connect(&m_discordPresence, &DiscordPresence::userIdResolved,
-            &m_discordWidget, &DiscordWidgetExporter::setUserId);
-    m_discordPresence.setApplicationId(m_discordWidget.applicationId());
-    connect(this, &Backend::listenStatsChanged, this, [this] {
-        m_discordWidget.setStats(m_listenStats);
-    });
-
     connect(&m_provider, &QProcess::readyReadStandardOutput, this, &Backend::processProviderOutput);
     connect(&m_provider, &QProcess::readyReadStandardError, this, [this] {
         const auto detail = QString::fromUtf8(m_provider.readAllStandardError()).trimmed();
@@ -3784,52 +3775,6 @@ void Backend::setTextScale(double scale)
     m_textScale = scale;
     QSettings().setValue(QStringLiteral("appearance/textScale"), scale);
     emit appearanceChanged();
-}
-
-void Backend::setDiscordWidgetEnabled(bool enabled)
-{
-    m_discordWidget.setEnabled(enabled);
-}
-
-void Backend::setDiscordApplicationId(const QString &applicationId)
-{
-    m_discordWidget.setApplicationId(applicationId);
-    m_discordPresence.setApplicationId(m_discordWidget.applicationId());
-}
-
-void Backend::setDiscordRedirectUri(const QString &redirectUri)
-{
-    m_discordWidget.setRedirectUri(redirectUri);
-}
-
-void Backend::setDiscordWidgetUserId(const QString &userId)
-{
-    m_discordWidget.setUserIdOverride(userId);
-}
-
-void Backend::useDetectedDiscordWidgetUserId()
-{
-    m_discordWidget.setUserIdOverride({});
-}
-
-void Backend::authorizeDiscordWidget()
-{
-    m_discordWidget.authorize();
-}
-
-void Backend::storeDiscordWidgetToken(const QString &token)
-{
-    m_discordWidget.storeToken(token);
-}
-
-void Backend::forgetDiscordWidgetToken()
-{
-    m_discordWidget.forgetToken();
-}
-
-void Backend::publishDiscordWidgetNow()
-{
-    m_discordWidget.publishNow();
 }
 
 void Backend::updateDiscordPresence()
