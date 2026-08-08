@@ -38,7 +38,7 @@ Item {
                     Text {
                         id: label; anchors.centerIn: parent; text: modelData
                         color: root.tab === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.56)
-                        font.bold: root.tab === index; font.pixelSize: 12
+                        font.bold: root.tab === index; font.pixelSize: Math.round(12 * colorful.textScale)
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.tab = index }
@@ -63,7 +63,7 @@ Item {
                         visible: (root.hub.suggestedArtists || []).length > 0
                         height: visible ? 246 : 0
                         RowLayout { width: parent.width
-                            Text { text: "Who to follow"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Text { text: "Who to follow"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                             Item { Layout.fillWidth: true }
                         }
                         Item {
@@ -88,7 +88,7 @@ Item {
                         required property var modelData
                         width: homeList.width; height: 252; spacing: 8
                         RowLayout { width: parent.width
-                            Text { text: soundcloudShelf.modelData.title || "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Text { text: soundcloudShelf.modelData.title || "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                             Item { Layout.fillWidth: true }
                         }
                         Item {
@@ -113,8 +113,8 @@ Item {
                 Column {
                     anchors.centerIn: parent; spacing: 8
                     visible: colorful.soundcloudLinked && !colorful.soundcloudHubLoading && root.homeEmpty
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Nothing recommended yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 16 }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "SoundCloud did not return any home shelves for this account."; color: Qt.rgba(1, 1, 1, 0.44); font.pixelSize: 12 }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Nothing recommended yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "SoundCloud did not return any home shelves for this account."; color: Qt.rgba(1, 1, 1, 0.44); font.pixelSize: Math.round(12 * colorful.textScale) }
                 }
             }
 
@@ -129,7 +129,7 @@ Item {
                         width: tracks.width; spacing: 12
                         visible: !root.libraryEmpty; height: visible ? implicitHeight + 10 : 0
                         RowLayout { width: parent.width; visible: (root.hub.artists || []).length > 0
-                            Text { text: "Following"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Text { text: "Following"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                             Item { Layout.fillWidth: true }
                         }
                         Item {
@@ -156,7 +156,7 @@ Item {
                             onClicked: colorful.loadMoreSoundCloud("artists")
                         }
                         RowLayout { width: parent.width; visible: (root.hub.albums || []).length > 0
-                            Text { text: "Sets & playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Text { text: "Sets & playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                             Item { Layout.fillWidth: true }
                         }
                         Item {
@@ -182,7 +182,7 @@ Item {
                             quiet: true; enabled: !colorful.soundcloudMoreLoading
                             onClicked: colorful.loadMoreSoundCloud("albums")
                         }
-                        Text { visible: (root.hub.tracks || []).length > 0; text: "Liked tracks"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                        Text { visible: (root.hub.tracks || []).length > 0; text: "Liked tracks"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                     }
                     delegate: TrackDelegate {
                         required property var modelData
@@ -210,8 +210,8 @@ Item {
                     anchors.centerIn: parent; width: Math.min(430, parent.width - 48); spacing: 9
                     visible: colorful.soundcloudLinked && !colorful.soundcloudHubLoading && root.libraryEmpty
                     AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/soundcloud.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "Your SoundCloud library is empty"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: 16 }
-                    Text { width: parent.width; text: "Liked tracks, sets, and followed profiles will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 12 }
+                    Text { width: parent.width; text: "Your SoundCloud library is empty"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                    Text { width: parent.width; text: "Liked tracks, sets, and followed profiles will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(12 * colorful.textScale) }
                 }
             }
         }
@@ -220,7 +220,7 @@ Item {
     BusyIndicator { anchors.centerIn: parent; running: colorful.soundcloudHubLoading; visible: running }
     Column {
         anchors.centerIn: parent; spacing: 12; visible: !colorful.soundcloudLinked
-        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect SoundCloud to load your home and library"; color: Qt.rgba(1, 1, 1, 0.52); font.pixelSize: 13 }
+        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect SoundCloud to load your home and library"; color: Qt.rgba(1, 1, 1, 0.52); font.pixelSize: Math.round(13 * colorful.textScale) }
         ColorButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Open account settings"; onClicked: window.openSettings(0) }
     }
 }

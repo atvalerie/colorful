@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseSyncedLyrics } from "../src/lyrics";
+import { parseSyncedLyrics, preferLyrics, type LyricsDocument } from "../src/lyrics";
 
 describe("lyrics normalization", () => {
   test("parses and orders LRC timestamps", () => {
@@ -14,5 +14,19 @@ describe("lyrics normalization", () => {
 
   test("ignores metadata and invalid timestamps", () => {
     expect(parseSyncedLyrics("[ar:Someone]\n[00:99.00]nope\nplain")) .toEqual([]);
+  });
+
+  test("prefers synced fallback lyrics over plain provider lyrics", () => {
+    const base: LyricsDocument = {
+      trackId: "1", provider: "tidal", source: "tidal", sourceLabel: "TIDAL",
+      synced: false, instrumental: false, lines: [], plainText: "plain",
+      romanizedLines: [], romanizedText: "", romanizedSynced: false, fetchedAtMs: 1,
+    };
+    const synced: LyricsDocument = {
+      ...base, source: "lrclib", sourceLabel: "LRCLIB", synced: true,
+      lines: [{ startMs: 1000, text: "timed" }],
+    };
+    expect(preferLyrics(base, synced)).toBe(synced);
+    expect(preferLyrics({ ...base, synced: true }, synced)?.source).toBe("tidal");
   });
 });

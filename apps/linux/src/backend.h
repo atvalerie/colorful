@@ -83,6 +83,8 @@ class Backend final : public QObject
     Q_PROPERTY(QString accentMode READ accentMode WRITE setAccentMode NOTIFY appearanceChanged)
     Q_PROPERTY(QColor fixedAccent READ fixedAccent WRITE setFixedAccent NOTIFY appearanceChanged)
     Q_PROPERTY(bool lowDataMode READ lowDataMode WRITE setLowDataMode NOTIFY appearanceChanged)
+    Q_PROPERTY(bool hardwareAccelerationEnabled READ hardwareAccelerationEnabled WRITE setHardwareAccelerationEnabled NOTIFY appearanceChanged)
+    Q_PROPERTY(double textScale READ textScale WRITE setTextScale NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
     Q_PROPERTY(bool soundcloudOriginalDownloads READ soundcloudOriginalDownloads WRITE setSoundcloudOriginalDownloads NOTIFY downloadPreferencesChanged)
@@ -166,6 +168,8 @@ public:
     QString accentMode() const { return m_accentMode; }
     QColor fixedAccent() const { return m_fixedAccent; }
     bool lowDataMode() const { return m_lowDataMode; }
+    bool hardwareAccelerationEnabled() const { return m_hardwareAccelerationEnabled; }
+    double textScale() const { return m_textScale; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
     QString streamQuality() const { return m_streamQuality; }
     bool soundcloudOriginalDownloads() const { return m_soundcloudOriginalDownloads; }
@@ -271,6 +275,7 @@ public:
     Q_INVOKABLE void refreshAudioDevices();
     Q_INVOKABLE void retryPlayback();
     Q_INVOKABLE void loadLyrics(bool refresh = false);
+    Q_INVOKABLE void copySongLink(const QVariantMap &track);
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
     Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
@@ -281,6 +286,8 @@ public:
     Q_INVOKABLE void setAccentMode(const QString &mode);
     Q_INVOKABLE void setFixedAccent(const QColor &color);
     Q_INVOKABLE void setLowDataMode(bool enabled);
+    Q_INVOKABLE void setHardwareAccelerationEnabled(bool enabled);
+    Q_INVOKABLE void setTextScale(double scale);
     Q_INVOKABLE void setDiscordWidgetEnabled(bool enabled);
     Q_INVOKABLE void setDiscordApplicationId(const QString &applicationId);
     Q_INVOKABLE void setDiscordRedirectUri(const QString &redirectUri);
@@ -516,6 +523,12 @@ private:
     QString m_accentMode = QStringLiteral("album");
     QColor m_fixedAccent = QColor(QStringLiteral("#a970ff"));
     bool m_lowDataMode = false;
+    bool m_hardwareAccelerationEnabled = true;
+#if defined(Q_OS_WIN)
+    double m_textScale = 1.1;
+#else
+    double m_textScale = 1.0;
+#endif
     QString m_pendingArtworkUrl;
     QPointer<QNetworkReply> m_accentReply;
     bool m_autoplayEnabled = true;

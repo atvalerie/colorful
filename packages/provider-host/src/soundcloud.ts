@@ -171,6 +171,7 @@ export function mapSoundCloudTrack(raw: SoundCloudTrack): TrackSummary | null {
     durationMs: number(raw.full_duration) ?? number(raw.duration),
     isrc: string(raw.publisher_metadata?.isrc) || null,
     coverUrl: artwork(raw.artwork_url ?? raw.user?.avatar_url),
+    webpageUrl: string(raw.permalink_url),
     explicit: raw.publisher_metadata?.explicit === true,
   } as TrackSummary;
 }

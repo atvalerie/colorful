@@ -33,14 +33,14 @@ Item {
         text: root.entry.name || "Untitled playlist"
         color: "#f5f5f5"
         font.bold: true
-        font.pixelSize: 12
+        font.pixelSize: Math.round(12 * colorful.textScale)
         elide: Text.ElideRight
     }
     Text {
         x: 8; y: 171; width: parent.width - 16
         text: root.entry.numberOfItems ? root.entry.numberOfItems + " tracks" : (root.entry.playlistType || "TIDAL")
         color: Qt.rgba(1, 1, 1, 0.42)
-        font.pixelSize: 10
+        font.pixelSize: Math.round(10 * colorful.textScale)
         elide: Text.ElideRight
     }
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }

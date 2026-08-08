@@ -3,6 +3,7 @@
 #include "debuglog.h"
 
 #include <QCoreApplication>
+#include <QClipboard>
 #include <QDesktopServices>
 #include <QDateTime>
 #if defined(Q_OS_LINUX)
@@ -13,6 +14,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkReply>
@@ -134,6 +136,8 @@ Backend::Backend(QObject *parent)
     const QColor restoredFixedAccent(settings.value(QStringLiteral("appearance/fixedAccent"), QStringLiteral("#a970ff")).toString());
     if (restoredFixedAccent.isValid()) m_fixedAccent = normalizeAlbumAccent(restoredFixedAccent);
     m_lowDataMode = settings.value(QStringLiteral("appearance/lowDataMode"), false).toBool();
+    m_hardwareAccelerationEnabled = settings.value(QStringLiteral("appearance/hardwareAcceleration"), true).toBool();
+    m_textScale = std::clamp(settings.value(QStringLiteral("appearance/textScale"), m_textScale).toDouble(), 0.9, 1.3);
     if (m_accentMode == QStringLiteral("fixed")) m_accent = m_fixedAccent;
     m_autoplayEnabled = settings.value(QStringLiteral("playback/autoplay"), true).toBool();
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
@@ -432,7 +436,10 @@ QString Backend::lyricsCacheKey(const QVariantMap &track) const
     const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
     const auto id = track.value(QStringLiteral("id")).toString().toUtf8();
     const auto digest = QCryptographicHash::hash(id, QCryptographicHash::Sha256).toHex();
-    return QStringLiteral("lyrics/%1/%2").arg(provider, QString::fromLatin1(digest));
+    // Version the cache whenever provider selection or the document shape
+    // changes so older plain-only results do not mask newly available synced
+    // or romanized lyrics indefinitely.
+    return QStringLiteral("lyrics/v2/%1/%2").arg(provider, QString::fromLatin1(digest));
 }
 
 void Backend::resetLyrics()
@@ -505,6 +512,28 @@ void Backend::loadLyrics(bool refresh)
                       {QStringLiteral("value_json"), QString::fromUtf8(QJsonDocument(document).toJson(QJsonDocument::Compact))}});
         emit lyricsChanged();
     });
+}
+
+void Backend::copySongLink(const QVariantMap &track)
+{
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto id = track.value(QStringLiteral("id")).toString().trimmed();
+    QString link = track.value(QStringLiteral("webpageUrl")).toString().trimmed();
+    if (link.isEmpty() && !id.isEmpty()) {
+        const auto encodedId = QString::fromLatin1(QUrl::toPercentEncoding(id));
+        if (provider == QStringLiteral("youtube"))
+            link = QStringLiteral("https://music.youtube.com/watch?v=%1").arg(encodedId);
+        else if (provider == QStringLiteral("tidal"))
+            link = QStringLiteral("https://tidal.com/browse/track/%1").arg(encodedId);
+    }
+    const QUrl url(link);
+    if (link.isEmpty() || !url.isValid()
+        || (url.scheme() != QStringLiteral("https") && url.scheme() != QStringLiteral("http"))) {
+        notify(QStringLiteral("No shareable song link is available"), QStringLiteral("error"));
+        return;
+    }
+    QGuiApplication::clipboard()->setText(url.toString(QUrl::FullyEncoded));
+    notify(QStringLiteral("Copied song link"));
 }
 
 qint64 Backend::offlineStorageUsed() const
@@ -3737,6 +3766,24 @@ void Backend::setLowDataMode(bool enabled)
     }
     emit appearanceChanged();
     emit currentTrackChanged();
+}
+
+void Backend::setHardwareAccelerationEnabled(bool enabled)
+{
+    if (m_hardwareAccelerationEnabled == enabled) return;
+    m_hardwareAccelerationEnabled = enabled;
+    QSettings().setValue(QStringLiteral("appearance/hardwareAcceleration"), enabled);
+    emit appearanceChanged();
+    notify(QStringLiteral("Restart colorful to apply the rendering change"));
+}
+
+void Backend::setTextScale(double scale)
+{
+    scale = std::clamp(scale, 0.9, 1.3);
+    if (qFuzzyCompare(m_textScale, scale)) return;
+    m_textScale = scale;
+    QSettings().setValue(QStringLiteral("appearance/textScale"), scale);
+    emit appearanceChanged();
 }
 
 void Backend::setDiscordWidgetEnabled(bool enabled)

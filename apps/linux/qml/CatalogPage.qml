@@ -102,7 +102,7 @@ Item {
                     text: root.kind === "track" ? "Track" : root.kind === "album" ? "Album" : root.kind === "playlist" ? "Playlist"
                           : root.primary.isChannel ? "Channel" : "Artist"
                     color: Qt.rgba(1, 1, 1, 0.46)
-                    font.pixelSize: 11
+                    font.pixelSize: Math.round(11 * colorful.textScale)
                     font.capitalization: Font.AllUppercase
                     font.letterSpacing: 1.2
                 }
@@ -111,7 +111,7 @@ Item {
                     text: (root.page.provider || "tidal").toUpperCase()
                     color: Qt.rgba(1, 1, 1, 0.42)
                     font.bold: true
-                    font.pixelSize: 10
+                    font.pixelSize: Math.round(10 * colorful.textScale)
                     font.letterSpacing: 1.4
                 }
             }
@@ -152,7 +152,7 @@ Item {
                               : (root.primary.title || "Unknown title")
                         color: "#f5f5f5"
                         font.bold: true
-                        font.pixelSize: 34
+                        font.pixelSize: Math.round(34 * colorful.textScale)
                         wrapMode: Text.Wrap
                     }
                     Row {
@@ -172,7 +172,7 @@ Item {
                                     visible: index + 1 < (root.primary.artistCredits || []).length
                                     text: "·"
                                     color: Qt.rgba(1, 1, 1, 0.34)
-                                    font.pixelSize: 13
+                                    font.pixelSize: Math.round(13 * colorful.textScale)
                                 }
                             }
                         }
@@ -183,20 +183,20 @@ Item {
                                root.primary.numberOfTracks ? root.primary.numberOfTracks + " tracks" : "",
                                root.formatTime(root.primary.durationMs)].filter(Boolean).join("  ·  ")
                         color: Qt.rgba(1, 1, 1, 0.48)
-                        font.pixelSize: 11
+                        font.pixelSize: Math.round(11 * colorful.textScale)
                     }
                     Text {
                         visible: root.kind === "playlist"
                         text: [root.primary.playlistType, root.primary.numberOfItems ? root.primary.numberOfItems + " tracks" : "",
                                root.formatTime(root.primary.durationMs)].filter(Boolean).join("  ·  ")
                         color: Qt.rgba(1, 1, 1, 0.48)
-                        font.pixelSize: 11
+                        font.pixelSize: Math.round(11 * colorful.textScale)
                     }
                     MetadataLink {
                         visible: root.kind === "track" && Boolean(root.primary.albumId)
                         text: root.primary.albumTitle || "Open album"
                         normalColor: Qt.rgba(1, 1, 1, 0.5)
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * colorful.textScale)
                         onActivated: window.openAlbumItem({ id: root.primary.albumId, provider: root.primary.provider || root.page.provider || "tidal" })
                     }
                     Row {
@@ -205,12 +205,12 @@ Item {
                         Text {
                             text: "Uploaded by"
                             color: Qt.rgba(1, 1, 1, 0.42)
-                            font.pixelSize: 11
+                            font.pixelSize: Math.round(11 * colorful.textScale)
                         }
                         MetadataLink {
                             text: root.primary.uploader ? root.primary.uploader.name : ""
                             normalColor: Qt.rgba(1, 1, 1, 0.58)
-                            font.pixelSize: 11
+                            font.pixelSize: Math.round(11 * colorful.textScale)
                             onActivated: {
                                 if (root.primary.uploader && root.primary.uploader.id)
                                     window.openArtistItem({ id: root.primary.uploader.id, provider: "youtube" })
@@ -265,7 +265,7 @@ Item {
                       : root.primary.isChannel ? "Videos" : "Popular tracks"
                 color: "#f5f5f5"
                 font.bold: true
-                font.pixelSize: 18
+                font.pixelSize: Math.round(18 * colorful.textScale)
             }
         }
 
@@ -303,7 +303,7 @@ Item {
                 text: "Releases"
                 color: "#f5f5f5"
                 font.bold: true
-                font.pixelSize: 18
+                font.pixelSize: Math.round(18 * colorful.textScale)
             }
             ListView {
                 Layout.fillWidth: true

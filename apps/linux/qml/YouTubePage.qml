@@ -34,7 +34,7 @@ Item {
                     width: tabLabel.implicitWidth + 30; height: 36
                     color: root.tab === index ? Qt.rgba(1, 1, 1, 0.075) : "transparent"
                     border.width: 1; border.color: root.tab === index ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
-                    Text { id: tabLabel; anchors.centerIn: parent; text: modelData; color: root.tab === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.56); font.bold: root.tab === index; font.pixelSize: 12 }
+                    Text { id: tabLabel; anchors.centerIn: parent; text: modelData; color: root.tab === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.56); font.bold: root.tab === index; font.pixelSize: Math.round(12 * colorful.textScale) }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.tab = index }
                 }
@@ -54,7 +54,7 @@ Item {
                         width: tracks.width; spacing: 14
                         visible: !root.collectionEmpty; height: visible ? implicitHeight : 0
                         RowLayout { width: parent.width; visible: (colorful.youtubeHub.artists || []).length > 0
-                            Text { text: "Library artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Text { text: "Library artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                             Item { Layout.fillWidth: true }
                         }
                         Item {
@@ -75,7 +75,7 @@ Item {
                             ShelfScrollButtons { view: youtubeArtistsShelf }
                         }
                         RowLayout { width: parent.width; visible: (colorful.youtubeHub.albums || []).length > 0
-                            Text { text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Text { text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                             Item { Layout.fillWidth: true }
                         }
                         Item {
@@ -95,7 +95,7 @@ Item {
                             }
                             ShelfScrollButtons { view: youtubeAlbumsShelf }
                         }
-                        Text { visible: (colorful.youtubeHub.tracks || []).length > 0; text: "Library songs"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                        Text { visible: (colorful.youtubeHub.tracks || []).length > 0; text: "Library songs"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                     }
                     delegate: TrackDelegate {
                         required property var modelData
@@ -111,8 +111,8 @@ Item {
                     anchors.centerIn: parent; width: Math.min(430, parent.width - 48); spacing: 9
                     visible: colorful.youtubeLinked && !colorful.youtubeHubLoading && root.collectionEmpty
                     AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/library.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "Your YouTube Music library is empty"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: 16 }
-                    Text { width: parent.width; text: "Liked and saved music associated with this account will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 12 }
+                    Text { width: parent.width; text: "Your YouTube Music library is empty"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                    Text { width: parent.width; text: "Liked and saved music associated with this account will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(12 * colorful.textScale) }
                 }
             }
 
@@ -127,7 +127,7 @@ Item {
                         width: playlists.width; spacing: 12
                         visible: !root.playlistsEmpty; height: visible ? implicitHeight : 0
                         RowLayout { width: parent.width; visible: (colorful.youtubeHub.mixes || []).length > 0
-                            Text { text: "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                            Text { text: "For you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                             Item { Layout.fillWidth: true }
                         }
                         Item {
@@ -147,7 +147,7 @@ Item {
                             }
                             ShelfScrollButtons { view: youtubeMixesShelf }
                         }
-                        Text { visible: (colorful.youtubeHub.playlists || []).length > 0; text: "Your playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                        Text { visible: (colorful.youtubeHub.playlists || []).length > 0; text: "Your playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                     }
                     delegate: Rectangle {
                         required property var modelData
@@ -158,8 +158,8 @@ Item {
                         AppIcon { x: 22; y: 22; width: 18; height: 18; iconSource: "icons/youtube.svg"; opacity: 0.34; visible: colorful.lowDataMode || !modelData.coverUrl }
                         Column {
                             x: 67; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 84; spacing: 3
-                            Text { width: parent.width; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12; elide: Text.ElideRight }
-                            Text { width: parent.width; text: modelData.numberOfItems ? modelData.numberOfItems + " tracks" : "YouTube Music"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10 }
+                            Text { width: parent.width; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale); elide: Text.ElideRight }
+                            Text { width: parent.width; text: modelData.numberOfItems ? modelData.numberOfItems + " tracks" : "YouTube Music"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(10 * colorful.textScale) }
                         }
                         HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: window.openPlaylist(modelData.id, "youtube") }
@@ -169,8 +169,8 @@ Item {
                     anchors.centerIn: parent; width: Math.min(430, parent.width - 48); spacing: 9
                     visible: colorful.youtubeLinked && !colorful.youtubeHubLoading && root.playlistsEmpty
                     AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/youtube.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "No private playlists or mixes found"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: 16 }
-                    Text { width: parent.width; text: "Playlists saved to this YouTube Music account will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 12 }
+                    Text { width: parent.width; text: "No private playlists or mixes found"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                    Text { width: parent.width; text: "Playlists saved to this YouTube Music account will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(12 * colorful.textScale) }
                 }
             }
         }
@@ -179,7 +179,7 @@ Item {
     BusyIndicator { anchors.centerIn: parent; running: colorful.youtubeHubLoading; visible: running }
     Column {
         anchors.centerIn: parent; spacing: 12; visible: !colorful.youtubeLinked
-        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect YouTube Music to load private playlists and your library"; color: Qt.rgba(1, 1, 1, 0.52); font.pixelSize: 13 }
+        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect YouTube Music to load private playlists and your library"; color: Qt.rgba(1, 1, 1, 0.52); font.pixelSize: Math.round(13 * colorful.textScale) }
         ColorButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Open account settings"; onClicked: window.openSettings(0) }
     }
 }

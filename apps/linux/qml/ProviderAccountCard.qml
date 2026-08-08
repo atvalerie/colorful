@@ -42,13 +42,13 @@ Rectangle {
                     text: root.providerName
                     color: "#f5f5f5"
                     font.bold: true
-                    font.pixelSize: 17
+                    font.pixelSize: Math.round(17 * colorful.textScale)
                 }
                 Text {
                     Layout.fillWidth: true
                     text: root.statusText
                     color: !root.loading && root.connected ? "#55dca0" : Qt.rgba(1, 1, 1, 0.42)
-                    font.pixelSize: 11
+                    font.pixelSize: Math.round(11 * colorful.textScale)
                     elide: Text.ElideRight
                 }
             }
@@ -75,7 +75,7 @@ Rectangle {
             text: root.description
             color: Qt.rgba(1, 1, 1, 0.4)
             wrapMode: Text.WordWrap
-            font.pixelSize: 11
+            font.pixelSize: Math.round(11 * colorful.textScale)
         }
         Row {
             Layout.fillWidth: true
@@ -92,14 +92,14 @@ Rectangle {
                         text: modelData[0]
                         color: "#f5f5f5"
                         font.bold: true
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * colorful.textScale)
                         elide: Text.ElideRight
                     }
                     Text {
                         Layout.fillWidth: true
                         text: modelData[1]
                         color: Qt.rgba(1, 1, 1, 0.34)
-                        font.pixelSize: 9
+                        font.pixelSize: Math.round(9 * colorful.textScale)
                         elide: Text.ElideRight
                     }
                 }

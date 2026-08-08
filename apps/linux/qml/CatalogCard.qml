@@ -46,7 +46,7 @@ ItemDelegate {
             text: root.artistMode ? (root.entry.name || "Unknown artist") : (root.entry.title || "Unknown album")
             color: "#f5f5f5"
             font.weight: Font.DemiBold
-            font.pixelSize: 12
+            font.pixelSize: Math.round(12 * colorful.textScale)
             elide: Text.ElideRight
         }
         Text {
@@ -54,7 +54,7 @@ ItemDelegate {
             visible: !root.artistMode
             text: root.entry.artistText || "Unknown artist"
             color: Qt.rgba(1, 1, 1, 0.46)
-            font.pixelSize: 10
+            font.pixelSize: Math.round(10 * colorful.textScale)
             elide: Text.ElideRight
         }
     }

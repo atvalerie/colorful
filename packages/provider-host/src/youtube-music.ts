@@ -712,19 +712,19 @@ export async function youtubeMusicTrackMetadata(video: string): Promise<TrackSum
   return null;
 }
 
-export async function youtubeMusicLyrics(video: string): Promise<{ plain: string | null; synced: string | null }> {
+export async function youtubeMusicLyrics(video: string): Promise<{ plain: string | null; synced: string | null; romanized: string | null }> {
   const next = await youtubei("next", { videoId: video, enablePersistentPlaylistPanel: true });
   const lyricsEndpoint = children(next, "browseEndpoint").find((endpoint) =>
     string(endpoint.browseId).startsWith("MPLYt")
       || string(object(object(endpoint.browseEndpointContextSupportedConfigs)
         .browseEndpointContextMusicConfig).pageType).includes("LYRICS"));
   const browse = string(lyricsEndpoint?.browseId);
-  if (!browse) return { plain: null, synced: null };
+  if (!browse) return { plain: null, synced: null, romanized: null };
   const page = await youtubei("browse", { browseId: browse });
   const shelf = children(page, "musicDescriptionShelfRenderer")[0]
     ?? children(page, "descriptionShelfRenderer")[0];
   const plain = shelf ? runText(shelf.description) || runText(shelf.text) : "";
-  return { plain: plain || null, synced: null };
+  return { plain: plain || null, synced: null, romanized: null };
 }
 
 export interface YouTubeMusicAutomixPage {

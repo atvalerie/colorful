@@ -47,7 +47,7 @@ Item {
                 text: root.selectedPlaylistId ? (root.selectedPlaylist.name || "Playlist") : "Your library"
                 color: "#f5f5f5"
                 font.bold: true
-                font.pixelSize: 24
+                font.pixelSize: Math.round(24 * colorful.textScale)
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
@@ -125,7 +125,7 @@ Item {
                 spacing: 10
                 visible: parent.count === 0
                 AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/library.svg"; opacity: 0.28 }
-                Text { width: parent.width; text: "Tracks you save will live here on this device"; color: Qt.rgba(1,1,1,0.46); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 13 }
+                Text { width: parent.width; text: "Tracks you save will live here on this device"; color: Qt.rgba(1,1,1,0.46); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(13 * colorful.textScale) }
             }
         }
 
@@ -157,8 +157,8 @@ Item {
                     }
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 2
-                        Text { Layout.fillWidth: true; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; elide: Text.ElideRight }
-                        Text { text: (modelData.numberOfItems || 0) + ((modelData.numberOfItems || 0) === 1 ? " track" : " tracks"); color: Qt.rgba(1,1,1,0.42); font.pixelSize: 11 }
+                        Text { Layout.fillWidth: true; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); elide: Text.ElideRight }
+                        Text { text: (modelData.numberOfItems || 0) + ((modelData.numberOfItems || 0) === 1 ? " track" : " tracks"); color: Qt.rgba(1,1,1,0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
                     }
                     ColorButton { text: "Play"; quiet: true; enabled: (modelData.numberOfItems || 0) > 0; onClicked: colorful.playLocalPlaylist(modelData.id) }
                 }
@@ -169,7 +169,7 @@ Item {
                 spacing: 10
                 visible: parent.count === 0
                 AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/music.svg"; opacity: 0.28 }
-                Text { width: parent.width; text: "Build playlists from tracks across every provider"; color: Qt.rgba(1,1,1,0.46); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 13 }
+                Text { width: parent.width; text: "Build playlists from tracks across every provider"; color: Qt.rgba(1,1,1,0.46); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(13 * colorful.textScale) }
                 ColorButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Create your first playlist"; onClicked: root.openCreate() }
             }
         }
@@ -209,8 +209,8 @@ Item {
             }
             Column {
                 anchors.centerIn: parent; width: Math.min(400, parent.width - 48); spacing: 8; visible: parent.count === 0
-                Text { width: parent.width; text: "This playlist is empty"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
-                Text { width: parent.width; text: "Use “Add to playlist” on any track."; color: Qt.rgba(1,1,1,0.44); font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter }
+                Text { width: parent.width; text: "This playlist is empty"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale); horizontalAlignment: Text.AlignHCenter }
+                Text { width: parent.width; text: "Use “Add to playlist” on any track."; color: Qt.rgba(1,1,1,0.44); font.pixelSize: Math.round(12 * colorful.textScale); horizontalAlignment: Text.AlignHCenter }
             }
         }
     }
@@ -221,7 +221,7 @@ Item {
         background: Rectangle { color: "#19191e"; border.width: 1; border.color: Qt.rgba(colorful.accent.r,colorful.accent.g,colorful.accent.b,0.7) }
         contentItem: ColumnLayout {
             spacing: 10
-            Text { text: "Create playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 18 }
+            Text { text: "Create playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(18 * colorful.textScale) }
             TextField { id: playlistName; Layout.fillWidth: true; placeholderText: "Playlist name"; color: "#f5f5f5"; onAccepted: if (text.trim()) { colorful.createLocalPlaylist(text); createPopup.close() } }
             RowLayout {
                 Layout.fillWidth: true
@@ -238,7 +238,7 @@ Item {
         background: Rectangle { color: "#19191e"; border.width: 1; border.color: Qt.rgba(colorful.accent.r,colorful.accent.g,colorful.accent.b,0.7) }
         contentItem: ColumnLayout {
             spacing: 10
-            Text { text: "Rename playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 18 }
+            Text { text: "Rename playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(18 * colorful.textScale) }
             TextField { id: renameName; Layout.fillWidth: true; color: "#f5f5f5"; onAccepted: if (text.trim()) { colorful.renameLocalPlaylist(root.selectedPlaylistId, text); renamePopup.close() } }
             RowLayout {
                 Layout.fillWidth: true
@@ -255,8 +255,8 @@ Item {
         background: Rectangle { color: "#19191e"; border.width: 1; border.color: Qt.rgba(1,0.25,0.35,0.65) }
         contentItem: ColumnLayout {
             spacing: 10
-            Text { text: "Delete “" + (root.selectedPlaylist.name || "playlist") + "”?"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 18; elide: Text.ElideRight; Layout.fillWidth: true }
-            Text { text: "The tracks themselves and offline downloads are kept."; color: Qt.rgba(1,1,1,0.45); font.pixelSize: 11 }
+            Text { text: "Delete “" + (root.selectedPlaylist.name || "playlist") + "”?"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(18 * colorful.textScale); elide: Text.ElideRight; Layout.fillWidth: true }
+            Text { text: "The tracks themselves and offline downloads are kept."; color: Qt.rgba(1,1,1,0.45); font.pixelSize: Math.round(11 * colorful.textScale) }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }

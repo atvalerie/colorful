@@ -17,14 +17,14 @@ Item {
             text: root.title
             color: "#f5f5f5"
             font.bold: true
-            font.pixelSize: 24
+            font.pixelSize: Math.round(24 * colorful.textScale)
             Layout.alignment: Qt.AlignVCenter
         }
         Text {
             text: root.accountText
             visible: text.length > 0
             color: Qt.rgba(1, 1, 1, 0.42)
-            font.pixelSize: 10
+            font.pixelSize: Math.round(10 * colorful.textScale)
             Layout.alignment: Qt.AlignVCenter
         }
         Item { Layout.fillWidth: true }

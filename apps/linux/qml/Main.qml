@@ -414,7 +414,7 @@ ApplicationWindow {
                             text: window.title
                             color: Qt.rgba(1, 1, 1, window.active ? 0.68 : 0.38)
                             font.weight: Font.DemiBold
-                            font.pixelSize: 10
+                            font.pixelSize: Math.round(10 * colorful.textScale)
                         }
                     }
 
@@ -592,7 +592,7 @@ ApplicationWindow {
                                     placeholderText: "Search tracks, albums, artists"
                                     placeholderTextColor: Qt.rgba(1, 1, 1, 0.34)
                                     color: window.ink
-                                    font.pixelSize: 13
+                                    font.pixelSize: Math.round(13 * colorful.textScale)
                                     background: Item {}
                                     selectByMouse: true
                                     onAccepted: window.runSearch()
@@ -709,7 +709,7 @@ ApplicationWindow {
                                 text: window.submittedQuery.length > 0 ? "Search results" : "Search"
                                 color: window.ink
                                 font.weight: Font.Bold
-                                font.pixelSize: 24
+                                font.pixelSize: Math.round(24 * colorful.textScale)
                             }
                             Row {
                                 visible: window.currentSection === "search" && window.submittedQuery.length > 0
@@ -778,7 +778,7 @@ ApplicationWindow {
                                 RowLayout {
                                     width: parent.width
                                     visible: window.visibleSearchArtists.length > 0
-                                    Text { text: "Artists & channels"; color: window.ink; font.bold: true; font.pixelSize: 16 }
+                                    Text { text: "Artists & channels"; color: window.ink; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
                                     Item { Layout.fillWidth: true }
                                 }
                                 Item {
@@ -807,7 +807,7 @@ ApplicationWindow {
                                 RowLayout {
                                     width: parent.width
                                     visible: window.visibleSearchAlbums.length > 0
-                                    Text { text: "Albums"; color: window.ink; font.bold: true; font.pixelSize: 16 }
+                                    Text { text: "Albums"; color: window.ink; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
                                     Item { Layout.fillWidth: true }
                                 }
                                 Item {
@@ -837,7 +837,7 @@ ApplicationWindow {
                                     text: "Tracks"
                                     color: window.ink
                                     font.bold: true
-                                    font.pixelSize: 16
+                                    font.pixelSize: Math.round(16 * colorful.textScale)
                                 }
                             }
 
@@ -886,7 +886,7 @@ ApplicationWindow {
                                     color: Qt.rgba(1, 1, 1, 0.48)
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
-                                    font.pixelSize: 13
+                                    font.pixelSize: Math.round(13 * colorful.textScale)
                                 }
                                 ColorButton {
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -952,13 +952,13 @@ ApplicationWindow {
                                     text: "Queue"
                                     color: window.ink
                                     font.weight: Font.Bold
-                                    font.pixelSize: 18
+                                    font.pixelSize: Math.round(18 * colorful.textScale)
                                     Layout.alignment: Qt.AlignVCenter
                                 }
                                 Text {
                                     text: colorful.queue.length + (colorful.queue.length === 1 ? " track" : " tracks")
                                     color: Qt.rgba(1, 1, 1, 0.34)
-                                    font.pixelSize: 10
+                                    font.pixelSize: Math.round(10 * colorful.textScale)
                                     Layout.alignment: Qt.AlignVCenter
                                 }
                                 Item { Layout.fillWidth: true }
@@ -994,7 +994,7 @@ ApplicationWindow {
                                     text: "Drag the left edge to resize"
                                     visible: parent.width >= 430
                                     color: Qt.rgba(1, 1, 1, 0.26)
-                                    font.pixelSize: 9
+                                    font.pixelSize: Math.round(9 * colorful.textScale)
                                 }
                             }
 
@@ -1044,7 +1044,7 @@ ApplicationWindow {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: "Your queue is empty"
                                         color: Qt.rgba(1, 1, 1, 0.42)
-                                        font.pixelSize: 12
+                                        font.pixelSize: Math.round(12 * colorful.textScale)
                                     }
                                 }
                             }
@@ -1128,7 +1128,7 @@ ApplicationWindow {
                                 normalColor: window.ink
                                 elide: Text.ElideRight
                                 font.weight: Font.DemiBold
-                                font.pixelSize: 13
+                                font.pixelSize: Math.round(13 * colorful.textScale)
                                 linkEnabled: Boolean(window.now.id)
                                 onActivated: {
                                     if (window.now.id) window.openTrackItem(window.now)
@@ -1167,7 +1167,7 @@ ApplicationWindow {
                                                 MetadataLink {
                                                     text: modelData.name
                                                     normalColor: window.mutedInk
-                                                    font.pixelSize: 11
+                                                    font.pixelSize: Math.round(11 * colorful.textScale)
                                                     font.weight: Font.Normal
                                                     onActivated: window.openTrackArtist(window.now, index)
                                                 }
@@ -1175,7 +1175,7 @@ ApplicationWindow {
                                                     visible: index + 1 < (window.now.artistCredits || []).length
                                                     text: ","
                                                     color: window.mutedInk
-                                                    font.pixelSize: 11
+                                                    font.pixelSize: Math.round(11 * colorful.textScale)
                                                 }
                                             }
                                         }
@@ -1188,7 +1188,7 @@ ApplicationWindow {
                                         visible: !artistCreditLinks.visible
                                         text: "Choose a track"
                                         color: window.mutedInk
-                                        font.pixelSize: 11
+                                        font.pixelSize: Math.round(11 * colorful.textScale)
                                     }
                                 }
 
@@ -1200,7 +1200,7 @@ ApplicationWindow {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "·"
                                     color: Qt.rgba(1, 1, 1, 0.3)
-                                    font.pixelSize: 11
+                                    font.pixelSize: Math.round(11 * colorful.textScale)
                                 }
                                 MetadataLink {
                                     visible: Boolean(window.now.albumId)
@@ -1211,7 +1211,7 @@ ApplicationWindow {
                                     text: window.now.albumTitle || "Open album"
                                     normalColor: window.mutedInk
                                     elide: Text.ElideRight
-                                    font.pixelSize: 11
+                                    font.pixelSize: Math.round(11 * colorful.textScale)
                                     font.weight: Font.Normal
                                     onActivated: window.openAlbumItem({ id: window.now.albumId, provider: window.now.provider || "tidal" })
                                 }
@@ -1300,7 +1300,7 @@ ApplicationWindow {
                         Text {
                             text: window.formatTime(colorful.position)
                             color: window.mutedInk
-                            font.pixelSize: 10
+                            font.pixelSize: Math.round(10 * colorful.textScale)
                         }
                         Slider {
                             id: progress
@@ -1332,7 +1332,7 @@ ApplicationWindow {
                                     visible: colorful.buffering || colorful.playbackLoading
                                     text: colorful.buffering ? "Buffering " + colorful.bufferingPercent + "%" : "Opening…"
                                     color: window.mutedInk
-                                    font.pixelSize: 9
+                                    font.pixelSize: Math.round(9 * colorful.textScale)
                                 }
                             }
                             handle: Rectangle {
@@ -1347,7 +1347,7 @@ ApplicationWindow {
                         Text {
                             text: window.formatTime(colorful.duration)
                             color: window.mutedInk
-                            font.pixelSize: 10
+                            font.pixelSize: Math.round(10 * colorful.textScale)
                         }
                     }
                 }
@@ -1453,7 +1453,7 @@ ApplicationWindow {
                                     color: (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56
                                            ? "#08080a" : "#f5f5f5"
                                     font.bold: true
-                                    font.pixelSize: 8
+                                    font.pixelSize: Math.round(8 * colorful.textScale)
                                 }
                             }
                         }
@@ -1587,14 +1587,14 @@ ApplicationWindow {
             anchors.margins: 18
             spacing: 10
 
-            Text { text: "Add to playlist"; color: window.ink; font.bold: true; font.pixelSize: 19 }
+            Text { text: "Add to playlist"; color: window.ink; font.bold: true; font.pixelSize: Math.round(19 * colorful.textScale) }
             Text {
                 Layout.fillWidth: true
                 text: colorful.playlistPickerTracks.length > 1
                       ? colorful.playlistPickerTracks.length + " tracks selected"
                       : colorful.playlistPickerTrack.title || "Track"
                 color: window.mutedInk
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * colorful.textScale)
                 elide: Text.ElideRight
             }
             ListView {
@@ -1618,8 +1618,8 @@ ApplicationWindow {
                     }
                     background: Rectangle { color: parent.hovered ? Qt.rgba(1,1,1,0.06) : "transparent" }
                     contentItem: RowLayout {
-                        Text { Layout.fillWidth: true; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13; elide: Text.ElideRight }
-                        Text { text: String(modelData.numberOfItems || 0); color: Qt.rgba(1,1,1,0.4); font.pixelSize: 11 }
+                        Text { Layout.fillWidth: true; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale); elide: Text.ElideRight }
+                        Text { text: String(modelData.numberOfItems || 0); color: Qt.rgba(1,1,1,0.4); font.pixelSize: Math.round(11 * colorful.textScale) }
                     }
                 }
                 Text {
@@ -1627,7 +1627,7 @@ ApplicationWindow {
                     visible: parent.count === 0
                     text: "No playlists yet—create one below."
                     color: Qt.rgba(1,1,1,0.42)
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * colorful.textScale)
                 }
             }
             RowLayout {
@@ -1681,13 +1681,13 @@ ApplicationWindow {
                 text: "colorful " + ((updater.release || {}).version || "") + " is available"
                 color: window.ink
                 font.weight: Font.Bold
-                font.pixelSize: 22
+                font.pixelSize: Math.round(22 * colorful.textScale)
             }
             Text {
                 Layout.fillWidth: true
                 text: "You’re running " + (colorful.buildInfo.version || "an older version")
                 color: window.mutedInk
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * colorful.textScale)
             }
             Rectangle {
                 Layout.fillWidth: true
@@ -1714,7 +1714,7 @@ ApplicationWindow {
                         color: Qt.rgba(1, 1, 1, 0.72)
                         linkColor: colorful.accent
                         wrapMode: Text.WordWrap
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * colorful.textScale)
                         onLinkActivated: link => Qt.openUrlExternally(link)
                     }
                 }
@@ -1731,7 +1731,7 @@ ApplicationWindow {
                 visible: updater.state === "downloading" || updater.state === "error"
                 text: updater.status
                 color: updater.state === "error" ? "#ff8585" : window.mutedInk
-                font.pixelSize: 11
+                font.pixelSize: Math.round(11 * colorful.textScale)
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -1787,14 +1787,14 @@ ApplicationWindow {
                 text: "TIDAL playback unavailable"
                 color: window.ink
                 font.weight: Font.Bold
-                font.pixelSize: 20
+                font.pixelSize: Math.round(20 * colorful.textScale)
             }
             Text {
                 Layout.fillWidth: true
                 text: colorful.entitlementMessage
                 color: window.mutedInk
                 wrapMode: Text.WordWrap
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * colorful.textScale)
             }
             Item { Layout.fillHeight: true }
             RowLayout {
@@ -1842,7 +1842,7 @@ ApplicationWindow {
                 text: colorful.authProvider === "youtube" ? "Connect YouTube Music" : "Connect TIDAL"
                 color: window.ink
                 font.weight: Font.Bold
-                font.pixelSize: 22
+                font.pixelSize: Math.round(22 * colorful.textScale)
             }
             Text {
                 Layout.fillWidth: true
@@ -1851,7 +1851,7 @@ ApplicationWindow {
                       : "Approve colorful in TIDAL, then return here. Your password never touches this app."
                 color: window.mutedInk
                 wrapMode: Text.WordWrap
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * colorful.textScale)
             }
             Rectangle {
                 Layout.fillWidth: true
@@ -1869,7 +1869,7 @@ ApplicationWindow {
                         text: "DEVICE CODE"
                         color: Qt.rgba(1, 1, 1, 0.4)
                         font.bold: true
-                        font.pixelSize: 9
+                        font.pixelSize: Math.round(9 * colorful.textScale)
                         font.letterSpacing: 1.4
                     }
                     Text {
@@ -1878,7 +1878,7 @@ ApplicationWindow {
                         color: window.ink
                         font.family: "monospace"
                         font.bold: true
-                        font.pixelSize: 29
+                        font.pixelSize: Math.round(29 * colorful.textScale)
                         font.letterSpacing: 3
                     }
                 }
@@ -1898,7 +1898,7 @@ ApplicationWindow {
                 Layout.alignment: Qt.AlignHCenter
                 text: "Waiting for approval…"
                 color: window.mutedInk
-                font.pixelSize: 11
+                font.pixelSize: Math.round(11 * colorful.textScale)
             }
             Item { Layout.fillHeight: true }
         }

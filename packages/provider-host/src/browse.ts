@@ -15,6 +15,7 @@ export type TrackSummary = {
   durationMs: number | null;
   isrc: string | null;
   coverUrl: string | null;
+  webpageUrl?: string;
   explicit?: boolean;
   mediaTags?: string[];
 };
@@ -599,7 +600,7 @@ export class BrowseClient {
     return { kind: "track", track, relatedTracks: await this.relatedTracks(trackId, 20).catch(() => []) };
   }
 
-  async trackLyrics(trackId: string): Promise<{ plain: string | null; synced: string | null }> {
+  async trackLyrics(trackId: string): Promise<{ plain: string | null; synced: string | null; romanized: string | null }> {
     const document = await this.get(`tracks/${encodeURIComponent(trackId)}/relationships/lyrics`, {
       include: "lyrics",
     });
@@ -615,6 +616,7 @@ export class BrowseClient {
     return {
       plain: firstText(["text", "lyrics", "body", "content"]),
       synced: firstText(["subtitles", "syncLyrics", "lrc", "lrcText"]),
+      romanized: firstText(["romanizedLyrics", "romanized", "transliteratedLyrics", "transliteration"]),
     };
   }
 

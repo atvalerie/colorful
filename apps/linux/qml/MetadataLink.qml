@@ -7,7 +7,7 @@ Text {
     property bool linkEnabled: true
 
     color: pointer.containsMouse && linkEnabled ? colorful.accent : normalColor
-    font.pixelSize: 13
+    font.pixelSize: Math.round(13 * colorful.textScale)
     font.weight: Font.DemiBold
     font.underline: pointer.containsMouse && linkEnabled
 

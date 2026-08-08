@@ -60,7 +60,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: toast.body
                     color: "#f5f5f5"
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * colorful.textScale)
                     font.weight: Font.DemiBold
                     wrapMode: Text.Wrap
                 }
@@ -75,7 +75,7 @@ Item {
                         anchors.centerIn: parent
                         text: "×"
                         color: closeHover.hovered ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.42)
-                        font.pixelSize: 19
+                        font.pixelSize: Math.round(19 * colorful.textScale)
                     }
                     HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: toast.dismiss() }

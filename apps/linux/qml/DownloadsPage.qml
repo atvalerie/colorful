@@ -53,7 +53,7 @@ Item {
                 text: "Offline music"
                 color: "#f5f5f5"
                 font.bold: true
-                font.pixelSize: 24
+                font.pixelSize: Math.round(24 * colorful.textScale)
             }
             Item { Layout.fillWidth: true }
             ColorButton {
@@ -85,18 +85,18 @@ Item {
             Layout.fillWidth: true
             text: "Completed files play directly from this device. Expiring TIDAL manifests are never stored."
             color: Qt.rgba(1, 1, 1, 0.42)
-            font.pixelSize: 11
+            font.pixelSize: Math.round(11 * colorful.textScale)
             wrapMode: Text.WordWrap
         }
 
         RowLayout {
             Layout.fillWidth: true
             spacing: 18
-            Text { text: root.formatBytes(root.storedBytes()) + " stored"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12 }
-            Text { text: root.countState("complete") + " available"; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: 11 }
-            Text { text: root.countState("downloading") + root.countState("resolving") + root.countState("queued") > 0 ? (root.countState("downloading") + root.countState("resolving") + root.countState("queued")) + " active" : ""; visible: text.length > 0; color: colorful.accent; font.pixelSize: 11 }
-            Text { text: root.countState("paused") > 0 ? root.countState("paused") + " paused" : ""; visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
-            Text { text: root.countState("failed") > 0 ? root.countState("failed") + " failed" : ""; visible: text.length > 0; color: "#ff7777"; font.pixelSize: 11 }
+            Text { text: root.formatBytes(root.storedBytes()) + " stored"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+            Text { text: root.countState("complete") + " available"; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: Math.round(11 * colorful.textScale) }
+            Text { text: root.countState("downloading") + root.countState("resolving") + root.countState("queued") > 0 ? (root.countState("downloading") + root.countState("resolving") + root.countState("queued")) + " active" : ""; visible: text.length > 0; color: colorful.accent; font.pixelSize: Math.round(11 * colorful.textScale) }
+            Text { text: root.countState("paused") > 0 ? root.countState("paused") + " paused" : ""; visible: text.length > 0; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
+            Text { text: root.countState("failed") > 0 ? root.countState("failed") + " failed" : ""; visible: text.length > 0; color: "#ff7777"; font.pixelSize: Math.round(11 * colorful.textScale) }
             Item { Layout.fillWidth: true }
         }
 
@@ -148,8 +148,8 @@ Item {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 1
-                        Text { Layout.fillWidth: true; text: modelData.title || "Unknown track"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13; elide: Text.ElideRight }
-                        Text { Layout.fillWidth: true; text: modelData.artistText || "Unknown artist"; color: Qt.rgba(1, 1, 1, 0.43); font.pixelSize: 11; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; text: modelData.title || "Unknown track"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale); elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; text: modelData.artistText || "Unknown artist"; color: Qt.rgba(1, 1, 1, 0.43); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                     }
                     ColumnLayout {
                         Layout.preferredWidth: 125
@@ -164,13 +164,13 @@ Item {
                             color: modelData.downloadState === "complete" ? "#55dca0"
                                    : modelData.downloadState === "failed" ? "#ff7777" : colorful.accent
                             font.bold: true
-                            font.pixelSize: 10
+                            font.pixelSize: Math.round(10 * colorful.textScale)
                         }
                         Text {
                             Layout.alignment: Qt.AlignRight
                             text: root.formatBytes(modelData.bytesDownloaded)
                             color: Qt.rgba(1, 1, 1, 0.34)
-                            font.pixelSize: 9
+                            font.pixelSize: Math.round(9 * colorful.textScale)
                         }
                     }
                     ColorButton {
@@ -203,8 +203,8 @@ Item {
                 spacing: 10
                 visible: list.count === 0
                 AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/download.svg"; opacity: 0.28 }
-                Text { width: parent.width; text: "Nothing downloaded yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
-                Text { width: parent.width; text: "Use the download action on a track, album, or playlist. Completed music remains playable without a network connection."; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 12; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
+                Text { width: parent.width; text: "Nothing downloaded yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale); horizontalAlignment: Text.AlignHCenter }
+                Text { width: parent.width; text: "Use the download action on a track, album, or playlist. Completed music remains playable without a network connection."; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
             }
         }
     }
@@ -220,7 +220,7 @@ Item {
             text: "This deletes " + root.countState("complete") + " offline audio "
                   + (root.countState("complete") === 1 ? "file" : "files") + " from this device."
             color: Qt.rgba(1, 1, 1, 0.65)
-            font.pixelSize: 12
+            font.pixelSize: Math.round(12 * colorful.textScale)
             wrapMode: Text.WordWrap
         }
         background: Rectangle {
@@ -242,7 +242,7 @@ Item {
             text: "This removes " + root.unfinishedCount() + " queued, partial, paused, or failed "
                   + (root.unfinishedCount() === 1 ? "download" : "downloads") + "."
             color: Qt.rgba(1, 1, 1, 0.65)
-            font.pixelSize: 12
+            font.pixelSize: Math.round(12 * colorful.textScale)
             wrapMode: Text.WordWrap
         }
         background: Rectangle {

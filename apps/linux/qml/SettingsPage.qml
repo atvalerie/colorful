@@ -55,7 +55,7 @@ Item {
                     text: "Settings"
                     color: "#f5f5f5"
                     font.bold: true
-                    font.pixelSize: 22
+                    font.pixelSize: Math.round(22 * colorful.textScale)
                     Layout.leftMargin: 8
                     Layout.topMargin: 5
                     Layout.bottomMargin: 12
@@ -75,8 +75,8 @@ Item {
                             anchors.left: parent.left; anchors.leftMargin: 11
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width - 22; spacing: 2
-                            Text { text: modelData[0]; color: root.tab === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.66); font.bold: root.tab === index; font.pixelSize: 12 }
-                            Text { width: parent.width; text: modelData[1]; color: Qt.rgba(1, 1, 1, 0.32); font.pixelSize: 9; elide: Text.ElideRight }
+                            Text { text: modelData[0]; color: root.tab === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.66); font.bold: root.tab === index; font.pixelSize: Math.round(12 * colorful.textScale) }
+                            Text { width: parent.width; text: modelData[1]; color: Qt.rgba(1, 1, 1, 0.32); font.pixelSize: Math.round(9 * colorful.textScale); elide: Text.ElideRight }
                         }
                         HoverHandler { id: navHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: root.tab = index }
@@ -98,8 +98,8 @@ Item {
                 ColumnLayout {
                     id: accountsBody
                     width: Math.min(parent.width, 820); spacing: 14
-                    Text { text: "Accounts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                    Text { text: "Provider credentials remain on this device and are stored by the system credential service."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "Accounts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                    Text { text: "Provider credentials remain on this device and are stored by the system credential service."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     ProviderAccountCard {
                         Layout.fillWidth: true
                         providerName: "TIDAL"
@@ -152,7 +152,7 @@ Item {
                                     id: youtubeBrowserHeaders
                                     placeholderText: "Paste request headers or Copy as cURL here"
                                     placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
-                                    color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
+                                    color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: Math.round(11 * colorful.textScale)
                                     background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(youtubeBrowserHeaders) }
                                 }
                             }
@@ -193,7 +193,7 @@ Item {
                                     id: soundcloudCurl
                                     placeholderText: "Paste a logged-in SoundCloud request copied as cURL"
                                     placeholderTextColor: Qt.rgba(1, 1, 1, 0.3)
-                                    color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: 11
+                                    color: "#f5f5f5"; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.pixelSize: Math.round(11 * colorful.textScale)
                                     background: Rectangle { color: Qt.rgba(0, 0, 0, 0.22); border.width: 1; border.color: root.fieldBackground(soundcloudCurl) }
                                 }
                             }
@@ -213,8 +213,8 @@ Item {
                 ColumnLayout {
                     id: playbackBody
                     width: Math.min(parent.width, 820); spacing: 14
-                    Text { text: "Playback"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                    Text { text: "Behavior shared by the desktop queue and playback controls."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12 }
+                    Text { text: "Playback"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                    Text { text: "Behavior shared by the desktop queue and playback controls."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale) }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 76
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -225,8 +225,8 @@ Item {
                             anchors.rightMargin: 18
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 3
-                            Text { text: "Autoplay"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                            Text { width: parent.width; text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                            Text { text: "Autoplay"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text { width: parent.width; text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                         }
                         Rectangle {
                             id: autoplaySwitch
@@ -242,8 +242,8 @@ Item {
                             TapHandler { onTapped: colorful.autoplayEnabled = !colorful.autoplayEnabled }
                         }
                     }
-                    Text { text: "TIDAL stream quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 5 }
-                    Text { text: "The selected format is requested when the next track opens. TIDAL may fall back when a release has no matching format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "TIDAL stream quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
+                    Text { text: "The selected format is requested when the next track opens. TIDAL may fall back when a release has no matching format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Row {
                         Layout.fillWidth: true; spacing: 0
                         Repeater {
@@ -255,20 +255,20 @@ Item {
                                 border.width: 1
                                 border.color: colorful.streamQuality === modelData[0] ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
                                 Column { anchors.centerIn: parent; spacing: 2
-                                    Text { id: qualityText; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12 }
-                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData[2]; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: 9 }
+                                    Text { id: qualityText; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData[2]; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: Math.round(9 * colorful.textScale) }
                                 }
                                 HoverHandler { id: qualityHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: colorful.streamQuality = modelData[0] }
                             }
                         }
                     }
-                    Text { text: "Audio output"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 8 }
+                    Text { text: "Audio output"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 8 }
                     Text {
                         text: colorful.buildInfo.platform === "windows"
                               ? "Choose the Windows output used by libmpv. System default follows WASAPI routing changes."
                               : "Choose the Linux output used by libmpv. System default follows PipeWire routing changes."
-                        color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 8
@@ -288,7 +288,7 @@ Item {
                             contentItem: Text {
                                 leftPadding: 12; rightPadding: 28
                                 text: outputPicker.displayText
-                                color: "#f5f5f5"; font.pixelSize: 12
+                                color: "#f5f5f5"; font.pixelSize: Math.round(12 * colorful.textScale)
                                 verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
                             }
                             background: Rectangle {
@@ -307,7 +307,7 @@ Item {
                                 width: outputPicker.width; height: 34
                                 contentItem: Text {
                                     text: modelData.description || modelData.name
-                                    color: "#f5f5f5"; font.pixelSize: 11
+                                    color: "#f5f5f5"; font.pixelSize: Math.round(11 * colorful.textScale)
                                     verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
                                 }
                                 background: Rectangle {
@@ -335,11 +335,11 @@ Item {
                             anchors.left: parent.left; anchors.leftMargin: 15
                             anchors.right: exclusiveSwitch.left; anchors.rightMargin: 18
                             anchors.verticalCenter: parent.verticalCenter; spacing: 3
-                            Text { text: "WASAPI exclusive mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                            Text { text: "WASAPI exclusive mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
                             Text {
                                 width: parent.width
                                 text: "Bypass the Windows mixer and match the source format when the device allows it. Other apps cannot use that output; ReplayGain and EQ still alter samples."
-                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight
+                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight
                             }
                         }
                         Rectangle {
@@ -354,7 +354,7 @@ Item {
                             TapHandler { onTapped: colorful.audioExclusive = !colorful.audioExclusive }
                         }
                     }
-                    Text { text: "Volume normalization"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 8 }
+                    Text { text: "Volume normalization"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 8 }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 76
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -362,8 +362,8 @@ Item {
                             anchors.left: parent.left; anchors.leftMargin: 15
                             anchors.right: normalizationSwitch.left; anchors.rightMargin: 18
                             anchors.verticalCenter: parent.verticalCenter; spacing: 3
-                            Text { text: "ReplayGain"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                            Text { width: parent.width; text: "Use TIDAL manifest loudness data or embedded ReplayGain tags, with peak-based clipping protection."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                            Text { text: "ReplayGain"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text { width: parent.width; text: "Use TIDAL manifest loudness data or embedded ReplayGain tags, with peak-based clipping protection."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                         }
                         Rectangle {
                             id: normalizationSwitch
@@ -379,7 +379,7 @@ Item {
                     }
                     RowLayout {
                         Layout.fillWidth: true; Layout.topMargin: 7
-                        Text { text: "Equalizer"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
+                        Text { text: "Equalizer"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
                         Item { Layout.fillWidth: true }
                     }
                     Row {
@@ -391,7 +391,7 @@ Item {
                                 width: presetLabel.implicitWidth + 24; height: 34
                                 color: colorful.equalizerPreset === modelData ? Qt.rgba(1, 1, 1, 0.075) : presetHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
                                 border.width: 1; border.color: colorful.equalizerPreset === modelData ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
-                                Text { id: presetLabel; anchors.centerIn: parent; text: modelData; color: "#f5f5f5"; font.bold: true; font.pixelSize: 10 }
+                                Text { id: presetLabel; anchors.centerIn: parent; text: modelData; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(10 * colorful.textScale) }
                                 HoverHandler { id: presetHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: colorful.applyEqualizerPreset(modelData) }
                             }
@@ -407,7 +407,7 @@ Item {
                                 delegate: Item {
                                     required property var modelData
                                     width: parent.width / 10; height: parent.height
-                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Number(eqSlider.value).toFixed(1) + " dB"; color: Qt.rgba(1, 1, 1, 0.54); font.pixelSize: 9 }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Number(eqSlider.value).toFixed(1) + " dB"; color: Qt.rgba(1, 1, 1, 0.54); font.pixelSize: Math.round(9 * colorful.textScale) }
                                     Slider {
                                         id: eqSlider
                                         anchors.horizontalCenter: parent.horizontalCenter; anchors.top: parent.top; anchors.topMargin: 25; anchors.bottom: bandLabel.top; anchors.bottomMargin: 7
@@ -424,12 +424,12 @@ Item {
                                             }
                                         }
                                     }
-                                    Text { id: bandLabel; anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[0] + " Hz"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 9 }
+                                    Text { id: bandLabel; anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[0] + " Hz"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(9 * colorful.textScale) }
                                 }
                             }
                         }
                     }
-                    Text { text: "EQ is applied locally through the native playback engine. Boosted bands are protected by a limiter; Flat leaves the audio filter path untouched."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "EQ is applied locally through the native playback engine. Boosted bands are protected by a limiter; Flat leaves the audio filter path untouched."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 }
             }
 
@@ -440,20 +440,20 @@ Item {
                 ColumnLayout {
                     id: integrationsBody
                     width: Math.min(parent.width, 820); spacing: 12
-                    Text { text: "Integrations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                    Text { text: "Discord Rich Presence starts automatically. The optional profile widget publishes your local listening statistics."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "Integrations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                    Text { text: "Discord Rich Presence starts automatically. The optional profile widget publishes your local listening statistics."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 62
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         RowLayout { anchors.fill: parent; anchors.margins: 13
                             ColumnLayout { Layout.fillWidth: true; spacing: 2
-                                Text { text: "Discord profile widget"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
-                                Text { text: colorful.discordWidgetStatus; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Text { text: "Discord profile widget"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
+                                Text { text: colorful.discordWidgetStatus; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(10 * colorful.textScale); elide: Text.ElideRight; Layout.fillWidth: true }
                             }
-                            Text { text: colorful.discordWidgetEnabled ? "ENABLED" : "DISABLED"; color: colorful.discordWidgetEnabled ? "#55dca0" : Qt.rgba(1, 1, 1, 0.36); font.bold: true; font.pixelSize: 10; font.letterSpacing: 1 }
+                            Text { text: colorful.discordWidgetEnabled ? "ENABLED" : "DISABLED"; color: colorful.discordWidgetEnabled ? "#55dca0" : Qt.rgba(1, 1, 1, 0.36); font.bold: true; font.pixelSize: Math.round(10 * colorful.textScale); font.letterSpacing: 1 }
                         }
                     }
-                    Text { text: "Application"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 5 }
+                    Text { text: "Application"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
                     TextField {
                         id: discordApplicationId
                         Layout.fillWidth: true; implicitHeight: 40; enabled: !colorful.discordWidgetBusy
@@ -474,7 +474,7 @@ Item {
                         background: Rectangle { color: Qt.rgba(0.025, 0.025, 0.03, 0.86); border.width: 1; border.color: root.fieldBackground(discordRedirectUri) }
                     }
                     ColorButton { text: "Save redirect URI"; Layout.alignment: Qt.AlignLeft; enabled: discordRedirectUri.text.trim().length > 0 && discordRedirectUri.text !== colorful.discordRedirectUri && !colorful.discordWidgetBusy; onClicked: colorful.discordRedirectUri = discordRedirectUri.text.trim() }
-                    Text { text: "Widget owner"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 6 }
+                    Text { text: "Widget owner"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 6 }
                     TextField {
                         id: discordWidgetUserId
                         Layout.fillWidth: true; implicitHeight: 40; enabled: !colorful.discordWidgetBusy
@@ -488,7 +488,7 @@ Item {
                         ColorButton { quiet: true; text: colorful.discordWidgetUserIdAutomatic ? "Using Discord IPC" : "Use detected Discord user"; enabled: !colorful.discordWidgetUserIdAutomatic && !colorful.discordWidgetBusy; onClicked: colorful.useDetectedDiscordWidgetUserId() }
                         Item { Layout.fillWidth: true }
                     }
-                    Text { text: "Publishing credential"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 6 }
+                    Text { text: "Publishing credential"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 6 }
                     TextField {
                         id: discordWidgetToken
                         Layout.fillWidth: true; implicitHeight: 40; enabled: !colorful.discordWidgetBusy; echoMode: TextInput.Password
@@ -510,8 +510,8 @@ Item {
                 ColumnLayout {
                     id: appearanceBody
                     width: Math.min(parent.width, 820); spacing: 14
-                    Text { text: "Appearance"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                    Text { text: "Use the active album artwork or keep one accent across the interface."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12 }
+                    Text { text: "Appearance"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                    Text { text: "Use the active album artwork or keep one accent across the interface."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale) }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 76
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -520,8 +520,8 @@ Item {
                             anchors.right: lowDataSwitch.left; anchors.rightMargin: 18
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 3
-                            Text { text: "Low data mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                            Text { width: parent.width; text: "Do not request or decode artwork and profile images. App icons remain visible."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                            Text { text: "Low data mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text { width: parent.width; text: "Do not request or decode artwork and profile images. App icons remain visible."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                         }
                         Rectangle {
                             id: lowDataSwitch
@@ -536,13 +536,64 @@ Item {
                         }
                     }
                     Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 76
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.left: parent.left; anchors.leftMargin: 15
+                            anchors.right: hardwareAccelerationSwitch.left; anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 3
+                            Text { text: "Hardware acceleration"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text { width: parent.width; text: "Use the GPU for the interface. Restart colorful after changing this setting."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
+                        }
+                        Rectangle {
+                            id: hardwareAccelerationSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 42; height: 22
+                            color: colorful.hardwareAccelerationEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.hardwareAccelerationEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.hardwareAccelerationEnabled ? parent.width - width - 3 : 3; color: colorful.hardwareAccelerationEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.hardwareAccelerationEnabled = !colorful.hardwareAccelerationEnabled }
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 82
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        RowLayout {
+                            anchors.fill: parent; anchors.margins: 15; spacing: 18
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 3
+                                Text { text: "Text size"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                Text { Layout.fillWidth: true; text: "Scale typography independently from controls and artwork."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
+                            }
+                            Row {
+                                spacing: 0
+                                Repeater {
+                                    model: [[1.0, "100%"], [1.1, "110%"], [1.2, "120%"]]
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: 62; height: 36
+                                        color: Math.abs(colorful.textScale - modelData[0]) < 0.01 ? Qt.rgba(1, 1, 1, 0.075) : textScaleHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                        border.width: 1
+                                        border.color: Math.abs(colorful.textScale - modelData[0]) < 0.01 ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                        Text { anchors.centerIn: parent; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(11 * colorful.textScale) }
+                                        HoverHandler { id: textScaleHover; cursorShape: Qt.PointingHandCursor }
+                                        TapHandler { onTapped: colorful.textScale = modelData[0] }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 88
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         RowLayout { anchors.fill: parent; anchors.margins: 15; spacing: 14
                             Rectangle { width: 46; height: 46; color: colorful.accent; border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.35) }
                             ColumnLayout { Layout.fillWidth: true; spacing: 3
-                                Text { text: colorful.accentMode === "album" ? "Album-derived accent" : "Fixed accent"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                Text { text: colorful.accentMode === "album" ? (colorful.lowDataMode ? "Album color updates are paused while low data mode is active." : "Colors animate between tracks and are corrected for dark-background contrast.") : "This color remains active when the track changes."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                Text { text: colorful.accentMode === "album" ? "Album-derived accent" : "Fixed accent"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                Text { text: colorful.accentMode === "album" ? (colorful.lowDataMode ? "Album color updates are paused while low data mode is active." : "Colors animate between tracks and are corrected for dark-background contrast.") : "This color remains active when the track changes."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                             }
                         }
                     }
@@ -555,13 +606,13 @@ Item {
                                 width: modeText.implicitWidth + 30; height: 40
                                 color: colorful.accentMode === modelData[0] ? Qt.rgba(1, 1, 1, 0.075) : modeHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
                                 border.width: 1; border.color: colorful.accentMode === modelData[0] ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
-                                Text { id: modeText; anchors.centerIn: parent; text: modelData[1]; color: "#f5f5f5"; font.bold: colorful.accentMode === modelData[0]; font.pixelSize: 11 }
+                                Text { id: modeText; anchors.centerIn: parent; text: modelData[1]; color: "#f5f5f5"; font.bold: colorful.accentMode === modelData[0]; font.pixelSize: Math.round(11 * colorful.textScale) }
                                 HoverHandler { id: modeHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: colorful.accentMode = modelData[0] }
                             }
                         }
                     }
-                    Text { text: "Fixed color"; visible: colorful.accentMode === "fixed"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 4 }
+                    Text { text: "Fixed color"; visible: colorful.accentMode === "fixed"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 4 }
                     Row {
                         visible: colorful.accentMode === "fixed"
                         Layout.fillWidth: true; spacing: 8
@@ -591,8 +642,8 @@ Item {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
-                            Text { text: "Custom color"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12 }
-                            Text { text: colorful.fixedAccent.toString().toUpperCase(); color: Qt.rgba(1, 1, 1, 0.38); font.pixelSize: 10 }
+                            Text { text: "Custom color"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                            Text { text: colorful.fixedAccent.toString().toUpperCase(); color: Qt.rgba(1, 1, 1, 0.38); font.pixelSize: Math.round(10 * colorful.textScale) }
                         }
                         ColorButton {
                             text: "Choose color…"
@@ -612,8 +663,8 @@ Item {
                 ColumnLayout {
                     id: storageBody
                     width: Math.min(parent.width, 820); spacing: 14
-                    Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                    Text { Layout.fillWidth: true; text: "Offline files are private application data. They contain playable audio and do not depend on an expiring manifest after completion."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap }
+                    Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                    Text { Layout.fillWidth: true; text: "Offline files are private application data. They contain playable audio and do not depend on an expiring manifest after completion."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 126
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -621,15 +672,15 @@ Item {
                             anchors.fill: parent; anchors.margins: 16; spacing: 18
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 3
-                                Text { text: root.formatStorage(colorful.offlineStorageUsed); color: "#f5f5f5"; font.bold: true; font.pixelSize: 22 }
-                                Text { text: colorful.downloads.length + " offline " + (colorful.downloads.length === 1 ? "entry" : "entries"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
-                                Text { text: colorful.offlineStorageLimitBytes > 0 ? "Limit: " + root.formatStorage(colorful.offlineStorageLimitBytes) : "No storage limit"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 11 }
+                                Text { text: root.formatStorage(colorful.offlineStorageUsed); color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(22 * colorful.textScale) }
+                                Text { text: colorful.downloads.length + " offline " + (colorful.downloads.length === 1 ? "entry" : "entries"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
+                                Text { text: colorful.offlineStorageLimitBytes > 0 ? "Limit: " + root.formatStorage(colorful.offlineStorageLimitBytes) : "No storage limit"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
                             }
                             ColorButton { text: "Open folder"; quiet: true; onClicked: colorful.openDownloadsFolder() }
                         }
                     }
-                    Text { text: "Offline storage limit"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
-                    Text { Layout.fillWidth: true; text: "Downloads pause at the limit. colorful never removes completed music automatically."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { text: "Offline storage limit"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
+                    Text { Layout.fillWidth: true; text: "Downloads pause at the limit. colorful never removes completed music automatically."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                     Row {
                         Layout.fillWidth: true; spacing: 0
                         Repeater {
@@ -641,7 +692,7 @@ Item {
                                 color: colorful.offlineStorageLimitBytes === bytes ? Qt.rgba(1, 1, 1, 0.075) : quotaHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
                                 border.width: 1
                                 border.color: colorful.offlineStorageLimitBytes === bytes ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
-                                Text { anchors.centerIn: parent; text: modelData[0]; color: "#f5f5f5"; font.bold: true; font.pixelSize: 11 }
+                                Text { anchors.centerIn: parent; text: modelData[0]; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(11 * colorful.textScale) }
                                 HoverHandler { id: quotaHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: colorful.offlineStorageLimitBytes = parent.bytes }
                             }
@@ -657,8 +708,8 @@ Item {
                             color: colorful.offlineStorageUsed >= colorful.offlineStorageLimitBytes ? "#ff7777" : colorful.accent
                         }
                     }
-                    Text { text: "Download quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14 }
-                    Text { Layout.fillWidth: true; text: "TIDAL downloads follow the stream-quality choice in Playback. SoundCloud normally uses its preferred AAC 160 stream."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { text: "Download quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
+                    Text { Layout.fillWidth: true; text: "TIDAL downloads follow the stream-quality choice in Playback. SoundCloud normally uses its preferred AAC 160 stream."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: 82
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -666,11 +717,11 @@ Item {
                             anchors.left: parent.left; anchors.leftMargin: 15
                             anchors.right: soundcloudOriginalSwitch.left; anchors.rightMargin: 18
                             anchors.verticalCenter: parent.verticalCenter; spacing: 3
-                            Text { text: "Prefer SoundCloud originals"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
+                            Text { text: "Prefer SoundCloud originals"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
                             Text {
                                 width: parent.width
                                 text: "Use the uploader's WAV, FLAC, or other original when downloads are enabled. Originals can be hundreds of megabytes; unavailable originals fall back to AAC."
-                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap
+                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap
                             }
                         }
                         Rectangle {
@@ -691,8 +742,8 @@ Item {
             Item {
                 Column { anchors.centerIn: parent; width: Math.min(430, parent.width - 40); spacing: 9
                     AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/library.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "Device sync is not enabled yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
-                    Text { width: parent.width; text: "Device pairing, library sync, listening history, playback handoff, and desktop RPC relay controls will live here."; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 12; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
+                    Text { width: parent.width; text: "Device sync is not enabled yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale); horizontalAlignment: Text.AlignHCenter }
+                    Text { width: parent.width; text: "Device pairing, library sync, listening history, playback handoff, and desktop RPC relay controls will live here."; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
                 }
             }
 
@@ -702,8 +753,8 @@ Item {
                     id: aboutBody
                     width: Math.min(parent.width, 820); spacing: 14
                     Image { source: "qrc:/assets/branding/colorful.svg"; Layout.preferredWidth: 70; Layout.preferredHeight: 70; fillMode: Image.PreserveAspectFit; smooth: true; mipmap: true }
-                    Text { text: "colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 26 }
-                    Text { text: "A local-first personal music client."; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: 13 }
+                    Text { text: "colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(26 * colorful.textScale) }
+                    Text { text: "A local-first personal music client."; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: Math.round(13 * colorful.textScale) }
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
@@ -722,7 +773,7 @@ Item {
                             Layout.fillWidth: true
                             text: updater.status
                             color: updater.state === "error" ? "#ff8585" : Qt.rgba(1, 1, 1, 0.42)
-                            font.pixelSize: 11
+                            font.pixelSize: Math.round(11 * colorful.textScale)
                             elide: Text.ElideRight
                         }
                     }
@@ -759,7 +810,7 @@ Item {
                             ["Nunito", "OFL-1.1"]
                         ]
                     }
-                    Text { Layout.fillWidth: true; text: "This personal project is entirely AI-made. It exists because its owner needed a stable music client that worked for them."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { Layout.fillWidth: true; text: "This personal project is entirely AI-made. It exists because its owner needed a stable music client that worked for them."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                 }
             }
         }

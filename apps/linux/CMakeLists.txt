@@ -106,6 +106,21 @@ if(UNIX AND NOT APPLE)
 endif()
 if(WIN32)
     configure_file(
+        ../windows/app.manifest
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/app.manifest"
+        COPYONLY
+    )
+    execute_process(
+        COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/convert-png-to-ico.ps1"
+            -InputPath "${CMAKE_CURRENT_SOURCE_DIR}/../../assets/branding/colorful-2048.png"
+            -OutputPath "${CMAKE_CURRENT_BINARY_DIR}/generated/colorful.ico"
+        RESULT_VARIABLE COLORFUL_ICON_RESULT
+    )
+    if(NOT COLORFUL_ICON_RESULT EQUAL 0)
+        message(FATAL_ERROR "Could not generate the Windows application icon")
+    endif()
+    configure_file(
         src/colorful.rc.in
         "${CMAKE_CURRENT_BINARY_DIR}/generated/colorful.rc"
         @ONLY
@@ -115,6 +130,7 @@ if(WIN32)
         src/credentialstore.h
         src/windowsmedia.cpp
         src/windowsmedia.h
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/app.manifest"
         "${CMAKE_CURRENT_BINARY_DIR}/generated/colorful.rc"
     )
 endif()
@@ -231,12 +247,16 @@ set_source_files_properties(
 set_source_files_properties(
     ../../assets/branding/colorful.svg PROPERTIES QT_RESOURCE_ALIAS branding/colorful.svg
 )
+set_source_files_properties(
+    ../../assets/branding/colorful-2048.png PROPERTIES QT_RESOURCE_ALIAS branding/colorful-2048.png
+)
 qt_add_resources(colorful-linux colorful_assets
     PREFIX "/assets"
     FILES
         ../../assets/fonts/Nunito.ttf
         ../../assets/fonts/OFL.txt
         ../../assets/branding/colorful.svg
+        ../../assets/branding/colorful-2048.png
 )
 
 target_compile_definitions(colorful-linux PRIVATE

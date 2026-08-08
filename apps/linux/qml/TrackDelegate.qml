@@ -16,7 +16,7 @@ ItemDelegate {
         contentItem: Text {
             text: parent.text
             color: parent.enabled ? "#eeeeef" : Qt.rgba(1, 1, 1, 0.32)
-            font.pixelSize: 12
+            font.pixelSize: Math.round(12 * colorful.textScale)
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
@@ -133,6 +133,7 @@ ItemDelegate {
                 }
                 CompactSeparator {}
                 CompactMenuItem { text: "Open details"; onTriggered: root.detailsRequested() }
+                CompactMenuItem { text: "Copy song link"; onTriggered: colorful.copySongLink(root.track) }
         }
     }
 
@@ -203,14 +204,14 @@ ItemDelegate {
                 color: "#f5f5f5"
                 elide: Text.ElideRight
                 font.weight: Font.DemiBold
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * colorful.textScale)
             }
             Text {
                 Layout.fillWidth: true
                 text: root.track.artistText || "Unknown artist"
                 color: Qt.rgba(1, 1, 1, 0.48)
                 elide: Text.ElideRight
-                font.pixelSize: 11
+                font.pixelSize: Math.round(11 * colorful.textScale)
             }
         }
 
@@ -227,7 +228,7 @@ ItemDelegate {
         Text {
             text: root.track.durationMs ? formatDuration(root.track.durationMs) : ""
             color: Qt.rgba(1, 1, 1, 0.4)
-            font.pixelSize: 10
+            font.pixelSize: Math.round(10 * colorful.textScale)
         }
 
         IconButton {

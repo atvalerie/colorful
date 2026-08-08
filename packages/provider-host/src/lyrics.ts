@@ -19,10 +19,13 @@ export type LyricsDocument = {
   instrumental: boolean;
   lines: LyricLine[];
   plainText: string;
+  romanizedLines: LyricLine[];
+  romanizedText: string;
+  romanizedSynced: boolean;
   fetchedAtMs: number;
 };
 
-type NativeLyrics = { plain: string | null; synced: string | null };
+type NativeLyrics = { plain: string | null; synced: string | null; romanized?: string | null };
 type LrclibRecord = {
   trackName?: string;
   artistName?: string;
@@ -64,8 +67,17 @@ function document(track: TrackSummary & { provider?: string }, source: LyricsDoc
   label: string, lyrics: NativeLyrics, instrumental = false): LyricsDocument | null {
   const syncedText = clean(lyrics.synced);
   const plainText = clean(lyrics.plain) ?? "";
+  const romanizedText = clean(lyrics.romanized) ?? "";
   const syncedLines = syncedText ? parseSyncedLyrics(syncedText) : [];
-  if (!instrumental && !plainText && !syncedLines.length) return null;
+  const romanizedSyncedLines = romanizedText ? parseSyncedLyrics(romanizedText) : [];
+  const romanizedPlainLines = romanizedText ? plainLines(romanizedText) : [];
+  const alignedRomanizedLines = !romanizedSyncedLines.length
+    && syncedLines.length === romanizedPlainLines.length
+    ? romanizedPlainLines.map((line, index) => ({ ...line, startMs: syncedLines[index]?.startMs ?? null }))
+    : [];
+  const romanizedLines = romanizedSyncedLines.length
+    ? romanizedSyncedLines : alignedRomanizedLines.length ? alignedRomanizedLines : romanizedPlainLines;
+  if (!instrumental && !plainText && !syncedLines.length && !romanizedLines.length) return null;
   return {
     trackId: track.id,
     provider: track.provider ?? "tidal",
@@ -75,8 +87,17 @@ function document(track: TrackSummary & { provider?: string }, source: LyricsDoc
     instrumental,
     lines: syncedLines.length ? syncedLines : plainLines(plainText),
     plainText,
+    romanizedLines,
+    romanizedText,
+    romanizedSynced: romanizedSyncedLines.length > 0 || alignedRomanizedLines.length > 0,
     fetchedAtMs: Date.now(),
   };
+}
+
+export function preferLyrics(native: LyricsDocument | null, fallback: LyricsDocument | null): LyricsDocument | null {
+  if (native?.synced) return native;
+  if (fallback?.synced) return fallback;
+  return native ?? fallback;
 }
 
 function lrclibCandidate(records: LrclibRecord[], durationMs: number | null): LrclibRecord | null {
@@ -107,12 +128,18 @@ async function lrclib(track: TrackSummary & { provider?: string }): Promise<Lyri
   };
   try {
     const exact = await fetchJson(`/get?${params}`) as LrclibRecord | null;
-    let candidate = exact;
-    if (!candidate) {
+    const candidates: LrclibRecord[] = exact ? [exact] : [];
+    if (!clean(exact?.syncedLyrics)) {
       const search = new URLSearchParams({ track_name: track.title, artist_name: track.artists[0] ?? "" });
-      const results = await fetchJson(`/search?${search}`);
-      candidate = Array.isArray(results) ? lrclibCandidate(results as LrclibRecord[], track.durationMs) : null;
+      try {
+        const results = await fetchJson(`/search?${search}`);
+        if (Array.isArray(results)) candidates.push(...results as LrclibRecord[]);
+      } catch {
+        // The exact plain result remains useful if the broader synced search
+        // times out independently.
+      }
     }
+    const candidate = lrclibCandidate(candidates, track.durationMs);
     if (!candidate) return null;
     return document(track, "lrclib", "LRCLIB", {
       plain: clean(candidate.plainLyrics),
@@ -138,5 +165,6 @@ export async function resolveLyrics(
   } catch {
     native = null;
   }
-  return native ?? lrclib(track);
+  if (native?.synced) return native;
+  return preferLyrics(native, await lrclib(track));
 }

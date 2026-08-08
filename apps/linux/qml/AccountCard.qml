@@ -22,7 +22,7 @@ Rectangle {
             text: root.title
             color: "#f5f5f5"
             font.bold: true
-            font.pixelSize: 14
+            font.pixelSize: Math.round(14 * colorful.textScale)
         }
         Rectangle {
             Layout.fillWidth: true
@@ -39,7 +39,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: modelData[0]
                     color: Qt.rgba(1, 1, 1, 0.43)
-                    font.pixelSize: 11
+                    font.pixelSize: Math.round(11 * colorful.textScale)
                 }
                 Text {
                     Layout.maximumWidth: root.width * 0.58
@@ -47,7 +47,7 @@ Rectangle {
                     color: "#f5f5f5"
                     horizontalAlignment: Text.AlignRight
                     elide: Text.ElideRight
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * colorful.textScale)
                 }
             }
         }

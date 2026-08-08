@@ -9,11 +9,14 @@ Rectangle {
     required property string errorText
     required property int playbackPosition
     property int offsetMs: 0
+    property bool showRomanized: false
     signal closeRequested()
     signal refreshRequested()
 
-    readonly property var lines: lyrics.lines || []
-    readonly property bool synced: Boolean(lyrics.synced)
+    readonly property bool hasRomanized: (lyrics.romanizedLines || []).length > 0
+    readonly property var lines: showRomanized && hasRomanized ? lyrics.romanizedLines : (lyrics.lines || [])
+    readonly property bool synced: showRomanized && hasRomanized
+        ? Boolean(lyrics.romanizedSynced) : Boolean(lyrics.synced)
     readonly property int activeIndex: {
         if (!synced || lines.length === 0) return -1
         const clock = playbackPosition + offsetMs
@@ -51,7 +54,12 @@ Rectangle {
             centerActiveLine(true)
     }
     onVisibleChanged: if (visible) Qt.callLater(function() { root.centerActiveLine(false) })
-    onLyricsChanged: Qt.callLater(function() { root.centerActiveLine(false) })
+    onLyricsChanged: {
+        if (!hasRomanized) showRomanized = false
+        else if ((lyrics.lines || []).length === 0) showRomanized = true
+        Qt.callLater(function() { root.centerActiveLine(false) })
+    }
+    onShowRomanizedChanged: Qt.callLater(function() { root.centerActiveLine(false) })
 
     NumberAnimation {
         id: lineScroll
@@ -70,8 +78,15 @@ Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 34
             spacing: 7
-            Text { text: "Lyrics"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 18 }
+            Text { text: "Lyrics"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(18 * colorful.textScale) }
             Item { Layout.fillWidth: true }
+            ColorButton {
+                visible: root.hasRomanized
+                text: root.showRomanized ? "Original" : "Romanized"
+                quiet: true
+                implicitHeight: 30
+                onClicked: root.showRomanized = !root.showRomanized
+            }
             ColorButton {
                 visible: root.synced
                 text: root.offsetMs === 0 ? "Offset" : (root.offsetMs > 0 ? "+" : "") + root.offsetMs + " ms"
@@ -98,7 +113,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: (root.lyrics.sourceLabel || "Lyrics") + (root.synced ? " · synced" : "")
                 color: Qt.rgba(1, 1, 1, 0.42)
-                font.pixelSize: 11
+                font.pixelSize: Math.round(11 * colorful.textScale)
             }
             Row {
                 visible: root.synced
@@ -129,14 +144,11 @@ Rectangle {
                 text: modelData.text || " "
                 color: "#ffffff"
                 opacity: root.synced ? (index === root.activeIndex ? 1 : 0.42) : 0.78
-                scale: root.synced && index === root.activeIndex ? 1.055 : 1
-                transformOrigin: Item.Left
-                font.pixelSize: root.synced ? 16 : 14
+                font.pixelSize: Math.round((root.synced ? 16 : 14) * colorful.textScale)
                 font.weight: root.synced && index === root.activeIndex ? Font.DemiBold : Font.Normal
                 wrapMode: Text.WordWrap
                 lineHeight: 1.15
                 Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
-                Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
             }
         }
 
@@ -163,7 +175,7 @@ Rectangle {
                 color: Qt.rgba(1, 1, 1, 0.46)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * colorful.textScale)
             }
             ColorButton {
                 id: retryButton

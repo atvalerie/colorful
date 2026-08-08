@@ -18,7 +18,7 @@ Button {
         text: control.text
         color: control.enabled ? control.textColor : Qt.rgba(1, 1, 1, 0.32)
         font.weight: Font.DemiBold
-        font.pixelSize: 12
+        font.pixelSize: Math.round(12 * colorful.textScale)
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
     }

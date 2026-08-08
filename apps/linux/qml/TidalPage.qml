@@ -32,7 +32,7 @@ Item {
 
         RowLayout {
             width: parent.width
-            Text { text: mixShelf.shelfTitle; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+            Text { text: mixShelf.shelfTitle; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
             Item { Layout.fillWidth: true }
         }
         Item {
@@ -97,7 +97,7 @@ Item {
                         text: modelData
                         color: root.tab === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.56)
                         font.bold: root.tab === index
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * colorful.textScale)
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.tab = index }
@@ -149,8 +149,8 @@ Item {
                     spacing: 10
                     visible: colorful.linked && !colorful.tidalHubLoading && root.homeEmpty
                     AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/home.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "No recommendations yet"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: 16 }
-                    Text { width: parent.width; text: "TIDAL will place daily mixes, discovery, and new releases here when they become available for this account."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 12 }
+                    Text { width: parent.width; text: "No recommendations yet"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                    Text { width: parent.width; text: "TIDAL will place daily mixes, discovery, and new releases here when they become available for this account."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(12 * colorful.textScale) }
                 }
             }
 
@@ -172,7 +172,7 @@ Item {
                     visible: !root.collectionEmpty
                     height: visible ? implicitHeight : 0
                     RowLayout { width: parent.width; visible: (colorful.tidalHub.artists || []).length > 0
-                        Text { text: "Saved artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                        Text { text: "Saved artists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                         Item { Layout.fillWidth: true }
                     }
                     Item {
@@ -200,7 +200,7 @@ Item {
                         onClicked: colorful.loadMoreTidal("artists")
                     }
                     RowLayout { width: parent.width; visible: (colorful.tidalHub.albums || []).length > 0
-                        Text { text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                        Text { text: "Saved albums"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                         Item { Layout.fillWidth: true }
                     }
                     Item {
@@ -227,7 +227,7 @@ Item {
                         quiet: true; enabled: !colorful.tidalMoreLoading
                         onClicked: colorful.loadMoreTidal("albums")
                     }
-                    Text { visible: (colorful.tidalHub.tracks || []).length > 0; text: "Saved tracks"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                    Text { visible: (colorful.tidalHub.tracks || []).length > 0; text: "Saved tracks"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                 }
                 delegate: TrackDelegate {
                     required property var modelData
@@ -254,8 +254,8 @@ Item {
                     spacing: 10
                     visible: colorful.linked && !colorful.tidalHubLoading && root.collectionEmpty
                     AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/library.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "Your TIDAL collection is empty"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: 16 }
-                    Text { width: parent.width; text: "Albums, artists, and tracks you save on TIDAL will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 12 }
+                    Text { width: parent.width; text: "Your TIDAL collection is empty"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                    Text { width: parent.width; text: "Albums, artists, and tracks you save on TIDAL will appear here."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(12 * colorful.textScale) }
                 }
             }
 
@@ -273,7 +273,7 @@ Item {
                     spacing: 12
                     visible: !root.playlistsEmpty
                     height: visible ? implicitHeight : 0
-                    Text { visible: (colorful.tidalHub.mixes || []).length > 0; text: "Made for you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                    Text { visible: (colorful.tidalHub.mixes || []).length > 0; text: "Made for you"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                     ListView {
                         width: parent.width; height: visible ? 204 : 0
                         visible: (colorful.tidalHub.mixes || []).length > 0
@@ -287,7 +287,7 @@ Item {
                             onOpenRequested: window.openPlaylist(modelData.id, "tidal")
                         }
                     }
-                    Text { visible: (colorful.tidalHub.playlists || []).length > 0; text: "Your playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                    Text { visible: (colorful.tidalHub.playlists || []).length > 0; text: "Your playlists"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                 }
                 delegate: Rectangle {
                     required property var modelData
@@ -298,8 +298,8 @@ Item {
                     AppIcon { x: 22; y: 22; width: 18; height: 18; iconSource: "icons/music.svg"; opacity: 0.3; visible: colorful.lowDataMode || !modelData.coverUrl }
                     Column {
                         x: 67; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 150; spacing: 3
-                        Text { width: parent.width; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12; elide: Text.ElideRight }
-                        Text { width: parent.width; text: modelData.numberOfItems ? modelData.numberOfItems + " tracks" : (modelData.playlistType || "TIDAL"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: 10 }
+                        Text { width: parent.width; text: modelData.name || "Untitled playlist"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale); elide: Text.ElideRight }
+                        Text { width: parent.width; text: modelData.numberOfItems ? modelData.numberOfItems + " tracks" : (modelData.playlistType || "TIDAL"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(10 * colorful.textScale) }
                     }
                     HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: window.openPlaylist(modelData.id, "tidal") }
@@ -318,8 +318,8 @@ Item {
                     spacing: 10
                     visible: colorful.linked && !colorful.tidalHubLoading && root.playlistsEmpty
                     AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/music.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "No playlists or mixes yet"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: 16 }
-                    Text { width: parent.width; text: "Your playlists and mixes made by TIDAL will show up here when they become available."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: 12 }
+                    Text { width: parent.width; text: "No playlists or mixes yet"; color: "#f5f5f5"; horizontalAlignment: Text.AlignHCenter; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                    Text { width: parent.width; text: "Your playlists and mixes made by TIDAL will show up here when they become available."; color: Qt.rgba(1, 1, 1, 0.44); horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; font.pixelSize: Math.round(12 * colorful.textScale) }
                 }
             }
 
@@ -334,7 +334,7 @@ Item {
     Column {
         anchors.centerIn: parent; spacing: 12
         visible: colorful.providerStatusResolved && !colorful.linked
-        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect TIDAL to load your collection and account"; color: Qt.rgba(1, 1, 1, 0.52); font.pixelSize: 13 }
+        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect TIDAL to load your collection and account"; color: Qt.rgba(1, 1, 1, 0.52); font.pixelSize: Math.round(13 * colorful.textScale) }
         ColorButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Connect TIDAL"; onClicked: colorful.startLogin() }
     }
 }

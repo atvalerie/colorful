@@ -12,6 +12,8 @@
 #include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QFont>
+#include <QFontDatabase>
 #include <QIcon>
 #include <QMouseEvent>
 #include <QProcessEnvironment>
@@ -21,6 +23,7 @@
 #include <QQuickStyle>
 #include <QScreen>
 #include <QSet>
+#include <QSettings>
 #if defined(Q_OS_LINUX)
 #include <QSocketNotifier>
 #endif
@@ -168,7 +171,7 @@ void logDisplayState(QWindow *window)
                         .arg(screen->logicalDotsPerInch(), 0, 'f', 1)
                         .arg(window->devicePixelRatio(), 0, 'f', 2)
 #if defined(Q_OS_WIN)
-                        .arg(QStringLiteral("native")));
+                        .arg(QStringLiteral("qt-grayscale")));
 #else
                         .arg(QStringLiteral("qt")));
 #endif
@@ -177,23 +180,52 @@ void logDisplayState(QWindow *window)
 
 int main(int argc, char *argv[])
 {
+    QCoreApplication::setApplicationName(QStringLiteral("colorful"));
+    QCoreApplication::setApplicationVersion(QString::fromLatin1(COLORFUL_VERSION));
+    QCoreApplication::setOrganizationName(QStringLiteral("colorful"));
+    // Renderer selection must happen before QGuiApplication creates the scene
+    // graph. Keep the command-line escape hatch available even if a broken GPU
+    // prevents the settings page from rendering.
+    bool commandLineSoftwareRequested = false;
+    for (int index = 1; index < argc; ++index) {
+        if (qstrcmp(argv[index], "--disable-hardware-acceleration") == 0) {
+            commandLineSoftwareRequested = true;
+            break;
+        }
+    }
+    const bool softwareRequested = commandLineSoftwareRequested
+        || !QSettings().value(QStringLiteral("appearance/hardwareAcceleration"), true).toBool();
+    if (softwareRequested && qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND"))
+        qputenv("QT_QUICK_BACKEND", QByteArrayLiteral("software"));
+#if defined(Q_OS_WIN)
+    if (qEnvironmentVariableIsEmpty("QSG_DISTANCEFIELD_ANTIALIASING"))
+        qputenv("QSG_DISTANCEFIELD_ANTIALIASING", QByteArrayLiteral("gray"));
+#endif
     QGuiApplication app(argc, argv);
 #if defined(Q_OS_WIN)
-    // Qt Quick's default distance-field renderer can look ragged at Windows
-    // fractional scale factors. DirectWrite-backed native glyph rendering is
-    // sharper for this UI, whose text is not continuously transformed.
-    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+    // NativeTextRendering uses Windows' RGB ClearType rasterization, which
+    // produces visible red/blue fringes on displays whose physical subpixel
+    // layout does not match Windows' assumption. Match the Linux scene-graph
+    // path and explicitly request grayscale font antialiasing instead.
+    QQuickWindow::setTextRenderType(QQuickWindow::QtTextRendering);
+    auto interfaceFont = app.font();
+    const auto nunitoFontId = QFontDatabase::addApplicationFont(
+        QStringLiteral(":/assets/fonts/Nunito.ttf"));
+    const auto nunitoFamilies = QFontDatabase::applicationFontFamilies(nunitoFontId);
+    if (!nunitoFamilies.isEmpty()) interfaceFont.setFamily(nunitoFamilies.constFirst());
+    interfaceFont.setStyleStrategy(static_cast<QFont::StyleStrategy>(
+        static_cast<int>(interfaceFont.styleStrategy())
+        | static_cast<int>(QFont::PreferAntialias)
+        | static_cast<int>(QFont::NoSubpixelAntialias)));
+    app.setFont(interfaceFont);
 #endif
 #if defined(Q_OS_LINUX)
     // Start listening before backend construction so a signal received during
     // startup remains queued until Qt's event loop can perform a clean exit.
     TerminationSignalBridge terminationSignals(app);
 #endif
-    QGuiApplication::setApplicationName(QStringLiteral("colorful"));
-    QGuiApplication::setApplicationVersion(QString::fromLatin1(COLORFUL_VERSION));
     QGuiApplication::setDesktopFileName(QStringLiteral("colorful"));
-    QGuiApplication::setOrganizationName(QStringLiteral("colorful"));
-    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/branding/colorful.svg")));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/branding/colorful-2048.png")));
     DebugLog::write(u"app", QStringLiteral("colorful started; log=%1").arg(DebugLog::filePath()));
     qInfo().noquote() << "colorful debug log:" << DebugLog::filePath();
     QQuickStyle::setStyle(QStringLiteral("Basic"));

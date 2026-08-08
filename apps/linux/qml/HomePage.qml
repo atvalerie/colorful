@@ -114,7 +114,7 @@ Item {
                 anchors.right: refreshButton.left
                 anchors.rightMargin: 20
                 spacing: 3
-                Text { text: "Home"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
+                Text { text: "Home"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
                 Text {
                     Layout.fillWidth: true
                     text: root.primaryProvider.length > 0 && root.providerScore(root.primaryProvider) > 0
@@ -122,7 +122,7 @@ Item {
                           : root.primaryProvider.length > 0 ? "Recommendations from your connected services"
                                                             : "Connect a music service to build your home feed"
                     color: Qt.rgba(1, 1, 1, 0.43)
-                    font.pixelSize: 11
+                    font.pixelSize: Math.round(11 * colorful.textScale)
                     elide: Text.ElideRight
                 }
             }
@@ -161,12 +161,12 @@ Item {
                 RowLayout {
                     width: parent.width
                     spacing: 8
-                    Text { text: shelf.modelData.title; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
+                    Text { text: shelf.modelData.title; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
                     Text {
                         text: root.providerLabel(shelf.modelData.provider)
                         color: Qt.rgba(1, 1, 1, 0.34)
                         font.bold: true
-                        font.pixelSize: 9
+                        font.pixelSize: Math.round(9 * colorful.textScale)
                         font.letterSpacing: 0.7
                     }
                     Item { Layout.fillWidth: true }
@@ -223,14 +223,14 @@ Item {
         Text {
             width: parent.width
             text: root.providers.length > 0 ? "Your home feed is warming up" : "Connect a service to personalize Home"
-            color: "#f5f5f5"; font.bold: true; font.pixelSize: 17; horizontalAlignment: Text.AlignHCenter
+            color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale); horizontalAlignment: Text.AlignHCenter
         }
         Text {
             width: parent.width
             text: root.providers.length > 0
                   ? "Recommendations and mixes will appear here as your connected providers return them."
                   : "Home combines mixes and recommendations from the services you use, ordered by your listening history."
-            color: Qt.rgba(1, 1, 1, 0.44); font.pixelSize: 12; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
+            color: Qt.rgba(1, 1, 1, 0.44); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter
         }
         ColorButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Open account settings"; visible: root.providers.length === 0; onClicked: window.openSettings(0) }
     }

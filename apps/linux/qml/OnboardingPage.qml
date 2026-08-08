@@ -49,8 +49,8 @@ FocusScope {
         Column {
             anchors.centerIn: parent
             spacing: 2
-            Text { anchors.horizontalCenter: parent.horizontalCenter; text: choice.label; color: "#f5f5f5"; font.bold: true; font.pixelSize: 12 }
-            Text { visible: choice.detail.length > 0; anchors.horizontalCenter: parent.horizontalCenter; text: choice.detail; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: 9 }
+            Text { anchors.horizontalCenter: parent.horizontalCenter; text: choice.label; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+            Text { visible: choice.detail.length > 0; anchors.horizontalCenter: parent.horizontalCenter; text: choice.detail; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: Math.round(9 * colorful.textScale) }
         }
         HoverHandler { id: choiceHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: choice.chosen() }
@@ -78,10 +78,10 @@ FocusScope {
                 anchors.rightMargin: 20
                 spacing: 10
                 Image { source: "qrc:/assets/branding/colorful.svg"; Layout.preferredWidth: 26; Layout.preferredHeight: 26; fillMode: Image.PreserveAspectFit }
-                Text { text: "colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 17 }
-                Text { text: "First-time setup"; color: Qt.rgba(1, 1, 1, 0.38); font.pixelSize: 11; Layout.leftMargin: 4 }
+                Text { text: "colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(17 * colorful.textScale) }
+                Text { text: "First-time setup"; color: Qt.rgba(1, 1, 1, 0.38); font.pixelSize: Math.round(11 * colorful.textScale); Layout.leftMargin: 4 }
                 Item { Layout.fillWidth: true }
-                Text { text: "Step " + (root.step + 1) + " of " + root.stepCount; color: Qt.rgba(1, 1, 1, 0.38); font.pixelSize: 10 }
+                Text { text: "Step " + (root.step + 1) + " of " + root.stepCount; color: Qt.rgba(1, 1, 1, 0.38); font.pixelSize: Math.round(10 * colorful.textScale) }
             }
         }
 
@@ -104,7 +104,7 @@ FocusScope {
                         text: "Setup"
                         color: "#f5f5f5"
                         font.bold: true
-                        font.pixelSize: 22
+                        font.pixelSize: Math.round(22 * colorful.textScale)
                         Layout.leftMargin: 8
                         Layout.topMargin: 5
                         Layout.bottomMargin: 12
@@ -124,8 +124,8 @@ FocusScope {
                                 anchors.left: parent.left; anchors.leftMargin: 11
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 22; spacing: 2
-                                Text { text: modelData[0]; color: root.step === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.66); font.bold: root.step === index; font.pixelSize: 12 }
-                                Text { width: parent.width; text: modelData[1]; color: Qt.rgba(1, 1, 1, 0.32); font.pixelSize: 9; elide: Text.ElideRight }
+                                Text { text: modelData[0]; color: root.step === index ? "#f5f5f5" : Qt.rgba(1, 1, 1, 0.66); font.bold: root.step === index; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                Text { width: parent.width; text: modelData[1]; color: Qt.rgba(1, 1, 1, 0.32); font.pixelSize: Math.round(9 * colorful.textScale); elide: Text.ElideRight }
                             }
                             HoverHandler { id: stepHover; cursorShape: Qt.PointingHandCursor }
                             TapHandler { onTapped: root.step = index }
@@ -137,7 +137,7 @@ FocusScope {
                         Layout.margins: 8
                         text: "You can run this setup again from Settings → About."
                         color: Qt.rgba(1, 1, 1, 0.28)
-                        font.pixelSize: 9
+                        font.pixelSize: Math.round(9 * colorful.textScale)
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -163,30 +163,30 @@ FocusScope {
                             ColumnLayout {
                                 width: Math.min(parent.width, 820)
                                 spacing: 14
-                                Text { text: "Welcome to colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                                Text { Layout.fillWidth: true; text: "A local-first personal music client for TIDAL, YouTube Music, and SoundCloud."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap }
+                                Text { text: "Welcome to colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                                Text { Layout.fillWidth: true; text: "A local-first personal music client for TIDAL, YouTube Music, and SoundCloud."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
                                 Rectangle {
                                     Layout.fillWidth: true; Layout.preferredHeight: 76
                                     color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                                     Column { anchors.fill: parent; anchors.margins: 15; spacing: 4
-                                        Text { text: "Your data stays local"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                        Text { width: parent.width; text: "Your library database, listening history, and downloads live on this device."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                                        Text { text: "Your data stays local"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                        Text { width: parent.width; text: "Your library database, listening history, and downloads live on this device."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                                     }
                                 }
                                 Rectangle {
                                     Layout.fillWidth: true; Layout.preferredHeight: 76
                                     color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                                     Column { anchors.fill: parent; anchors.margins: 15; spacing: 4
-                                        Text { text: "Connections are optional"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                        Text { width: parent.width; text: "Use one provider or all three. Public YouTube Music and SoundCloud content works without signing in."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                                        Text { text: "Connections are optional"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                        Text { width: parent.width; text: "Use one provider or all three. Public YouTube Music and SoundCloud content works without signing in."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                                     }
                                 }
                                 Rectangle {
                                     Layout.fillWidth: true; Layout.preferredHeight: 76
                                     color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                                     Column { anchors.fill: parent; anchors.margins: 15; spacing: 4
-                                        Text { text: "Change anything later"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                        Text { width: parent.width; text: "Every option in this guide is also available in Settings."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                                        Text { text: "Change anything later"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                        Text { width: parent.width; text: "Every option in this guide is also available in Settings."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                                     }
                                 }
                             }
@@ -201,8 +201,8 @@ FocusScope {
                                 ColumnLayout {
                                     id: accountBody
                                     width: Math.min(parent.width, 820); spacing: 14
-                                    Text { text: "Accounts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                                    Text { Layout.fillWidth: true; text: "Connect the services you use. Credentials are stored using the system credential store."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap }
+                                    Text { text: "Accounts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                                    Text { Layout.fillWidth: true; text: "Connect the services you use. Credentials are stored using the system credential store."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
                                     Repeater {
                                         model: [
                                             { name: "TIDAL", detail: "Library, recommendations, and lossless playback", linked: colorful.linked, action: "tidal" },
@@ -216,10 +216,10 @@ FocusScope {
                                             RowLayout {
                                                 anchors.fill: parent; anchors.margins: 15; spacing: 12
                                                 ColumnLayout { Layout.fillWidth: true; spacing: 3
-                                                    Text { text: modelData.name; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                                    Text { Layout.fillWidth: true; text: modelData.detail; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                                                    Text { text: modelData.name; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                                    Text { Layout.fillWidth: true; text: modelData.detail; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                                                 }
-                                                Text { text: modelData.linked ? "Connected" : "Not connected"; color: modelData.linked ? colorful.accent : Qt.rgba(1, 1, 1, 0.34); font.pixelSize: 10 }
+                                                Text { text: modelData.linked ? "Connected" : "Not connected"; color: modelData.linked ? colorful.accent : Qt.rgba(1, 1, 1, 0.34); font.pixelSize: Math.round(10 * colorful.textScale) }
                                                 ColorButton {
                                                     text: modelData.linked ? "Done" : (modelData.action === "tidal" ? "Connect" : "Setup guide")
                                                     quiet: true; enabled: !modelData.linked && (modelData.action !== "tidal" || colorful.providerReady)
@@ -246,8 +246,8 @@ FocusScope {
                                 ColumnLayout {
                                     id: playbackBody
                                     width: Math.min(parent.width, 820); spacing: 14
-                                    Text { text: "Playback"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                                    Text { text: "Behavior shared by the desktop queue and playback controls."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12 }
+                                    Text { text: "Playback"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                                    Text { text: "Behavior shared by the desktop queue and playback controls."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale) }
                                     Rectangle {
                                         Layout.fillWidth: true; Layout.preferredHeight: 76
                                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -255,8 +255,8 @@ FocusScope {
                                             anchors.left: parent.left; anchors.leftMargin: 15
                                             anchors.right: onboardingAutoplaySwitch.left; anchors.rightMargin: 18
                                             anchors.verticalCenter: parent.verticalCenter; spacing: 3
-                                            Text { text: "Autoplay"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                            Text { width: parent.width; text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                                            Text { text: "Autoplay"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                            Text { width: parent.width; text: "Continue with related tracks when the queue ends."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                                         }
                                         SettingToggle {
                                             id: onboardingAutoplaySwitch
@@ -266,14 +266,14 @@ FocusScope {
                                             onToggled: colorful.autoplayEnabled = !colorful.autoplayEnabled
                                         }
                                     }
-                                    Text { text: "Stream quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 5 }
-                                    Text { Layout.fillWidth: true; text: "The selected format is requested when the next track opens. Providers may fall back when a release has no matching format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                                    Text { text: "Stream quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
+                                    Text { Layout.fillWidth: true; text: "The selected format is requested when the next track opens. Providers may fall back when a release has no matching format."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                                     RowLayout { Layout.fillWidth: true; spacing: 0
                                         SettingChoice { Layout.preferredWidth: 150; label: "Best available"; detail: "Highest available"; selected: colorful.streamQuality === "best"; onChosen: colorful.streamQuality = "best" }
                                         SettingChoice { Layout.preferredWidth: 150; label: "Lossless"; detail: "FLAC → AAC"; selected: colorful.streamQuality === "lossless"; onChosen: colorful.streamQuality = "lossless" }
                                         SettingChoice { Layout.preferredWidth: 150; label: "High"; detail: "AAC"; selected: colorful.streamQuality === "high"; onChosen: colorful.streamQuality = "high" }
                                     }
-                                    Text { text: "Audio processing"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 5 }
+                                    Text { text: "Audio processing"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
                                     Rectangle {
                                         Layout.fillWidth: true; Layout.preferredHeight: 76
                                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -281,8 +281,8 @@ FocusScope {
                                             anchors.left: parent.left; anchors.leftMargin: 15
                                             anchors.right: onboardingNormalizationSwitch.left; anchors.rightMargin: 18
                                             anchors.verticalCenter: parent.verticalCenter; spacing: 3
-                                            Text { text: "Volume normalization"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                            Text { width: parent.width; text: "Reduce loudness jumps between tracks using ReplayGain data."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                                            Text { text: "Volume normalization"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                            Text { width: parent.width; text: "Reduce loudness jumps between tracks using ReplayGain data."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                                         }
                                         SettingToggle {
                                             id: onboardingNormalizationSwitch
@@ -299,8 +299,8 @@ FocusScope {
                                             anchors.left: parent.left; anchors.leftMargin: 15
                                             anchors.right: onboardingLowDataSwitch.left; anchors.rightMargin: 18
                                             anchors.verticalCenter: parent.verticalCenter; spacing: 3
-                                            Text { text: "Low data mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                            Text { width: parent.width; text: "Use smaller artwork and reduce background traffic."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; elide: Text.ElideRight }
+                                            Text { text: "Low data mode"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                            Text { width: parent.width; text: "Use smaller artwork and reduce background traffic."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                                         }
                                         SettingToggle {
                                             id: onboardingLowDataSwitch
@@ -317,9 +317,9 @@ FocusScope {
                         Item {
                             ColumnLayout {
                                 width: Math.min(parent.width, 820); spacing: 14
-                                Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 24 }
-                                Text { Layout.fillWidth: true; text: "Choose how much space offline music may use. Catalog pages and artwork use a separate managed cache."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 12; wrapMode: Text.WordWrap }
-                                Text { text: "Offline download limit"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 14; Layout.topMargin: 5 }
+                                Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                                Text { Layout.fillWidth: true; text: "Choose how much space offline music may use. Catalog pages and artwork use a separate managed cache."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
+                                Text { text: "Offline download limit"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
                                 GridLayout {
                                     Layout.fillWidth: true; columns: 2; columnSpacing: 0; rowSpacing: 0
                                     SettingChoice { Layout.fillWidth: true; label: "Unlimited"; selected: colorful.offlineStorageLimitBytes === 0; onChosen: colorful.offlineStorageLimitBytes = 0 }
@@ -331,8 +331,8 @@ FocusScope {
                                     Layout.fillWidth: true; Layout.preferredHeight: 76; Layout.topMargin: 5
                                     color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                                     Column { anchors.fill: parent; anchors.margins: 15; spacing: 4
-                                        Text { text: "Navigation shortcuts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: 13 }
-                                        Text { width: parent.width; text: "Mouse Back/Forward and Alt+Left/Right move between pages. Playback shortcuts pause while typing."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 11; wrapMode: Text.WordWrap }
+                                        Text { text: "Navigation shortcuts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                        Text { width: parent.width; text: "Mouse Back/Forward and Alt+Left/Right move between pages. Playback shortcuts pause while typing."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                                     }
                                 }
                             }
