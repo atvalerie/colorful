@@ -7,6 +7,39 @@ param(
 # PowerShell error stream. Native exit codes are checked explicitly below.
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
+
+function Invoke-ResilientDownload {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$OutFile,
+        [hashtable]$Headers = @{},
+        [int]$Attempts = 4
+    )
+
+    $partial = "$OutFile.partial"
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        Remove-Item $partial -Force -ErrorAction SilentlyContinue
+        try {
+            Write-Host "Downloading $Uri (attempt $attempt of $Attempts)"
+            Invoke-WebRequest -Uri $Uri -OutFile $partial -Headers $Headers `
+                -UseBasicParsing -ErrorAction Stop
+            if (-not (Test-Path $partial) -or (Get-Item $partial).Length -eq 0) {
+                throw 'The download completed without producing a non-empty file.'
+            }
+            Move-Item $partial $OutFile -Force
+            return
+        } catch {
+            Remove-Item $partial -Force -ErrorAction SilentlyContinue
+            if ($attempt -eq $Attempts) {
+                throw "Download failed after $Attempts attempts: $Uri`n$($_.Exception.Message)"
+            }
+            $delay = [Math]::Pow(2, $attempt)
+            Write-Warning "Download attempt $attempt failed: $($_.Exception.Message). Retrying in $delay seconds."
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
+
 $toolsRoot = Join-Path $env:USERPROFILE 'colorful-deps'
 $pythonRoot = Join-Path $toolsRoot 'python'
 $python = Join-Path $pythonRoot 'python.exe'
@@ -22,7 +55,7 @@ New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
 
 if (-not (Test-Path $python)) {
     $pythonArchive = Join-Path $env:TEMP 'colorful-python.zip'
-    Invoke-WebRequest `
+    Invoke-ResilientDownload `
         -Uri 'https://www.python.org/ftp/python/3.13.5/python-3.13.5-embed-amd64.zip' `
         -OutFile $pythonArchive
     New-Item -ItemType Directory -Path $pythonRoot -Force | Out-Null
@@ -32,7 +65,7 @@ if (-not (Test-Path $python)) {
     (Get-Content $pathFile.FullName) -replace '^#import site$', 'import site' |
         Set-Content $pathFile.FullName -Encoding ascii
     $getPip = Join-Path $env:TEMP 'get-pip.py'
-    Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile $getPip
+    Invoke-ResilientDownload -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile $getPip
     & $python $getPip --disable-pip-version-check 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed with exit code $LASTEXITCODE." }
 }
@@ -64,9 +97,10 @@ if (-not $mpvReady) {
     $extracted = Join-Path $env:TEMP 'colorful-mpv-extracted'
     $sevenZip = Join-Path $toolsRoot '7zr.exe'
     if (-not (Test-Path $sevenZip)) {
-        Invoke-WebRequest -Uri 'https://www.7-zip.org/a/7zr.exe' -OutFile $sevenZip
+        Invoke-ResilientDownload -Uri 'https://www.7-zip.org/a/7zr.exe' -OutFile $sevenZip
     }
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
+    Invoke-ResilientDownload -Uri $asset.browser_download_url -OutFile $archive `
+        -Headers @{ 'User-Agent' = 'colorful-build'; 'Accept' = 'application/octet-stream' }
     if (Test-Path $extracted) { Remove-Item $extracted -Recurse -Force }
     New-Item -ItemType Directory -Path $extracted -Force | Out-Null
     & $sevenZip x $archive "-o$extracted" -y 2>&1 | Write-Host
@@ -120,7 +154,7 @@ if (-not (Test-Path $importLibrary)) {
 if (-not (Test-Path $vulkanRuntime)) {
     $vulkanArchive = Join-Path $env:TEMP 'colorful-vulkan-runtime.zip'
     $vulkanExtracted = Join-Path $env:TEMP 'colorful-vulkan-runtime'
-    Invoke-WebRequest `
+    Invoke-ResilientDownload `
         -Uri 'https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-runtime-components.zip' `
         -OutFile $vulkanArchive
     if (Test-Path $vulkanExtracted) { Remove-Item $vulkanExtracted -Recurse -Force }
@@ -145,7 +179,8 @@ if (-not (Test-Path $ffmpeg) -or -not (Test-Path $ffprobe)) {
     if (-not $asset) { throw 'The latest BtbN FFmpeg release has no win64 GPL archive.' }
     $ffmpegArchive = Join-Path $env:TEMP $asset.name
     $ffmpegExtracted = Join-Path $env:TEMP 'colorful-ffmpeg'
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $ffmpegArchive
+    Invoke-ResilientDownload -Uri $asset.browser_download_url -OutFile $ffmpegArchive `
+        -Headers $githubHeaders
     if (Test-Path $ffmpegExtracted) { Remove-Item $ffmpegExtracted -Recurse -Force }
     Expand-Archive -Path $ffmpegArchive -DestinationPath $ffmpegExtracted -Force
     $resolvedFfmpeg = Get-ChildItem $ffmpegExtracted -Filter 'ffmpeg.exe' -Recurse | Select-Object -First 1
