@@ -93,6 +93,7 @@ jobs:
     name: Publish GitHub Release
     needs: [linux, windows]
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
@@ -107,6 +108,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
           release_message="$(git for-each-ref --format='%(contents)' "refs/tags/$GITHUB_REF_NAME")"
           if [[ -n "$release_message" ]]; then
             printf '%s\n\n' "$release_message" > release-notes.md
@@ -114,8 +117,39 @@ jobs:
             : > release-notes.md
           fi
           ./scripts/generate-release-notes.sh "$GITHUB_REF_NAME" >> release-notes.md
-          gh release create "$GITHUB_REF_NAME" \
-            release-assets/* \
-            --verify-tag \
+
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --draft \
+              --verify-tag \
+              --title "colorful $(cat VERSION)" \
+              --notes-file release-notes.md
+          fi
+
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if ((${#assets[@]} == 0)); then
+            echo "No release assets were downloaded" >&2
+            exit 1
+          fi
+
+          for asset in "${assets[@]}"; do
+            uploaded=false
+            for attempt in 1 2 3; do
+              echo "Uploading $(basename "$asset") (attempt $attempt of 3)"
+              if timeout 8m gh release upload "$tag" "$asset" --clobber; then
+                uploaded=true
+                break
+              fi
+              sleep $((attempt * 5))
+            done
+            if [[ "$uploaded" != true ]]; then
+              echo "Failed to upload $(basename "$asset") after 3 attempts" >&2
+              exit 1
+            fi
+          done
+
+          gh release edit "$tag" \
+            --draft=false \
             --title "colorful $(cat VERSION)" \
             --notes-file release-notes.md
