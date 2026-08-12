@@ -75,3 +75,41 @@ Use `COLORFUL_RELAY_HOST` and `COLORFUL_RELAY_PORT` to configure binding. Keep
 the development default bound to loopback; a public deployment must sit behind
 TLS, authentication-aware rate limiting, connection limits, and a rate-limiting
 edge. The service does not terminate application-layer end-to-end encryption.
+
+## Docker Compose deployment
+
+The repository root includes [`compose.yaml`](../../compose.yaml). It runs one
+relay process, publishes it only on VPS loopback, and creates the stable
+`colorful-edge` Docker network:
+
+```bash
+git pull origin main
+docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1:8787/healthz
+```
+
+When nginx runs on the host, proxy to `http://127.0.0.1:8787`. When nginx runs
+in another Compose project, attach its service to the existing network and
+proxy to `http://colorful-relay:8787`:
+
+```yaml
+services:
+  nginx:
+    networks:
+      - colorful-edge
+
+networks:
+  colorful-edge:
+    external: true
+    name: colorful-edge
+```
+
+The public nginx location must pass WebSocket upgrades and use long read/send
+timeouts. The host port can be changed without changing the container by
+setting `COLORFUL_RELAY_PORT`, for example
+`COLORFUL_RELAY_PORT=18787 docker compose up -d`.
+
+Do not scale the relay above one replica yet. Mailboxes, party allocations,
+and active sockets are process-local, so scaling or restarting loses that
+temporary state. No persistent volume is required or expected.

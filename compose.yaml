@@ -1,0 +1,40 @@
+name: colorful
+
+services:
+  colorful-relay:
+    build:
+      context: ./services/colorful-relay
+    image: colorful-relay:local
+    restart: unless-stopped
+    init: true
+    environment:
+      COLORFUL_RELAY_HOST: 0.0.0.0
+      COLORFUL_RELAY_PORT: 8787
+    ports:
+      - "127.0.0.1:${COLORFUL_RELAY_PORT:-8787}:8787"
+    networks:
+      colorful-edge:
+        aliases:
+          - colorful-relay
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 15s
+
+networks:
+  colorful-edge:
+    name: colorful-edge
