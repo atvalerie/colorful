@@ -195,6 +195,25 @@ if(BUILD_TESTING)
     set_tests_properties(colorful-party-transport PROPERTIES
         ENVIRONMENT "COLORFUL_TEST_RELAY=http://127.0.0.1:8787"
         TIMEOUT 15)
+
+    qt_add_executable(colorful-updater-test
+        tests/updatertest.cpp
+        src/updatemanager.cpp
+        src/updatemanager.h
+        src/debuglog.cpp
+        src/debuglog.h
+    )
+    target_include_directories(colorful-updater-test PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        src
+    )
+    target_link_libraries(colorful-updater-test PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+    )
+    add_test(NAME colorful-updater COMMAND colorful-updater-test)
+    set_tests_properties(colorful-updater PROPERTIES TIMEOUT 20)
 endif()
 target_include_directories(colorful-linux PRIVATE
     ../../crates/colorful-core/include

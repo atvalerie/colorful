@@ -23,6 +23,8 @@
 
 namespace {
 constexpr qint64 AutomaticCheckIntervalMs = 6 * 60 * 60 * 1000;
+constexpr int DownloadAttempts = 3;
+constexpr int DownloadInactivityTimeoutMs = 5 * 60 * 1000;
 const QUrl LatestReleaseUrl(QStringLiteral(
     "https://api.github.com/repos/atvalerie/colorful/releases/latest"));
 
@@ -165,6 +167,7 @@ void UpdateManager::handleReleaseResponse(QNetworkReply *reply, bool force)
         {QStringLiteral("assetName"), selectedAsset.value(QStringLiteral("name")).toString()},
         {QStringLiteral("assetUrl"), selectedAsset.value(QStringLiteral("browser_download_url")).toString()},
         {QStringLiteral("assetDigest"), selectedAsset.value(QStringLiteral("digest")).toString()},
+        {QStringLiteral("assetSize"), selectedAsset.value(QStringLiteral("size")).toInteger()},
     };
     const auto dismissed = QSettings().value(QStringLiteral("updates/dismissedVersion")).toString();
     DebugLog::write(u"updates", QStringLiteral("available version=%1 asset=%2")
@@ -210,29 +213,47 @@ void UpdateManager::startUpdate()
         openReleasePage();
         return;
     }
-    beginDownload(url, name, digest);
+    beginDownload(url, name, digest,
+                  m_release.value(QStringLiteral("assetSize")).toLongLong());
 }
 
-void UpdateManager::beginDownload(const QUrl &url, const QString &name, const QString &digest)
+void UpdateManager::beginDownload(const QUrl &url, const QString &name, const QString &digest,
+                                  qint64 expectedSize)
 {
+    m_downloadUrl = url;
+    m_downloadName = name;
     m_downloadPath = downloadDestination(name);
     QDir().mkpath(QFileInfo(m_downloadPath).absolutePath());
+    m_expectedDigest = normalizedDigest(digest);
+    m_expectedSize = expectedSize;
+    m_downloadAttempt = 0;
+    m_progress = 0;
+    startDownloadAttempt();
+}
+
+void UpdateManager::startDownloadAttempt()
+{
+    ++m_downloadAttempt;
     m_file = std::make_unique<QSaveFile>(m_downloadPath);
     if (!m_file->open(QIODevice::WriteOnly)) {
         m_file.reset();
         setState(QStringLiteral("error"), QStringLiteral("Could not create the update file"));
         return;
     }
-    m_expectedDigest = normalizedDigest(digest);
     m_progress = 0;
-    setState(QStringLiteral("downloading"), QStringLiteral("Downloading update…"));
+    setState(QStringLiteral("downloading"),
+             m_downloadAttempt == 1
+                 ? QStringLiteral("Downloading update…")
+                 : QStringLiteral("Retrying update download (%1/%2)…")
+                       .arg(m_downloadAttempt)
+                       .arg(DownloadAttempts));
 
-    QNetworkRequest request(url);
+    QNetworkRequest request(m_downloadUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("colorful/%1").arg(QString::fromLatin1(COLORFUL_VERSION)));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
-    request.setTransferTimeout(30000);
+    request.setTransferTimeout(DownloadInactivityTimeoutMs);
     auto *reply = m_network.get(request);
     m_reply = reply;
     connect(reply, &QIODevice::readyRead, this, [this, reply] {
@@ -249,18 +270,41 @@ void UpdateManager::beginDownload(const QUrl &url, const QString &name, const QS
     });
 }
 
+void UpdateManager::failDownloadAttempt(const QString &reason, bool retryable)
+{
+    if (m_file) m_file->cancelWriting();
+    m_file.reset();
+    QFile::remove(m_downloadPath);
+    DebugLog::write(u"updates", QStringLiteral("download attempt=%1 failed: %2")
+                                    .arg(m_downloadAttempt)
+                                    .arg(reason));
+    if (retryable && m_downloadAttempt < DownloadAttempts) {
+        const auto delayMs = 1000 * (1 << (m_downloadAttempt - 1));
+        setState(QStringLiteral("downloading"),
+                 QStringLiteral("Download interrupted: %1. Retrying…").arg(reason));
+        QTimer::singleShot(delayMs, this, &UpdateManager::startDownloadAttempt);
+        return;
+    }
+    setState(QStringLiteral("error"),
+             QStringLiteral("Update download failed: %1. Use View on GitHub to download it in your browser.")
+                 .arg(reason));
+}
+
 void UpdateManager::finishDownload(QNetworkReply *reply)
 {
     if (m_file) m_file->write(reply->readAll());
     if (!m_file || reply->error() != QNetworkReply::NoError) {
-        if (m_file) m_file->cancelWriting();
-        m_file.reset();
-        setState(QStringLiteral("error"), QStringLiteral("The update download failed"));
+        failDownloadAttempt(reply->errorString());
+        return;
+    }
+    if (m_expectedSize > 0 && m_file->size() != m_expectedSize) {
+        failDownloadAttempt(QStringLiteral("received %1 of %2 bytes")
+                                .arg(m_file->size())
+                                .arg(m_expectedSize));
         return;
     }
     if (!m_file->commit()) {
-        m_file.reset();
-        setState(QStringLiteral("error"), QStringLiteral("Could not save the update"));
+        failDownloadAttempt(QStringLiteral("could not save the downloaded file"), false);
         return;
     }
     m_file.reset();
@@ -278,7 +322,7 @@ void UpdateManager::finishDownload(QNetworkReply *reply)
         QFile::remove(m_downloadPath);
         DebugLog::write(u"updates", QStringLiteral("digest mismatch expected=%1 actual=%2")
                                         .arg(m_expectedDigest, actual));
-        setState(QStringLiteral("error"), QStringLiteral("Update verification failed"));
+        failDownloadAttempt(QStringLiteral("SHA-256 verification failed"));
         return;
     }
     downloaded.close();
@@ -287,7 +331,7 @@ void UpdateManager::finishDownload(QNetworkReply *reply)
                                          QFileInfo(m_downloadPath).fileName()));
 
 #if defined(Q_OS_WIN)
-    if (launchInstaller(m_downloadPath)) return;
+    if (m_allowLaunch && launchInstaller(m_downloadPath)) return;
 #elif defined(Q_OS_LINUX)
     if (m_downloadPath.endsWith(QStringLiteral(".AppImage"), Qt::CaseInsensitive)) {
         QFile::setPermissions(m_downloadPath,
@@ -298,7 +342,8 @@ void UpdateManager::finishDownload(QNetworkReply *reply)
     }
 #endif
     setState(QStringLiteral("ready"), QStringLiteral("Update downloaded to %1").arg(m_downloadPath));
-    QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_downloadPath).absolutePath()));
+    if (m_openDownloadedLocation)
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_downloadPath).absolutePath()));
 }
 
 bool UpdateManager::launchInstaller(const QString &path)
