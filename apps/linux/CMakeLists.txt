@@ -8,6 +8,7 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${COLORFUL_VERSION_FILE}")
 
 project(colorfulDesktop VERSION "${COLORFUL_APP_VERSION}" LANGUAGES CXX)
+include(CTest)
 if(WIN32)
     enable_language(RC)
 endif()
@@ -92,6 +93,12 @@ set(COLORFUL_DESKTOP_SOURCES
     src/updatemanager.h
     src/corebridge.cpp
     src/corebridge.h
+    src/partycorebridge.cpp
+    src/partycorebridge.h
+    src/partyclient.cpp
+    src/partyclient.h
+    src/websocketclient.cpp
+    src/websocketclient.h
     src/debuglog.cpp
     src/debuglog.h
     src/linuxplayback.cpp
@@ -165,6 +172,30 @@ else()
         IMPORTED_NO_SONAME TRUE
     )
 endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(colorful-party-transport-test
+        tests/partytransporttest.cpp
+        src/partycorebridge.cpp
+        src/partycorebridge.h
+        src/websocketclient.cpp
+        src/websocketclient.h
+    )
+    target_include_directories(colorful-party-transport-test PRIVATE
+        ../../crates/colorful-core/include
+        src
+    )
+    target_link_libraries(colorful-party-transport-test PRIVATE
+        Qt6::Core
+        Qt6::Network
+        colorful-core
+    )
+    add_test(NAME colorful-party-transport
+        COMMAND colorful-party-transport-test)
+    set_tests_properties(colorful-party-transport PROPERTIES
+        ENVIRONMENT "COLORFUL_TEST_RELAY=http://127.0.0.1:8787"
+        TIMEOUT 15)
+endif()
 target_include_directories(colorful-linux PRIVATE
     ../../crates/colorful-core/include
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
@@ -205,6 +236,7 @@ qt_add_qml_module(colorful-linux
         qml/OnboardingPage.qml
         qml/MetadataLink.qml
         qml/ArtworkImage.qml
+        qml/PartySidePanel.qml
     RESOURCES
         qml/icons/add.svg
         qml/icons/close.svg

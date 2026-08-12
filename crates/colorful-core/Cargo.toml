@@ -9,6 +9,16 @@ publish = false
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
+base64 = "0.22.1"
+chacha20poly1305 = "0.10.1"
+ed25519-dalek = { version = "2.2.0", features = ["zeroize"] }
+getrandom = "0.3.4"
+hkdf = "0.12.4"
+hmac = "0.12.1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+sha2 = "0.10.9"
+x25519-dalek = { version = "2.0.1", features = ["static_secrets", "zeroize"] }
+zeroize = "1.8.1"

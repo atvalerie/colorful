@@ -679,11 +679,54 @@ Item {
                 }
             }
 
-            Item {
-                Column { anchors.centerIn: parent; width: Math.min(430, parent.width - 40); spacing: 9
-                    AppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 30; height: 30; iconSource: "icons/library.svg"; opacity: 0.28 }
-                    Text { width: parent.width; text: "Device sync is not enabled yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale); horizontalAlignment: Text.AlignHCenter }
-                    Text { width: parent.width; text: "Device pairing, library sync, listening history, playback handoff, and desktop RPC relay controls will live here."; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
+            Flickable {
+                clip: true; contentWidth: width; contentHeight: syncBody.implicitHeight + 30
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ColumnLayout {
+                    id: syncBody
+                    width: Math.min(parent.width, 820); spacing: 14
+                    Text { text: "Sync"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Listening parties use encrypted timing messages and a local monotonic clock. Device identity and cross-device handoff are still being built."
+                        color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap
+                    }
+                    Text { text: "Diagnostics"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 8 }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 82
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.left: parent.left; anchors.leftMargin: 15
+                            anchors.right: partyDiagnosticsSwitch.left; anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                            Text { text: "Party synchronization stats"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text {
+                                width: parent.width
+                                text: "Show live RTT, clock offset, playback drift, correction state, samples, and hard resyncs in Listen together. Stored only on this device."
+                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                        }
+                        Rectangle {
+                            id: partyDiagnosticsSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 42; height: 22
+                            color: colorful.partyDiagnosticsEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.partyDiagnosticsEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.partyDiagnosticsEnabled ? parent.width - width - 3 : 3; color: colorful.partyDiagnosticsEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.partyDiagnosticsEnabled = !colorful.partyDiagnosticsEnabled }
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 72
+                        color: Qt.rgba(1, 1, 1, 0.018); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
+                        Column { anchors.fill: parent; anchors.margins: 14; spacing: 4
+                            Text { text: "Device sync is not enabled yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text { width: parent.width; text: "Pairing, history sync, playback handoff, and desktop RPC relay controls will appear here."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
+                        }
+                    }
                 }
             }
 

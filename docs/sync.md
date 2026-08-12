@@ -1,9 +1,15 @@
 # Multi-device sync
 
-**Status:** Transport, pairing, merge journal, handoff, and remote presence are
-not implemented. Linux already creates a stable local device ID, and the shared
-database stores globally identified, idempotent listening events. That is
-groundwork rather than usable sync.
+**Status:** An opaque expiring mailbox/relay backend foundation exists under
+`services/colorful-relay`. The Rust core can generate an accountless identity,
+certify its first device, create/import a passphrase-protected recovery export,
+and establish a mutually confirmed encrypted pairing channel with matching
+six-digit codes. Pairing UI, trusted-device enrollment, transport, collection
+encryption, merge journal, handoff, and remote presence are not implemented.
+Linux already creates a stable local device ID, and the shared database stores
+globally identified, idempotent listening events. This is groundwork rather
+than usable sync. See [identity-and-pairing.md](identity-and-pairing.md) for the
+implemented security boundary.
 
 ## Product goal
 
@@ -31,8 +37,10 @@ may be hosted by colorful, self-hosted, or disabled.
 
 - Every installation creates a device identity key pair.
 - The first device creates a random collection key.
-- Pairing uses a QR code or short-lived invite shown by an already trusted
-  device.
+- Pairing uses a short-lived invite shown by an already trusted device. A QR
+  code may carry the invite, but it is only a convenience transport: both
+  devices must display the same short numeric safety code and require explicit
+  local confirmation before trust is established.
 - The invite transfers the collection key encrypted to the new device.
 - Trusted devices are listed locally and can be individually revoked.
 - Revocation rotates future access keys; recovery and lost-device behavior must
@@ -138,11 +146,15 @@ encryption primitives, but they have different authority models:
 
 Party guests never gain access to the personal sync collection.
 
+Identity, device, pairing, permission, presence, and remote-control decisions
+are recorded in [social-model.md](social-model.md).
+
 ## Proposed delivery order
 
 1. Define versioned sync operations and add the local SQLite journal.
 2. Implement two-device export/import fixture tests with deterministic merging.
-3. Add QR pairing and device/revocation management.
+3. Add two-device numeric-code pairing and device/revocation management, with
+   QR as an optional invite carrier.
 4. Add direct LAN sync.
 5. Add encrypted mailbox store-and-forward.
 6. Reuse ICE/TURN connectivity for remote direct sync.

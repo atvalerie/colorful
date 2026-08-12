@@ -19,6 +19,8 @@ ApplicationWindow {
     property bool queueOpen: false
     property real queueWidth: 380
     property bool lyricsOpen: false
+    property bool partyOpen: false
+    readonly property bool partyGuestControlled: party.active && party.role !== "host"
     property string submittedQuery: ""
     property string searchProvider: "all"
     property string currentSection: "home"
@@ -61,6 +63,16 @@ ApplicationWindow {
         function onUpdateFound() {
             if (!window.onboardingVisible)
                 updatePopup.open()
+        }
+    }
+    Connections {
+        target: party
+        function onNotification(message, kind) { toastOverlay.show(message, kind) }
+        function onJoinLinkReceived(link) {
+            partyPanel.pendingLink = link
+            window.partyOpen = true
+            window.queueOpen = false
+            window.lyricsOpen = false
         }
     }
     onLyricsOpenChanged: if (lyricsOpen) colorful.loadLyrics(false)
@@ -118,12 +130,12 @@ ApplicationWindow {
         colorful.setVolume(volumePositionToOutput(next))
     }
 
-    Shortcut { sequence: "Space"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.togglePlay() }
+    Shortcut { sequence: "Space"; enabled: !window.onboardingVisible && !window.textEntryFocused() && !window.partyGuestControlled; onActivated: colorful.togglePlay() }
     Shortcut { sequence: "M"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.muted = !colorful.muted }
-    Shortcut { sequence: "Left"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.seekBy(-5000) }
-    Shortcut { sequence: "Right"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.seekBy(5000) }
-    Shortcut { sequence: "Ctrl+Left"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.previous() }
-    Shortcut { sequence: "Ctrl+Right"; enabled: !window.onboardingVisible && !window.textEntryFocused(); onActivated: colorful.next() }
+    Shortcut { sequence: "Left"; enabled: !window.onboardingVisible && !window.textEntryFocused() && !window.partyGuestControlled; onActivated: colorful.seekBy(-5000) }
+    Shortcut { sequence: "Right"; enabled: !window.onboardingVisible && !window.textEntryFocused() && !window.partyGuestControlled; onActivated: colorful.seekBy(5000) }
+    Shortcut { sequence: "Ctrl+Left"; enabled: !window.onboardingVisible && !window.textEntryFocused() && !window.partyGuestControlled; onActivated: colorful.previous() }
+    Shortcut { sequence: "Ctrl+Right"; enabled: !window.onboardingVisible && !window.textEntryFocused() && !window.partyGuestControlled; onActivated: colorful.next() }
     Shortcut { sequence: "Alt+Left"; enabled: !window.onboardingVisible; onActivated: window.navigateBack() }
     Shortcut { sequence: "Alt+Right"; enabled: !window.onboardingVisible; onActivated: window.navigateForward() }
     Shortcut { sequence: "Escape"; enabled: colorful.authPending; onActivated: colorful.cancelLogin() }
@@ -239,6 +251,47 @@ ApplicationWindow {
         const resolvedProvider = provider || "tidal"
         beginCatalogNavigation(resolvedProvider)
         colorful.openPlaylist(id, resolvedProvider)
+    }
+
+    function handleExternalUrl(rawUrl) {
+        const value = String(rawUrl || "")
+        window.showNormal()
+        window.raise()
+        window.requestActivate()
+
+        if (party.handlePartyLink(value)) return
+
+        const match = /^colorful:\/\/([^\/?#]+)\/([^\/?#]+)\/([^?#]+)(?:[?#].*)?$/.exec(value)
+        if (!match) {
+            toastOverlay.show(value === "colorful://" || value === "colorful:///"
+                              ? "colorful is already open."
+                              : "Unsupported colorful link.", "warning")
+            return
+        }
+
+        let provider
+        let id
+        try {
+            provider = decodeURIComponent(match[2]).toLowerCase()
+            id = decodeURIComponent(match[3])
+        } catch (error) {
+            toastOverlay.show("That colorful link is malformed.", "error")
+            return
+        }
+        if (!["tidal", "youtube", "soundcloud"].includes(provider) || !id) {
+            toastOverlay.show("That colorful link is not supported.", "warning")
+            return
+        }
+
+        const item = { id: id, provider: provider }
+        if (match[1] === "track") openTrackItem(item)
+        else if (match[1] === "album") openAlbumItem(item)
+        else if (match[1] === "artist") openArtistItem(item)
+        else if (match[1] === "playlist") openPlaylist(id, provider)
+        else {
+            toastOverlay.show("That colorful link is not supported.", "warning")
+            return
+        }
     }
 
     function openTrackArtist(track, index) {
@@ -507,6 +560,20 @@ ApplicationWindow {
                         selected: window.currentSection === "settings"
                         tooltipText: "Settings"
                         onClicked: window.openSettings(0)
+                    }
+
+                    IconButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        iconSource: "icons/user.svg"
+                        selected: window.partyOpen || party.active
+                        tooltipText: party.active ? "Active listening party" : "Listen together"
+                        onClicked: {
+                            window.partyOpen = !window.partyOpen
+                            if (window.partyOpen) {
+                                window.queueOpen = false
+                                window.lyricsOpen = false
+                            }
+                        }
                     }
 
                     IconButton {
@@ -949,14 +1016,15 @@ ApplicationWindow {
                                 Layout.preferredHeight: 32
                                 spacing: 8
                                 Text {
-                                    text: "Queue"
+                                    text: party.active && party.role !== "host" ? "Party queue" : "Queue"
                                     color: window.ink
                                     font.weight: Font.Bold
                                     font.pixelSize: Math.round(18 * colorful.textScale)
                                     Layout.alignment: Qt.AlignVCenter
                                 }
                                 Text {
-                                    text: colorful.queue.length + (colorful.queue.length === 1 ? " track" : " tracks")
+                                    readonly property int count: party.active && party.role !== "host" ? party.playbackQueue.length : colorful.queue.length
+                                    text: count + (count === 1 ? " track" : " tracks")
                                     color: Qt.rgba(1, 1, 1, 0.34)
                                     font.pixelSize: Math.round(10 * colorful.textScale)
                                     Layout.alignment: Qt.AlignVCenter
@@ -976,6 +1044,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 34
                                 spacing: 6
+                                visible: !(party.active && party.role !== "host")
                                 ColorButton {
                                     text: colorful.autoplayEnabled ? "Autoplay on" : "Autoplay off"
                                     quiet: true
@@ -998,11 +1067,20 @@ ApplicationWindow {
                                 }
                             }
 
+                            Text {
+                                Layout.fillWidth: true
+                                visible: party.active && party.role !== "host"
+                                text: party.role === "co_host" ? "Host-controlled playback · add tracks from their menus"
+                                                              : "Controlled by the host · your local queue is preserved"
+                                color: Qt.rgba(1, 1, 1, 0.38)
+                                font.pixelSize: Math.round(10 * colorful.textScale)
+                            }
+
                             ListView {
                                 id: queueList
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                model: colorful.queue
+                                model: party.active && party.role !== "host" ? party.playbackQueue : colorful.queue
                                 spacing: 0
                                 clip: true
                                 pixelAligned: true
@@ -1014,10 +1092,11 @@ ApplicationWindow {
                                     required property var modelData
                                     track: modelData
                                     queueMode: true
+                                    readOnlyMode: party.active && party.role !== "host"
                                     queueIndex: index
                                     queueCount: queueList.count
                                     showDownloadAction: ["tidal", "youtube", "soundcloud"].includes(modelData.provider || "tidal")
-                                    active: index === colorful.currentQueueIndex
+                                    active: index === (party.active && party.role !== "host" ? party.currentQueueIndex : colorful.currentQueueIndex)
                                     onPlayRequested: colorful.playQueueIndex(index)
                                     onRemoveRequested: colorful.removeQueueIndex(index)
                                     onDownloadRequested: colorful.downloadTrack(modelData)
@@ -1061,6 +1140,14 @@ ApplicationWindow {
                         playbackPosition: colorful.position
                         onCloseRequested: window.lyricsOpen = false
                         onRefreshRequested: colorful.loadLyrics(true)
+                    }
+
+                    PartySidePanel {
+                        id: partyPanel
+                        Layout.preferredWidth: window.partyOpen ? 380 : 0
+                        Layout.fillHeight: true
+                        visible: window.partyOpen
+                        onCloseRequested: window.partyOpen = false
                     }
                 }
 
@@ -1245,6 +1332,7 @@ ApplicationWindow {
                             iconSource: "icons/shuffle.svg"
                             selected: colorful.shuffleEnabled
                             tooltipText: colorful.shuffleEnabled ? "Shuffle on" : "Shuffle off"
+                            enabled: !window.partyGuestControlled
                             onClicked: colorful.shuffleEnabled = !colorful.shuffleEnabled
                         }
 
@@ -1253,7 +1341,7 @@ ApplicationWindow {
                             implicitHeight: 36
                             iconSource: "icons/previous.svg"
                             tooltipText: "Previous"
-                            enabled: colorful.queue.length > 0
+                            enabled: colorful.queue.length > 0 && !window.partyGuestControlled
                             onClicked: colorful.previous()
                         }
                         IconButton {
@@ -1261,9 +1349,9 @@ ApplicationWindow {
                             implicitHeight: 42
                             iconSource: colorful.playing ? "icons/pause.svg" : "icons/play.svg"
                             darkIconSource: colorful.playing ? "icons/pause-dark.svg" : "icons/play-dark.svg"
-                            tooltipText: colorful.playing ? "Pause" : "Play"
+                            tooltipText: window.partyGuestControlled ? "Controlled by the host" : colorful.playing ? "Pause" : "Play"
                             strong: true
-                            enabled: Object.keys(window.now).length > 0
+                            enabled: Object.keys(window.now).length > 0 && !window.partyGuestControlled
                             onClicked: colorful.togglePlay()
                         }
                         IconButton {
@@ -1271,7 +1359,7 @@ ApplicationWindow {
                             implicitHeight: 36
                             iconSource: "icons/next.svg"
                             tooltipText: "Next"
-                            enabled: colorful.queue.length > 0
+                            enabled: colorful.queue.length > 0 && !window.partyGuestControlled
                             onClicked: colorful.next()
                         }
                         IconButton {
@@ -1279,6 +1367,7 @@ ApplicationWindow {
                             implicitHeight: 32
                             iconSource: colorful.repeatMode === "one" ? "icons/repeat-one.svg" : "icons/repeat.svg"
                             selected: colorful.repeatMode !== "off"
+                            enabled: !window.partyGuestControlled
                             tooltipText: colorful.repeatMode === "one" ? "Repeat track"
                                          : colorful.repeatMode === "all" ? "Repeat queue" : "Repeat off"
                             onClicked: colorful.repeatMode = colorful.repeatMode === "off" ? "all"
@@ -1306,6 +1395,7 @@ ApplicationWindow {
                             id: progress
                             Layout.fillWidth: true
                             implicitHeight: 18
+                            enabled: !window.partyGuestControlled
                             from: 0
                             to: Math.max(1, colorful.duration)
                             onPressedChanged: {
@@ -1422,7 +1512,10 @@ ApplicationWindow {
                             tooltipText: "Lyrics"
                             onClicked: {
                                 window.lyricsOpen = !window.lyricsOpen
-                                if (window.lyricsOpen) window.queueOpen = false
+                                if (window.lyricsOpen) {
+                                    window.queueOpen = false
+                                    window.partyOpen = false
+                                }
                             }
                         }
                         Item {
@@ -1435,7 +1528,10 @@ ApplicationWindow {
                                 tooltipText: "Queue"
                                 onClicked: {
                                     window.queueOpen = !window.queueOpen
-                                    if (window.queueOpen) window.lyricsOpen = false
+                                    if (window.queueOpen) {
+                                        window.lyricsOpen = false
+                                        window.partyOpen = false
+                                    }
                                 }
                             }
                             Rectangle {

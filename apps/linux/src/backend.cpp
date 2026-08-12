@@ -146,6 +146,7 @@ Backend::Backend(QObject *parent)
     m_soundcloudOriginalDownloads = settings.value(QStringLiteral("downloads/soundcloudOriginal"), false).toBool();
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
     m_onboardingCompleted = settings.value(QStringLiteral("ui/onboardingCompleted"), false).toBool();
+    m_partyDiagnosticsEnabled = settings.value(QStringLiteral("debug/partyDiagnostics"), false).toBool();
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
     m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
@@ -179,7 +180,7 @@ Backend::Backend(QObject *parent)
 
     m_checkpointTimer.setInterval(10'000);
     connect(&m_checkpointTimer, &QTimer::timeout, this, [this] {
-        if (m_currentIndex < 0 || !playing()) return;
+        if (m_partyPlaybackActive || m_currentIndex < 0 || !playing()) return;
         suspendListeningSession();
         resumeListeningSession();
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
@@ -344,8 +345,10 @@ Backend::Backend(QObject *parent)
     connect(&m_playback, &LinuxPlayback::seekCompleted, this, [this](qint64 confirmedPositionMs) {
         m_resumePositionMs = confirmedPositionMs;
         m_displayPositionOverride = -1;
-        dispatchCore({{QStringLiteral("command"), QStringLiteral("seek_to")},
-                      {QStringLiteral("position_ms"), confirmedPositionMs}});
+        if (!m_partyPlaybackActive) {
+            dispatchCore({{QStringLiteral("command"), QStringLiteral("seek_to")},
+                          {QStringLiteral("position_ms"), confirmedPositionMs}});
+        }
         emit positionChanged();
         emit seeked(confirmedPositionMs);
         resumeListeningSession();
@@ -356,9 +359,26 @@ Backend::Backend(QObject *parent)
         emit positionChanged();
         resumeListeningSession();
     });
-    connect(&m_playback, &LinuxPlayback::endOfMedia, this, [this] { advanceToNext(false); });
-    connect(&m_playback, &LinuxPlayback::preparedNextStarted, this, &Backend::advancePreparedTrack);
+    connect(&m_playback, &LinuxPlayback::endOfMedia, this, [this] {
+        if (!m_partyPlaybackActive) advanceToNext(false);
+    });
+    connect(&m_playback, &LinuxPlayback::preparedNextStarted, this, [this] {
+        if (!m_partyPlaybackActive) {
+            advancePreparedTrack();
+            return;
+        }
+        if (m_partyPreparedTrack.isEmpty()) return;
+        m_partyTrack = m_partyPreparedTrack;
+        m_partyPreparedTrack.clear();
+        m_playbackReady = false;
+        emit currentTrackChanged();
+    });
     connect(&m_playback, &LinuxPlayback::preparedNextFailed, this, [this](const QString &) {
+        if (m_partyPlaybackActive) {
+            ++m_partyPrepareGeneration;
+            m_partyPreparedTrack.clear();
+            return;
+        }
         ++m_prepareGeneration;
         m_preparedEntryId = -1;
         m_preparedLocalSource = false;
@@ -392,7 +412,7 @@ Backend::Backend(QObject *parent)
 Backend::~Backend()
 {
     finishListeningSession();
-    if (m_currentIndex >= 0) {
+    if (!m_partyPlaybackActive && m_currentIndex >= 0) {
         dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                       {QStringLiteral("position_ms"), position()}});
     }
@@ -417,9 +437,98 @@ Backend::~Backend()
 
 QVariantMap Backend::currentTrack() const
 {
+    if (m_partyPlaybackActive) return m_partyTrack;
     return m_currentIndex >= 0 && m_currentIndex < m_queue.size()
         ? m_queue.at(m_currentIndex).toMap()
         : QVariantMap{};
+}
+
+void Backend::loadPartyTrack(const QVariantMap &track, qint64 positionMs, bool autoplay)
+{
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    const auto changed = !m_partyPlaybackActive || trackKey(track) != trackKey(m_partyTrack);
+    m_partyPlaybackActive = true;
+    m_partyTrack = track;
+    m_partyPreparedTrack.clear();
+    ++m_partyPrepareGeneration;
+    if (changed) emit currentTrackChanged();
+    resolveCurrentSource(std::max<qint64>(0, positionMs), autoplay);
+}
+
+void Backend::preparePartyTrack(const QVariantMap &track)
+{
+    if (!m_partyPlaybackActive || !m_playback.hasSource()
+        || track.value(QStringLiteral("id")).toString().isEmpty()
+        || trackKey(track) == trackKey(m_partyTrack)
+        || trackKey(track) == trackKey(m_partyPreparedTrack)) return;
+
+    const auto generation = ++m_partyPrepareGeneration;
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto trackId = track.value(QStringLiteral("id")).toString();
+    const auto offline = downloadForTrack(provider, trackId);
+    const auto localPath = offline.value(QStringLiteral("localPath")).toString();
+    if (offline.value(QStringLiteral("downloadState")).toString() == QStringLiteral("complete")
+        && !localPath.isEmpty() && QFileInfo::exists(localPath)) {
+        m_partyPreparedTrack = track;
+        m_playback.prepareNextSource(QUrl::fromLocalFile(localPath));
+        return;
+    }
+
+    request(QStringLiteral("source"), {
+        {QStringLiteral("provider"), provider},
+        {QStringLiteral("trackId"), trackId},
+        {QStringLiteral("manifestType"), QStringLiteral("MPEG_DASH")},
+        {QStringLiteral("quality"), m_streamQuality},
+    }, [this, generation, track, trackId](const QJsonObject &message) {
+        if (!m_partyPlaybackActive || generation != m_partyPrepareGeneration
+            || track.value(QStringLiteral("id")).toString() != trackId
+            || !message.value(QStringLiteral("ok")).toBool()) return;
+        const auto source = message.value(QStringLiteral("data")).toObject();
+        const auto uri = source.value(QStringLiteral("uri")).toString();
+        if (uri.isEmpty()) return;
+        m_partyPreparedTrack = track;
+        m_playback.prepareNextSource(
+            QUrl(uri),
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
+            normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")),
+            source.value(QStringLiteral("userAgent")).toString(),
+            source.value(QStringLiteral("referrer")).toString());
+    });
+}
+
+void Backend::setPartyPlaying(bool playing)
+{
+    if (!m_partyPlaybackActive) return;
+    if (playing) m_playback.play();
+    else m_playback.pause();
+}
+
+void Backend::seekParty(qint64 positionMs)
+{
+    if (!m_partyPlaybackActive) return;
+    m_playback.seek(std::max<qint64>(0, positionMs));
+}
+
+void Backend::setPartyPlaybackRate(double rate)
+{
+    if (m_partyPlaybackActive) m_playback.setSpeed(rate);
+}
+
+void Backend::leavePartyPlayback()
+{
+    if (!m_partyPlaybackActive) return;
+    ++m_partyPrepareGeneration;
+    m_partyPlaybackActive = false;
+    m_partyTrack.clear();
+    m_partyPreparedTrack.clear();
+    m_playback.setSpeed(1.0);
+    invalidatePreparedNext();
+    m_playback.clearSource();
+    m_playbackReady = false;
+    m_displayPositionOverride = -1;
+    emit currentTrackChanged();
+    emit positionChanged();
+    emit playbackConditionChanged();
 }
 
 QString Backend::lyricsCacheKey(const QVariantMap &track) const
@@ -3050,6 +3159,14 @@ void Backend::setOnboardingCompleted(bool completed)
     emit onboardingCompletedChanged();
 }
 
+void Backend::setPartyDiagnosticsEnabled(bool enabled)
+{
+    if (m_partyDiagnosticsEnabled == enabled) return;
+    m_partyDiagnosticsEnabled = enabled;
+    QSettings().setValue(QStringLiteral("debug/partyDiagnostics"), enabled);
+    emit partyDiagnosticsEnabledChanged();
+}
+
 void Backend::openDownloadsFolder()
 {
     QDir().mkpath(downloadsDirectory());
@@ -3058,6 +3175,7 @@ void Backend::openDownloadsFolder()
 
 void Backend::playTrackAt(int index)
 {
+    if (m_partyPlaybackActive) return;
     if (index < 0 || index >= m_queueEntryIds.size()) return;
     finishListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("select")},
@@ -3072,6 +3190,7 @@ void Backend::playSingleTrack(const QVariantMap &track)
 
 void Backend::playTracks(const QVariantList &tracks, bool preserveProvidedOrder)
 {
+    if (m_partyPlaybackActive) return;
     QJsonArray coreTracks;
     for (const auto &value : tracks) {
         const auto track = value.toMap();
@@ -3300,6 +3419,7 @@ void Backend::invalidatePreparedNext()
 
 void Backend::prepareNextSource()
 {
+    if (m_partyPlaybackActive) return;
     if (!m_playback.hasSource() || !m_playbackReady) {
         if (m_preparedEntryId >= 0 || m_playback.hasPreparedNext()) invalidatePreparedNext();
         return;
@@ -3388,6 +3508,7 @@ void Backend::advancePreparedTrack()
 void Backend::togglePlay() { playing() ? pause() : play(); }
 void Backend::play()
 {
+    if (m_partyPlaybackActive) return;
     if (m_currentIndex < 0 && !m_queue.isEmpty()) {
         playTrackAt(0);
         return;
@@ -3399,6 +3520,7 @@ void Backend::play()
 }
 void Backend::pause()
 {
+    if (m_partyPlaybackActive) return;
     suspendListeningSession();
     dispatchCore({{QStringLiteral("command"), QStringLiteral("checkpoint_position")},
                   {QStringLiteral("position_ms"), position()}});
@@ -3407,6 +3529,7 @@ void Backend::pause()
 }
 void Backend::stop()
 {
+    if (m_partyPlaybackActive) return;
     finishListeningSession();
     m_manualSkipTimer.stop();
     ++m_sourceGeneration;
@@ -3417,7 +3540,11 @@ void Backend::stop()
     m_playback.stop();
 }
 
-void Backend::next() { advanceToNext(true); }
+void Backend::next()
+{
+    if (m_partyPlaybackActive) return;
+    advanceToNext(true);
+}
 
 void Backend::scheduleCurrentSourceAfterSkip(bool autoplay)
 {
@@ -3554,6 +3681,7 @@ void Backend::requestRelated(bool continueWhenReady)
 
 void Backend::previous()
 {
+    if (m_partyPlaybackActive) return;
     if (position() > 3000 || !canGoPrevious()) seek(0);
     else {
         finishListeningSession();
@@ -3566,6 +3694,7 @@ void Backend::previous()
 
 void Backend::seek(qint64 positionMs)
 {
+    if (m_partyPlaybackActive) return;
     suspendListeningSession();
     const auto target = std::clamp<qint64>(positionMs, 0, std::max<qint64>(0, duration()));
     if (m_playback.seek(target)) {

@@ -89,6 +89,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool soundcloudOriginalDownloads READ soundcloudOriginalDownloads WRITE setSoundcloudOriginalDownloads NOTIFY downloadPreferencesChanged)
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
     Q_PROPERTY(bool onboardingCompleted READ onboardingCompleted WRITE setOnboardingCompleted NOTIFY onboardingCompletedChanged)
+    Q_PROPERTY(bool partyDiagnosticsEnabled READ partyDiagnosticsEnabled WRITE setPartyDiagnosticsEnabled NOTIFY partyDiagnosticsEnabledChanged)
     Q_PROPERTY(QVariantList equalizerBands READ equalizerBands NOTIFY audioProcessingChanged)
     Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
@@ -166,6 +167,7 @@ public:
     bool soundcloudOriginalDownloads() const { return m_soundcloudOriginalDownloads; }
     bool normalizationEnabled() const { return m_normalizationEnabled; }
     bool onboardingCompleted() const { return m_onboardingCompleted; }
+    bool partyDiagnosticsEnabled() const { return m_partyDiagnosticsEnabled; }
     QVariantList equalizerBands() const { return m_equalizerBands; }
     QString equalizerPreset() const { return m_equalizerPreset; }
     QVariantMap listenStats() const { return m_listenStats; }
@@ -174,6 +176,13 @@ public:
     QVariantMap mprisMetadata() const;
     bool canGoNext() const;
     bool canGoPrevious() const;
+    bool partyPlaybackReady() const { return m_partyPlaybackActive && !playbackLoading(); }
+    void loadPartyTrack(const QVariantMap &track, qint64 positionMs, bool autoplay);
+    void preparePartyTrack(const QVariantMap &track);
+    void setPartyPlaying(bool playing);
+    void seekParty(qint64 positionMs);
+    void setPartyPlaybackRate(double rate);
+    void leavePartyPlayback();
 
     Q_INVOKABLE void startLogin();
     Q_INVOKABLE void openVerificationUrl();
@@ -263,6 +272,7 @@ public:
     Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
     Q_INVOKABLE void setOnboardingCompleted(bool completed);
+    Q_INVOKABLE void setPartyDiagnosticsEnabled(bool enabled);
     Q_INVOKABLE void setEqualizerBand(int index, double gainDb);
     Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
     Q_INVOKABLE void setAccentMode(const QString &mode);
@@ -311,6 +321,7 @@ signals:
     void downloadPreferencesChanged();
     void audioProcessingChanged();
     void onboardingCompletedChanged();
+    void partyDiagnosticsEnabledChanged();
     void listenStatsChanged();
     void toastRequested(const QString &message, const QString &kind);
     void seeked(qint64 positionMs);
@@ -528,4 +539,9 @@ private:
     qint64 m_listenStartedAtMs = 0;
     qint64 m_listenedMs = 0;
     bool m_playbackReady = false;
+    bool m_partyDiagnosticsEnabled = false;
+    bool m_partyPlaybackActive = false;
+    QVariantMap m_partyTrack;
+    QVariantMap m_partyPreparedTrack;
+    quint64 m_partyPrepareGeneration = 0;
 };

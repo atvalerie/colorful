@@ -69,9 +69,16 @@ already exercised before each remote macOS build cycle.
 
 ## Multi-device sync
 
+Persistent sync work is paused after the reusable identity/pairing foundation
+while the party vertical slice is the active priority.
+
+- require explicit local identity creation before enabling persistent sync;
+- expose the implemented encrypted identity recovery and numeric-code pairing
+  core through platform secure storage and UI;
 - define versioned operations and persist the append-only local journal;
 - add deterministic two-device export/import and merge tests;
-- implement device identity keys, QR pairing, trust management, and revocation;
+- persist trusted-device enrollment, add optional QR invite transport, and
+  implement permission management and revocation;
 - implement authenticated LAN discovery and encrypted direct transport;
 - add ICE/STUN connectivity plus relay or encrypted-mailbox fallback;
 - synchronize library state, playlists, history, preferences, and optional
@@ -82,11 +89,15 @@ already exercised before each remote macOS build cycle.
 
 The detailed security and merge model lives in [sync.md](sync.md).
 
+Product decisions for identity, device permissions, parties, ownership
+transfer, and Discord are in [social-model.md](social-model.md).
+
 ## Later
 
 - migrate provider behavior away from the transitional Bun sidecar where a
   shared or native implementation is practical;
-- listening parties over LAN, peer-to-peer connectivity, and relay fallback;
+- connect the implemented party protocol to two desktop clients through the
+  opaque relay, then add LAN, peer-to-peer connectivity, and relay fallback;
 - deeper appearance and accent customization;
 - optional encrypted local-file transfer between trusted devices;
 - provider write actions only if they become an explicit product requirement.

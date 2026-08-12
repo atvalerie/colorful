@@ -56,6 +56,12 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{autoprograms}\colorful"; Filename: "{app}\colorful.exe"
 Name: "{autodesktop}\colorful"; Filename: "{app}\colorful.exe"; Tasks: desktopicon
 
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\colorful"; ValueType: string; ValueName: ""; ValueData: "URL:colorful Protocol"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\colorful"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\colorful\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\colorful.exe,0"
+Root: HKCU; Subkey: "Software\Classes\colorful\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\colorful.exe"" ""%1"""
+
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 

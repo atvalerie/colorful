@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QElapsedTimer>
+#include <QTimer>
 #include <QUrl>
 #include <QList>
 #include <QStringList>
@@ -23,7 +24,7 @@ public:
     bool hasSource() const { return !m_source.isEmpty(); }
     bool playing() const { return m_state == State::Playing; }
     State state() const { return m_state; }
-    qint64 position() const { return m_positionMs; }
+    qint64 position() const;
     qint64 duration() const { return m_durationMs; }
     double volume() const { return m_volume; }
     bool muted() const { return m_muted; }
@@ -54,6 +55,7 @@ public:
     bool seek(qint64 positionMs);
     void setVolume(double volume);
     void setMuted(bool muted);
+    void setSpeed(double speed);
     void refreshAudioDevices();
     void setAudioDevice(const QString &device);
     void setAudioExclusive(bool enabled);
@@ -101,6 +103,7 @@ private:
     State m_state = State::Stopped;
     State m_desiredState = State::Stopped;
     qint64 m_positionMs = 0;
+    qint64 m_positionAnchorMs = 0;
     qint64 m_durationMs = 0;
     qint64 m_confirmingSeekMs = -1;
     qint64 m_queuedSeekMs = -1;
@@ -110,11 +113,14 @@ private:
     bool m_currentWasPrepared = false;
     QElapsedTimer m_openTimer;
     QElapsedTimer m_prepareTimer;
+    QElapsedTimer m_positionClock;
+    QTimer m_positionTicker;
     quint64 m_nextRequestId = 1;
     quint64 m_seekRequestId = 0;
     quint64 m_loadRequestId = 0;
     quint64 m_prepareRequestId = 0;
     double m_volume = 0.78;
+    double m_speed = 1.0;
     bool m_muted = false;
     bool m_buffering = false;
     int m_bufferingPercent = 100;

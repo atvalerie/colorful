@@ -95,8 +95,13 @@ colorful is an early personal alpha, not a packaged consumer release.
 - opt-in Discord profile statistics publishing with Secret Service token storage
 - first-launch desktop setup for optional provider connections, playback
   defaults, and offline storage, with a Settings action to rerun it
+- registered desktop `colorful://` links for opening provider catalog pages;
+  see [docs/deep-links.md](docs/deep-links.md)
 - desktop settings for accounts, stream quality, autoplay, EQ/normalization, Discord integrations, appearance, low-data behavior, storage, and build information
 - sync-ready, idempotent history event identities
+- a development hosted-relay foundation with expiring opaque mailboxes and
+  binary-only party forwarding; client-side encryption and party/sync
+  protocols are still pending
 
 ### On the roadmap
 

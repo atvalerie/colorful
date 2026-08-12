@@ -41,6 +41,7 @@ ItemDelegate {
     property bool active: false
     property bool queueMode: false
     property bool libraryMode: false
+    property bool readOnlyMode: false
     property bool showSaveAction: false
     property bool showDownloadAction: false
     property string removeActionText: ""
@@ -63,11 +64,11 @@ ItemDelegate {
     height: 54
     hoverEnabled: true
     padding: 6
-    onDoubleClicked: playRequested()
+    onDoubleClicked: if (!readOnlyMode) playRequested()
     onClicked: detailsRequested()
 
     TapHandler {
-        acceptedButtons: Qt.RightButton
+        acceptedButtons: root.readOnlyMode ? Qt.NoButton : Qt.RightButton
         onTapped: {
             if (!contextMenuObject)
                 contextMenuObject = contextMenuComponent.createObject(root)
@@ -99,6 +100,11 @@ ItemDelegate {
                 CompactMenuItem {
                     text: root.queueMode ? (root.removeActionText || "Remove from queue") : "Add to queue"
                     onTriggered: root.queueMode ? root.removeRequested() : root.addRequested()
+                }
+                CompactMenuItem {
+                    visible: party.active && party.role === "co_host" && !root.queueMode
+                    text: "Add to party queue"
+                    onTriggered: party.enqueueTrack(root.track)
                 }
                 CompactMenuItem {
                     visible: root.queueMode
@@ -144,14 +150,14 @@ ItemDelegate {
 
     DragHandler {
         id: queueDrag
-        enabled: root.queueMode
+        enabled: root.queueMode && !root.readOnlyMode
         target: null
         acceptedButtons: Qt.LeftButton
     }
 
     DropArea {
         anchors.fill: parent
-        enabled: root.queueMode
+        enabled: root.queueMode && !root.readOnlyMode
         onDropped: function(drop) {
             if (drop.source && drop.source.queueIndex >= 0
                     && drop.source.queueIndex !== root.queueIndex) {
@@ -232,6 +238,8 @@ ItemDelegate {
         }
 
         IconButton {
+            visible: !root.readOnlyMode
+            Layout.preferredWidth: visible ? 36 : 0
             implicitWidth: 36
             implicitHeight: 36
             iconSource: root.queueMode || root.libraryMode ? "icons/close.svg" : "icons/add.svg"

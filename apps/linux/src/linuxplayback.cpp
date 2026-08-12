@@ -35,6 +35,13 @@ QString endFileReason(mpv_end_file_reason reason)
 LinuxPlayback::LinuxPlayback(QObject *parent)
     : QObject(parent)
 {
+    m_positionTicker.setInterval(100);
+    connect(&m_positionTicker, &QTimer::timeout, this, [this] {
+        if (m_state == State::Playing && m_positionClock.isValid() && !m_buffering)
+            emit positionChanged();
+    });
+    m_positionTicker.start();
+
     m_mpv = mpv_create();
     if (!m_mpv) {
         QMetaObject::invokeMethod(this, [this] {
@@ -90,6 +97,15 @@ LinuxPlayback::~LinuxPlayback()
     mpv_terminate_destroy(m_mpv);
 }
 
+qint64 LinuxPlayback::position() const
+{
+    if (m_state != State::Playing || !m_positionClock.isValid() || m_buffering)
+        return m_positionMs;
+    const auto elapsed = qRound64(m_positionClock.elapsed() * m_speed);
+    const auto estimated = std::max<qint64>(0, m_positionAnchorMs + elapsed);
+    return m_durationMs > 0 ? std::min(estimated, m_durationMs) : estimated;
+}
+
 void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
                               std::optional<double> replayGainDb,
                               std::optional<double> peakAmplitude,
@@ -110,6 +126,8 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     m_currentWasPrepared = false;
     m_openTimer.restart();
     m_positionMs = std::max<qint64>(0, startPositionMs);
+    m_positionAnchorMs = m_positionMs;
+    m_positionClock.invalidate();
     m_durationMs = 0;
     m_seekable = false;
     m_confirmingSeekMs = -1;
@@ -192,6 +210,8 @@ void LinuxPlayback::clearSource()
     m_prepareRequestId = 0;
     m_currentWasPrepared = false;
     m_positionMs = 0;
+    m_positionAnchorMs = 0;
+    m_positionClock.invalidate();
     m_durationMs = 0;
     m_seekable = false;
     m_confirmingSeekMs = -1;
@@ -298,6 +318,20 @@ void LinuxPlayback::setMuted(bool muted)
         mpv_set_property_async(m_mpv, 0, "mute", MPV_FORMAT_FLAG, &value);
     }
     emit mutedChanged();
+}
+
+void LinuxPlayback::setSpeed(double speed)
+{
+    if (!m_mpv) return;
+    const auto next = std::clamp(speed, 0.95, 1.05);
+    if (qFuzzyCompare(m_speed, next)) return;
+    if (m_positionClock.isValid()) {
+        m_positionMs = position();
+        m_positionAnchorMs = m_positionMs;
+        m_positionClock.restart();
+    }
+    m_speed = next;
+    mpv_set_property_async(m_mpv, 0, "speed", MPV_FORMAT_DOUBLE, &m_speed);
 }
 
 void LinuxPlayback::refreshAudioDevices()
@@ -518,6 +552,8 @@ void LinuxPlayback::drainEvents()
                                                                      : QStringLiteral("active"),
                                                 m_source.host())
                                            .arg(m_openTimer.isValid() ? m_openTimer.elapsed() : -1));
+            m_positionAnchorMs = m_positionMs;
+            if (m_state == State::Playing && !m_buffering) m_positionClock.restart();
             if (m_confirmingSeekMs >= 0) {
                 if (m_queuedSeekMs >= 0) {
                     const auto target = m_queuedSeekMs;
@@ -607,6 +643,10 @@ void LinuxPlayback::handleProperty(quint64 propertyId, const mpv_event_property 
     if (!property.data) return;
     if (propertyId == PositionProperty && property.format == MPV_FORMAT_DOUBLE) {
         const auto next = qRound64(*static_cast<double *>(property.data) * 1000.0);
+        if (m_state == State::Playing && !m_buffering) {
+            m_positionAnchorMs = std::max<qint64>(0, next);
+            m_positionClock.restart();
+        }
         if (next != m_positionMs) {
             m_positionMs = std::max<qint64>(0, next);
             emit positionChanged();
@@ -628,6 +668,11 @@ void LinuxPlayback::handleProperty(quint64 propertyId, const mpv_event_property 
     } else if (propertyId == PausedForCacheProperty && property.format == MPV_FORMAT_FLAG) {
         const bool next = *static_cast<int *>(property.data) != 0;
         if (next != m_buffering) {
+            if (next && m_positionClock.isValid()) {
+                m_positionMs = position();
+                m_positionAnchorMs = m_positionMs;
+                m_positionClock.invalidate();
+            }
             m_buffering = next;
             emit bufferingChanged();
         }
@@ -652,6 +697,12 @@ void LinuxPlayback::setPauseProperty(bool paused)
 void LinuxPlayback::setLogicalState(State state)
 {
     if (m_state == state) return;
+    if (m_state == State::Playing && state != State::Playing && m_positionClock.isValid()) {
+        m_positionMs = position();
+        m_positionAnchorMs = m_positionMs;
+        m_positionClock.invalidate();
+        emit positionChanged();
+    }
     m_state = state;
     emit stateChanged();
 }
@@ -669,6 +720,8 @@ void LinuxPlayback::promotePreparedSource(bool notifyOwner)
     m_currentWasPrepared = true;
     m_openTimer.restart();
     m_positionMs = 0;
+    m_positionAnchorMs = 0;
+    m_positionClock.invalidate();
     m_durationMs = 0;
     m_seekable = false;
     m_confirmingSeekMs = -1;

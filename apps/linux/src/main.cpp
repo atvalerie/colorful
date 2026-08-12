@@ -2,6 +2,7 @@
 #include "buildinfo_generated.h"
 #include "debuglog.h"
 #include "updatemanager.h"
+#include "partyclient.h"
 #if defined(Q_OS_LINUX)
 #include "mpris.h"
 #elif defined(Q_OS_WIN)
@@ -24,6 +25,10 @@
 #include <QScreen>
 #include <QSet>
 #include <QSettings>
+#include <QTimer>
+#include <QLocalServer>
+#include <QLocalSocket>
+#include <QUrl>
 #if defined(Q_OS_LINUX)
 #include <QSocketNotifier>
 #endif
@@ -176,6 +181,35 @@ void logDisplayState(QWindow *window)
                         .arg(QStringLiteral("qt")));
 #endif
 }
+
+constexpr auto InstanceServerName = "sh.valerie.colorful.desktop";
+
+QStringList externalColorfulUrls(int argc, char *argv[])
+{
+    QStringList urls;
+    for (int index = 1; index < argc; ++index) {
+        const QUrl url = QUrl::fromUserInput(QString::fromLocal8Bit(argv[index]));
+        if (url.isValid() && url.scheme().compare(QStringLiteral("colorful"), Qt::CaseInsensitive) == 0)
+            urls.append(url.toString(QUrl::FullyEncoded));
+    }
+    return urls;
+}
+
+bool forwardToRunningInstance(const QStringList &messages)
+{
+    QLocalSocket socket;
+    socket.connectToServer(QString::fromLatin1(InstanceServerName));
+    if (!socket.waitForConnected(350)) return false;
+
+    const auto values = messages.isEmpty() ? QStringList{QString()} : messages;
+    for (const auto &message : values) {
+        socket.write(message.toUtf8());
+        socket.write("\n");
+    }
+    if (!socket.waitForBytesWritten(350)) return false;
+    socket.disconnectFromServer();
+    return true;
+}
 }
 
 int main(int argc, char *argv[])
@@ -202,6 +236,8 @@ int main(int argc, char *argv[])
         qputenv("QSG_DISTANCEFIELD_ANTIALIASING", QByteArrayLiteral("gray"));
 #endif
     QGuiApplication app(argc, argv);
+    const auto initialExternalUrls = externalColorfulUrls(argc, argv);
+    if (forwardToRunningInstance(initialExternalUrls)) return 0;
 #if defined(Q_OS_WIN)
     // NativeTextRendering uses Windows' RGB ClearType rasterization, which
     // produces visible red/blue fringes on displays whose physical subpixel
@@ -236,7 +272,17 @@ int main(int argc, char *argv[])
     std::setlocale(LC_NUMERIC, "C");
 
     Backend backend;
+    PartyClient party(&backend);
     UpdateManager updater;
+    QLocalServer instanceServer;
+    if (!instanceServer.listen(QString::fromLatin1(InstanceServerName))) {
+        // A crashed process can leave a stale local endpoint behind. Remove it
+        // only after forwarding failed, so a live instance keeps ownership.
+        QLocalServer::removeServer(QString::fromLatin1(InstanceServerName));
+        if (!instanceServer.listen(QString::fromLatin1(InstanceServerName)))
+            DebugLog::write(u"app", QStringLiteral("could not create URI handler instance endpoint: %1")
+                                         .arg(instanceServer.errorString()));
+    }
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &backend, [&backend] {
         backend.shutdownDiscordPresence();
     });
@@ -245,6 +291,7 @@ int main(int argc, char *argv[])
 #endif
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("colorful"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("party"), &party);
     engine.rootContext()->setContextProperty(QStringLiteral("updater"), &updater);
     engine.loadFromModule(QStringLiteral("colorful"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty()) return 1;
@@ -256,6 +303,33 @@ int main(int argc, char *argv[])
         QObject::connect(window, &QWindow::screenChanged, window,
                          [window](QScreen *) { logDisplayState(window); });
     }
+    const auto dispatchExternalMessage = [rootObject, window](const QString &message) {
+        if (message.isEmpty()) {
+            if (!window) return;
+            window->show();
+            window->raise();
+            window->requestActivate();
+            return;
+        }
+        QMetaObject::invokeMethod(rootObject, "handleExternalUrl", Qt::QueuedConnection,
+                                  Q_ARG(QVariant, QVariant(message)));
+    };
+    QObject::connect(&instanceServer, &QLocalServer::newConnection, &app, [&instanceServer,
+                                                                            dispatchExternalMessage] {
+        while (auto *socket = instanceServer.nextPendingConnection()) {
+            QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket, dispatchExternalMessage] {
+                while (socket->canReadLine()) {
+                    const auto message = QString::fromUtf8(socket->readLine()).trimmed();
+                    dispatchExternalMessage(message);
+                }
+            });
+            QObject::connect(socket, &QLocalSocket::disconnected,
+                             socket, &QLocalSocket::deleteLater);
+        }
+    });
+    for (const auto &url : initialExternalUrls) dispatchExternalMessage(url);
+    if (QCoreApplication::arguments().contains(QStringLiteral("--smoke-test")))
+        QTimer::singleShot(1000, &app, &QCoreApplication::quit);
     NavigationMouseFilter navigationMouse(rootObject, &app);
     app.installEventFilter(&navigationMouse);
 #if defined(Q_OS_WIN)
