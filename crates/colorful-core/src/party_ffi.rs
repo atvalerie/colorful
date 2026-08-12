@@ -90,6 +90,7 @@ enum PartyCommand {
         track: PartyTrack,
     },
     Resync,
+    Leave,
     ClockPing {
         nonce: u64,
         client_send_ms: i64,
@@ -323,6 +324,21 @@ impl PartyController {
                     return Err("only a participant requests party resynchronization".into());
                 };
                 let command = user.sync_request(replica.party_id()).map_err(error)?;
+                let frame = channel
+                    .seal(&PartyMessage::Command(command))
+                    .map_err(error)?;
+                Ok(json!({ "outbound": [frame], "state": state(self) }))
+            }
+            PartyCommand::Leave => {
+                let Self::Guest {
+                    user,
+                    channel,
+                    replica,
+                } = self
+                else {
+                    return Err("only a participant sends a leave command".into());
+                };
+                let command = user.leave(replica.party_id()).map_err(error)?;
                 let frame = channel
                     .seal(&PartyMessage::Command(command))
                     .map_err(error)?;
@@ -579,6 +595,14 @@ mod tests {
             )["ok"],
             true
         );
+        let leave = call(guest_handle, json!({ "command": "leave" }));
+        assert_eq!(leave["ok"], true);
+        let left = call(
+            host_handle,
+            json!({ "command": "receive", "frame": leave["value"]["outbound"][0] }),
+        );
+        assert_eq!(left["ok"], true);
+        assert_eq!(left["value"]["state"]["participants"].as_array().unwrap().len(), 1);
         assert!(colorful_party_close(host_handle));
         assert!(colorful_party_close(guest_handle));
     }

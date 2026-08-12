@@ -202,11 +202,12 @@ void PartyClient::connectRelay(const QString &baseUrl, const QString &sessionId,
     m_socket.open(url, capability);
 }
 
-QJsonObject PartyClient::dispatchCore(const QJsonObject &command)
+QJsonObject PartyClient::dispatchCore(const QJsonObject &command, bool reportError)
 {
     QString error;
     const auto response = m_core.dispatch(command, &error);
     if (!response.value(QStringLiteral("ok")).toBool()) {
+        if (!reportError) return {};
         setStatus(error.isEmpty() ? QStringLiteral("Party command failed") : error);
         emit notification(m_status, QStringLiteral("error"));
         return {};
@@ -257,12 +258,13 @@ void PartyClient::receiveFrame(const QByteArray &payload)
     QJsonParseError error;
     const auto document = QJsonDocument::fromJson(payload, &error);
     if (!document.isObject()) {
-        emit notification(QStringLiteral("Received an invalid party frame"), QStringLiteral("error"));
         return;
     }
-    dispatch({{QStringLiteral("command"), QStringLiteral("receive")},
-              {QStringLiteral("frame"), document.object()},
-              {QStringLiteral("received_at_ms"), clockNowMs()}});
+    const auto value = dispatchCore({{QStringLiteral("command"), QStringLiteral("receive")},
+                                     {QStringLiteral("frame"), document.object()},
+                                     {QStringLiteral("received_at_ms"), clockNowMs()}},
+                                    false);
+    if (!value.isEmpty()) applyResult(value);
 }
 
 QJsonObject PartyClient::partyTrack(const QVariantMap &track)
@@ -619,7 +621,14 @@ void PartyClient::kick(const QString &participantId)
 
 void PartyClient::leave()
 {
-    m_socket.close();
+    if (m_active && m_role != QStringLiteral("host") && m_socket.connected()) {
+        const auto value = dispatchCore({{QStringLiteral("command"), QStringLiteral("leave")}}, false);
+        for (const auto &frame : value.value(QStringLiteral("outbound")).toArray())
+            m_socket.sendBinary(QJsonDocument(frame.toObject()).toJson(QJsonDocument::Compact));
+        m_socket.closeGracefully();
+    } else {
+        m_socket.close();
+    }
     m_hostClock.stop();
     m_clockSampler.stop();
     m_driftController.stop();

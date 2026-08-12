@@ -88,7 +88,7 @@ private:
     void connectRelay(const QString &baseUrl, const QString &sessionId,
                       const QString &capability);
     void dispatch(const QJsonObject &command);
-    QJsonObject dispatchCore(const QJsonObject &command);
+    QJsonObject dispatchCore(const QJsonObject &command, bool reportError = true);
     void applyResult(const QJsonObject &value);
     void flushOutbound();
     void receiveFrame(const QByteArray &payload);

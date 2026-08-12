@@ -46,6 +46,12 @@ production relay deployment are not complete.
   binary data; and
 - replay rejection for commands, frames, and authoritative state events;
 - bounded automatic relay reconnect followed by signed current-state recovery;
+- signed guest departure with graceful WebSocket shutdown, so leaving removes
+  the temporary participant from host and guest state without trusting relay
+  connection metadata;
+- idempotent retransmission of an identical signed join request and silent
+  rejection of stale, foreign, or otherwise invalid relay frames at the UI
+  boundary;
 - snapshot compaction of retained host event history;
 - post-kick party-key rotation with one X25519-wrapped replacement-key envelope
   per remaining participant, excluding the removed participant; and

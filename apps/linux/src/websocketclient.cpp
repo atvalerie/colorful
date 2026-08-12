@@ -71,6 +71,22 @@ void WebSocketClient::close()
     reset();
 }
 
+void WebSocketClient::closeGracefully()
+{
+    m_shouldReconnect = false;
+    m_reconnectTimer.stop();
+    if (!m_upgraded) {
+        close();
+        return;
+    }
+    sendFrame(0x8, {});
+    m_socket.flush();
+    m_socket.disconnectFromHost();
+    QTimer::singleShot(1500, this, [this] {
+        if (m_socket.state() != QAbstractSocket::UnconnectedState) m_socket.abort();
+    });
+}
+
 void WebSocketClient::scheduleReconnect()
 {
     if (!m_shouldReconnect || m_reconnectTimer.isActive()) return;

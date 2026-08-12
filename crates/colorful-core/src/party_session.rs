@@ -162,6 +162,7 @@ pub enum GuestCommandBody {
     EnqueueTrack { track: PartyTrack },
     ClockPing { nonce: u64, client_send_ms: i64 },
     SyncRequest,
+    Leave,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -255,6 +256,10 @@ impl PartyUser {
 
     pub fn sync_request(&self, party_id: &str) -> Result<GuestCommand, PartyError> {
         self.command(party_id, GuestCommandBody::SyncRequest)
+    }
+
+    pub fn leave(&self, party_id: &str) -> Result<GuestCommand, PartyError> {
+        self.command(party_id, GuestCommandBody::Leave)
     }
 
     pub fn clock_ping(
@@ -502,7 +507,13 @@ impl PartyHost {
             return Err(PartyError::JoiningDisabled);
         }
         verify_join(request, &self.party_id)?;
-        if self.participants.contains_key(&request.participant_id) {
+        if let Some(existing) = self.participants.get(&request.participant_id) {
+            if existing.display_name == request.display_name
+                && existing.signing_public_key == request.signing_public_key
+                && existing.agreement_public_key == request.agreement_public_key
+            {
+                return self.snapshot();
+            }
             return Err(PartyError::AlreadyJoined);
         }
         let participant = PartyParticipant {
@@ -627,6 +638,15 @@ impl PartyHost {
                 host_send_ms,
             }),
             GuestCommandBody::SyncRequest => self.snapshot(),
+            GuestCommandBody::Leave => {
+                if participant.role == PartyRole::Host {
+                    return Err(PartyError::InvalidRole);
+                }
+                self.participants.remove(&command.participant_id);
+                self.sign_event(PartyEventBody::ParticipantRemoved {
+                    participant_id: command.participant_id.clone(),
+                })
+            }
         }
     }
 
@@ -1181,6 +1201,27 @@ mod tests {
             host.accept_command(&command),
             Err(PartyError::ReplayedOperation)
         ));
+    }
+
+    #[test]
+    fn repeated_join_is_idempotent_and_signed_leave_removes_the_participant() {
+        let (mut host, _) = PartyHost::create("Host", 100_000).unwrap();
+        let invite = PartyInvite::from_fragment(&host.invite_fragment("cap").unwrap(), 0).unwrap();
+        let guest = PartyUser::temporary("Listener").unwrap();
+        let request = guest.join_request(&invite).unwrap();
+
+        host.admit(&request).unwrap();
+        let repeated = host.admit(&request).unwrap();
+        assert!(matches!(repeated.body, PartyEventBody::StateSnapshot { .. }));
+        assert_eq!(host.participants().count(), 2);
+
+        let left = host.accept_command(&guest.leave(host.party_id()).unwrap()).unwrap();
+        assert!(matches!(
+            left.body,
+            PartyEventBody::ParticipantRemoved { ref participant_id }
+                if participant_id == guest.participant_id()
+        ));
+        assert_eq!(host.participants().count(), 1);
     }
 
     #[test]

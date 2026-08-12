@@ -14,6 +14,7 @@ public:
     ~WebSocketClient() override;
     void open(const QUrl &url, const QString &bearerToken);
     void close();
+    void closeGracefully();
     void sendBinary(const QByteArray &payload);
     bool connected() const { return m_upgraded; }
 

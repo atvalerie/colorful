@@ -98,6 +98,11 @@ private:
                                              {QStringLiteral("received_at_ms"), QDateTime::currentMSecsSinceEpoch()}});
         for (const auto &outbound : value.value(QStringLiteral("outbound")).toArray())
             m_hostSocket.sendBinary(QJsonDocument(outbound.toObject()).toJson(QJsonDocument::Compact));
+        if (m_leaveSent && value.value(QStringLiteral("state")).toObject()
+                .value(QStringLiteral("participants")).toArray().size() == 1) {
+            qInfo("native guest left through the opaque relay and disappeared from host state");
+            QCoreApplication::exit(0);
+        }
     }
 
     void guestReceived(const QByteArray &payload)
@@ -108,7 +113,11 @@ private:
         if (value.value(QStringLiteral("event")).toObject().value(QStringLiteral("body")).toObject()
                 .value(QStringLiteral("type")).toString() == QStringLiteral("clock_pong")) {
             qInfo("native host and guest synchronized an encrypted clock sample through the opaque relay");
-            QCoreApplication::exit(0);
+            const auto leaving = dispatch(m_guest, {{QStringLiteral("command"), QStringLiteral("leave")}});
+            m_leaveSent = true;
+            for (const auto &outbound : leaving.value(QStringLiteral("outbound")).toArray())
+                m_guestSocket.sendBinary(QJsonDocument(outbound.toObject()).toJson(QJsonDocument::Compact));
+            m_guestSocket.closeGracefully();
             return;
         }
         if (!m_clockSent && value.value(QStringLiteral("state")).toObject()
@@ -140,6 +149,7 @@ private:
     QJsonObject m_joinFrame;
     bool m_joinSent = false;
     bool m_clockSent = false;
+    bool m_leaveSent = false;
 };
 
 int main(int argc, char **argv)
