@@ -25,3 +25,13 @@ if [[ ! -x "$COLORFUL_LINUXDEPLOY_DIR/linuxdeploy-x86_64.AppImage" \
 fi
 
 ./scripts/package-linux.sh
+
+bun services/colorful-relay/src/main.ts >"$COLORFUL_BUILD_ROOT/relay-test.log" 2>&1 &
+relay_pid=$!
+cleanup_relay() { kill "$relay_pid" 2>/dev/null || true; }
+trap cleanup_relay EXIT
+for _ in $(seq 1 20); do
+  curl --fail --silent http://127.0.0.1:8787/healthz >/dev/null && break
+  sleep 0.25
+done
+ctest --test-dir "$COLORFUL_BUILD_ROOT/linux-release" --output-on-failure

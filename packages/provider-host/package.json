@@ -7,7 +7,7 @@
   "scripts": {
     "start": "bun src/main.ts",
     "test": "bun test",
-    "typecheck": "../provider-kit/node_modules/.bin/tsc --noEmit"
+    "typecheck": "bun ../provider-kit/node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
     "youtubei.js": "17.2.0"

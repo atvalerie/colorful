@@ -25,14 +25,45 @@ jobs:
             ./scripts/check-commit-style.sh "$previous" "$GITHUB_REF_NAME"
           fi
 
-  linux:
-    name: Build Linux packages
+  quality:
+    name: Portable test suites
     needs: validate
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
+          components: rustfmt
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: portable-tests
+      - name: Install TypeScript dependencies
+        run: |
+          bun install --cwd packages/provider-kit --frozen-lockfile
+          bun install --cwd packages/provider-host --frozen-lockfile
+      - name: Check Rust
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --locked
+      - name: Check providers and relay
+        run: |
+          bun test packages/provider-kit
+          bun run --cwd packages/provider-kit typecheck
+          bun test packages/provider-host
+          bun run --cwd packages/provider-host typecheck
+          bun test services/colorful-relay/src
+          bun packages/provider-kit/node_modules/typescript/bin/tsc -p services/colorful-relay/tsconfig.json
+
+  linux:
+    name: Build Linux packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - name: Build AppImage and portable archive
         run: ./scripts/package-linux-docker.sh
       - uses: actions/upload-artifact@v4
@@ -47,12 +78,11 @@ jobs:
 
   windows:
     name: Build Windows packages
-    needs: validate
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
       - uses: oven-sh/setup-bun@v2
         with:
@@ -79,6 +109,19 @@ jobs:
       - name: Build portable archive and installer
         shell: powershell
         run: .\scripts\package-windows.ps1 -Installer
+      - name: Run native tests
+        shell: powershell
+        run: |
+          $relay = Start-Process bun -ArgumentList 'services/colorful-relay/src/main.ts' -PassThru -WindowStyle Hidden
+          try {
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+              try { Invoke-WebRequest http://127.0.0.1:8787/healthz -UseBasicParsing | Out-Null; break } catch { Start-Sleep -Milliseconds 250 }
+            }
+            ctest --test-dir build/windows-qt --output-on-failure -C Release
+            if ($LASTEXITCODE -ne 0) { throw "Native tests failed with exit code $LASTEXITCODE" }
+          } finally {
+            Stop-Process -Id $relay.Id -Force -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: colorful-windows-${{ github.ref_name }}
@@ -91,7 +134,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [linux, windows]
+    needs: [quality, linux, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

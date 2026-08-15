@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "types": ["bun"],
-    "typeRoots": ["../../packages/provider-kit/node_modules"],
+    "typeRoots": ["../../packages/provider-kit/node_modules/@types"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
