@@ -10,7 +10,7 @@ use hkdf::Hkdf;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use x25519_dalek::{PublicKey as AgreementPublicKey, StaticSecret};
 use zeroize::Zeroizing;
@@ -21,6 +21,8 @@ const NONCE_BYTES: usize = 24;
 const SIGNATURE_BYTES: usize = 64;
 const MAX_NAME_BYTES: usize = 64;
 const MAX_WIRE_BYTES: usize = 128 * 1024;
+const MAX_SESSION_OPERATIONS: usize = 65_536;
+const MAX_RECEIVED_NONCES: usize = 65_536;
 const EVENT_DOMAIN: &[u8] = b"colorful.party.event.v2";
 const JOIN_DOMAIN: &[u8] = b"colorful.party.join.v2";
 const COMMAND_DOMAIN: &[u8] = b"colorful.party.command.v2";
@@ -384,6 +386,7 @@ impl PartyInvite {
     }
 }
 
+#[derive(Clone)]
 pub struct PartyHost {
     party_id: String,
     expires_at_ms: i64,
@@ -599,6 +602,9 @@ impl PartyHost {
         if self.seen_operations.contains(&command.operation_id) {
             return Err(PartyError::ReplayedOperation);
         }
+        if self.seen_operations.len() >= MAX_SESSION_OPERATIONS {
+            return Err(PartyError::SessionLimit);
+        }
         let participant = self
             .participants
             .get(&command.participant_id)
@@ -678,6 +684,9 @@ impl PartyHost {
         role: PartyRole,
     ) -> Result<PartyEvent, PartyError> {
         if role == PartyRole::Host {
+            return Err(PartyError::InvalidRole);
+        }
+        if participant_id == self.host_participant_id() {
             return Err(PartyError::InvalidRole);
         }
         self.participants
@@ -933,6 +942,7 @@ pub struct PartyChannel {
     key: Zeroizing<[u8; KEY_BYTES]>,
     key_epoch: u64,
     received_nonces: HashSet<[u8; NONCE_BYTES]>,
+    received_nonce_order: VecDeque<[u8; NONCE_BYTES]>,
 }
 
 impl PartyChannel {
@@ -942,6 +952,7 @@ impl PartyChannel {
             key: Zeroizing::new(key),
             key_epoch,
             received_nonces: HashSet::new(),
+            received_nonce_order: VecDeque::new(),
         }
     }
 
@@ -949,6 +960,7 @@ impl PartyChannel {
         self.key = Zeroizing::new(key);
         self.key_epoch = key_epoch;
         self.received_nonces.clear();
+        self.received_nonce_order.clear();
     }
 
     pub fn seal<T: Serialize>(&self, value: &T) -> Result<PartyFrame, PartyError> {
@@ -1006,6 +1018,12 @@ impl PartyChannel {
         );
         let value = serde_json::from_slice(&plaintext).map_err(PartyError::Json)?;
         self.received_nonces.insert(frame.nonce);
+        self.received_nonce_order.push_back(frame.nonce);
+        if self.received_nonce_order.len() > MAX_RECEIVED_NONCES {
+            if let Some(expired) = self.received_nonce_order.pop_front() {
+                self.received_nonces.remove(&expired);
+            }
+        }
         Ok(value)
     }
 }
@@ -1027,6 +1045,7 @@ pub enum PartyError {
     ReplayedFrame,
     SequenceGap,
     SequenceOverflow,
+    SessionLimit,
     MessageTooLarge,
     InvalidFrame,
     EncryptionFailed,
@@ -1212,10 +1231,15 @@ mod tests {
 
         host.admit(&request).unwrap();
         let repeated = host.admit(&request).unwrap();
-        assert!(matches!(repeated.body, PartyEventBody::StateSnapshot { .. }));
+        assert!(matches!(
+            repeated.body,
+            PartyEventBody::StateSnapshot { .. }
+        ));
         assert_eq!(host.participants().count(), 2);
 
-        let left = host.accept_command(&guest.leave(host.party_id()).unwrap()).unwrap();
+        let left = host
+            .accept_command(&guest.leave(host.party_id()).unwrap())
+            .unwrap();
         assert!(matches!(
             left.body,
             PartyEventBody::ParticipantRemoved { ref participant_id }

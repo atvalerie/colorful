@@ -1,8 +1,8 @@
 //! Stateful JSON C ABI for native party clients.
 
 use crate::party_session::{
-    GuestCommand, JoinRequest, PartyChannel, PartyEvent, PartyEventBody, PartyFrame, PartyHost,
-    PartyInvite, PartyReplica, PartyTrack, PartyUser,
+    GuestCommand, JoinRequest, PartyChannel, PartyError, PartyEvent, PartyEventBody, PartyFrame,
+    PartyHost, PartyInvite, PartyReplica, PartyTrack, PartyUser,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -188,23 +188,22 @@ impl PartyController {
             } => match self {
                 Self::Host { host, channel, .. } => {
                     let message: PartyMessage = channel.open(&frame).map_err(error)?;
-                    let events = match message {
-                        PartyMessage::Join(request) => {
-                            host.admit(&request).map_err(error)?;
-                            vec![host.snapshot().map_err(error)?]
-                        }
-                        PartyMessage::Command(command) => {
-                            let received = received_at_ms.unwrap_or_default();
-                            vec![
-                                host.accept_command_at(&command, received, received)
-                                    .map_err(error)?,
-                            ]
-                        }
-                        PartyMessage::Event(_) => {
-                            return Err("guests cannot send authoritative events".into());
-                        }
-                    };
-                    let outbound = seal_events(channel, events)?;
+                    let (_, outbound) = host_transaction(host, channel, |host| {
+                        let events = match message {
+                            PartyMessage::Join(request) => {
+                                host.admit(&request)?;
+                                vec![host.snapshot()?]
+                            }
+                            PartyMessage::Command(command) => {
+                                let received = received_at_ms.unwrap_or_default();
+                                vec![host.accept_command_at(&command, received, received)?]
+                            }
+                            PartyMessage::Event(_) => {
+                                return Err(PartyError::InvalidFrame);
+                            }
+                        };
+                        Ok(((), events))
+                    })?;
                     Ok(json!({ "outbound": outbound, "state": state(self) }))
                 }
                 Self::Guest {
@@ -242,42 +241,50 @@ impl PartyController {
                 let Self::Host { host, channel, .. } = self else {
                     return Err("only the host controls playback".into());
                 };
-                let event = host
-                    .set_playback(entry_id, playing, position_ms, host_time_ms, generation)
-                    .map_err(error)?;
-                let outbound = seal_events(channel, vec![event])?;
+                let (_, outbound) = host_transaction(host, channel, |host| {
+                    let event = host.set_playback(
+                        entry_id,
+                        playing,
+                        position_ms,
+                        host_time_ms,
+                        generation,
+                    )?;
+                    Ok(((), vec![event]))
+                })?;
                 Ok(json!({ "outbound": outbound, "state": state(self) }))
             }
             PartyCommand::HostTrack { track } => {
                 let Self::Host { host, channel, .. } = self else {
                     return Err("only the host publishes tracks".into());
                 };
-                let event = host.queue_track(track).map_err(error)?;
-                let entry_id = match &event.body {
-                    PartyEventBody::TrackQueued { entry_id, .. } => entry_id.clone(),
-                    _ => unreachable!(),
-                };
-                let outbound = seal_events(channel, vec![event])?;
+                let (entry_id, outbound) = host_transaction(host, channel, |host| {
+                    let event = host.queue_track(track)?;
+                    let PartyEventBody::TrackQueued { entry_id, .. } = &event.body else {
+                        unreachable!()
+                    };
+                    Ok((entry_id.clone(), vec![event]))
+                })?;
                 Ok(json!({ "entryId": entry_id, "outbound": outbound, "state": state(self) }))
             }
             PartyCommand::HostQueue { tracks } => {
                 let Self::Host { host, channel, .. } = self else {
                     return Err("only the host publishes the queue".into());
                 };
-                let event = host.replace_queue(tracks).map_err(error)?;
-                let entries = match &event.body {
-                    PartyEventBody::QueueReplaced { entries } => entries.clone(),
-                    _ => unreachable!(),
-                };
-                let outbound = seal_events(channel, vec![event])?;
+                let (entries, outbound) = host_transaction(host, channel, |host| {
+                    let event = host.replace_queue(tracks)?;
+                    let PartyEventBody::QueueReplaced { entries } = &event.body else {
+                        unreachable!()
+                    };
+                    Ok((entries.clone(), vec![event]))
+                })?;
                 Ok(json!({ "entries": entries, "outbound": outbound, "state": state(self) }))
             }
             PartyCommand::HostSnapshot => {
                 let Self::Host { host, channel, .. } = self else {
                     return Err("only the host publishes authoritative snapshots".into());
                 };
-                let event = host.snapshot().map_err(error)?;
-                let outbound = seal_events(channel, vec![event])?;
+                let (_, outbound) =
+                    host_transaction(host, channel, |host| Ok(((), vec![host.snapshot()?])))?;
                 Ok(json!({ "outbound": outbound, "state": state(self) }))
             }
             PartyCommand::Suggest { track } => {
@@ -368,8 +375,9 @@ impl PartyController {
                 let Self::Host { host, channel, .. } = self else {
                     return Err("only the host controls joining".into());
                 };
-                let event = host.set_join_enabled(enabled).map_err(error)?;
-                let outbound = seal_events(channel, vec![event])?;
+                let (_, outbound) = host_transaction(host, channel, |host| {
+                    Ok(((), vec![host.set_join_enabled(enabled)?]))
+                })?;
                 Ok(json!({ "outbound": outbound, "state": state(self) }))
             }
             PartyCommand::Kick { participant_id } => {
@@ -381,9 +389,11 @@ impl PartyController {
                 else {
                     return Err("only the host can kick".into());
                 };
-                let removed = host.kick(&participant_id).map_err(error)?;
-                let (rotation, epoch, key) = host.rotate_key().map_err(error)?;
-                let outbound = seal_events(channel, vec![removed, rotation])?;
+                let ((epoch, key), outbound) = host_transaction(host, channel, |host| {
+                    let removed = host.kick(&participant_id)?;
+                    let (rotation, epoch, key) = host.rotate_key()?;
+                    Ok(((epoch, key), vec![removed, rotation]))
+                })?;
                 channel.set_key(key, epoch);
                 let fragment = host
                     .invite_fragment(relay_guest_capability)
@@ -399,8 +409,9 @@ impl PartyController {
                 let Self::Host { host, channel, .. } = self else {
                     return Err("only the host assigns party roles".into());
                 };
-                let event = host.set_role(&participant_id, role).map_err(error)?;
-                let outbound = seal_events(channel, vec![event])?;
+                let (_, outbound) = host_transaction(host, channel, |host| {
+                    Ok(((), vec![host.set_role(&participant_id, role)?]))
+                })?;
                 Ok(json!({ "outbound": outbound, "state": state(self) }))
             }
         }
@@ -412,6 +423,28 @@ fn seal_events(channel: &PartyChannel, events: Vec<PartyEvent>) -> Result<Vec<Pa
         .into_iter()
         .map(|event| channel.seal(&PartyMessage::Event(event)).map_err(error))
         .collect()
+}
+
+fn host_transaction<T>(
+    host: &mut PartyHost,
+    channel: &PartyChannel,
+    operation: impl FnOnce(&mut PartyHost) -> Result<(T, Vec<PartyEvent>), PartyError>,
+) -> Result<(T, Vec<PartyFrame>), String> {
+    let checkpoint = host.clone();
+    let (value, events) = match operation(host) {
+        Ok(result) => result,
+        Err(failure) => {
+            *host = checkpoint;
+            return Err(error(failure));
+        }
+    };
+    match seal_events(channel, events) {
+        Ok(frames) => Ok((value, frames)),
+        Err(failure) => {
+            *host = checkpoint;
+            Err(failure)
+        }
+    }
 }
 
 fn state(controller: &PartyController) -> Value {
@@ -602,8 +635,74 @@ mod tests {
             json!({ "command": "receive", "frame": leave["value"]["outbound"][0] }),
         );
         assert_eq!(left["ok"], true);
-        assert_eq!(left["value"]["state"]["participants"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            left["value"]["state"]["participants"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(colorful_party_close(host_handle));
         assert!(colorful_party_close(guest_handle));
+    }
+
+    #[test]
+    fn failed_host_commands_roll_back_party_state() {
+        let handle = registry().lock().unwrap().insert();
+        let created = call(
+            handle,
+            json!({ "command": "create", "display_name": "Host", "expires_at_ms": 100000,
+                    "relay_session_id": "relay", "relay_host_capability": "host-cap",
+                    "relay_guest_capability": "guest-cap" }),
+        );
+        let host_id = created["value"]["state"]["participants"][0]["participantId"]
+            .as_str()
+            .unwrap();
+        let demotion = call(
+            handle,
+            json!({ "command": "set_role", "participant_id": host_id, "role": "guest" }),
+        );
+        assert_eq!(demotion["ok"], false);
+
+        let oversized = (0..200)
+            .map(|index| {
+                json!({
+                    "mediaId": { "provider": "tidal", "providerId": index.to_string() },
+                    "title": "x".repeat(1024), "artist": "Artist", "durationMs": 180000,
+                })
+            })
+            .collect::<Vec<_>>();
+        let rejected = call(
+            handle,
+            json!({ "command": "host_queue", "tracks": oversized }),
+        );
+        assert_eq!(rejected["ok"], false);
+        assert!(
+            rejected["error"]
+                .as_str()
+                .unwrap()
+                .contains("MessageTooLarge")
+        );
+
+        let recovered = call(
+            handle,
+            json!({ "command": "host_track", "track": {
+                "mediaId": { "provider": "tidal", "providerId": "recovered" },
+                "title": "Recovered", "artist": "Artist", "durationMs": 180000
+            }}),
+        );
+        assert_eq!(recovered["ok"], true);
+        assert_eq!(
+            recovered["value"]["state"]["queue"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            recovered["value"]["state"]["participants"][0]["role"],
+            "host"
+        );
+        assert!(colorful_party_close(handle));
     }
 }
