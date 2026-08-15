@@ -5,10 +5,34 @@
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QUrl>
+#include <cstring>
 #include <cmath>
 
-namespace { constexpr int PartyProtocolVersion = 2; }
+namespace {
+constexpr int PartyProtocolVersion = 2;
+constexpr qsizetype MaxPendingPartyBytes = 4 * 1024 * 1024;
+constexpr qsizetype MaxPendingPartyFrames = 512;
+
+QString partySessionFromUrl(const QUrl &url)
+{
+    QString session;
+    if (url.scheme() == QStringLiteral("colorful") && url.host() == QStringLiteral("party")) {
+        const auto path = url.path();
+        if (path.size() <= 1 || !path.startsWith('/')) return {};
+        session = path.mid(1);
+    } else if (url.scheme() == QStringLiteral("https")
+               && url.host() == QStringLiteral("colorful.valerie.sh")) {
+        constexpr auto prefix = "/party/";
+        const auto path = url.path();
+        if (!path.startsWith(prefix) || path.size() <= qsizetype(std::strlen(prefix))) return {};
+        session = path.mid(qsizetype(std::strlen(prefix)));
+    }
+    static const QRegularExpression valid(QStringLiteral("^[A-Za-z0-9_-]{8,64}$"));
+    return valid.match(session).hasMatch() ? session : QString{};
+}
+}
 
 PartyClient::PartyClient(Backend *backend, QObject *parent)
     : QObject(parent), m_backend(backend), m_socket(this)
@@ -18,8 +42,10 @@ PartyClient::PartyClient(Backend *backend, QObject *parent)
     connect(&m_socket, &WebSocketClient::connectedChanged, this, [this](bool connected) {
         setStatus(connected ? QStringLiteral("Party connected") : QStringLiteral("Party disconnected"));
         if (connected) {
-            if (m_everConnected) {
+            if (m_everConnected || m_needsResync) {
                 m_pendingFrames.clear();
+                m_pendingFrameBytes = 0;
+                m_needsResync = false;
                 dispatch({{QStringLiteral("command"), m_role == QStringLiteral("host")
                     ? QStringLiteral("host_snapshot") : QStringLiteral("resync")}});
             } else {
@@ -31,6 +57,7 @@ PartyClient::PartyClient(Backend *backend, QObject *parent)
             m_everConnected = true;
         } else {
             m_pendingFrames.clear();
+            m_pendingFrameBytes = 0;
         }
         emit stateChanged();
     });
@@ -95,7 +122,7 @@ int PartyClient::currentQueueIndex() const
 
 void PartyClient::createParty(const QString &displayName, const QString &relayBaseUrl)
 {
-    if (m_active || displayName.trimmed().isEmpty()) return;
+    if (m_active || m_creatingParty || displayName.trimmed().isEmpty()) return;
     QUrl base(relayBaseUrl.trimmed());
     if (!base.isValid() || (base.scheme() != QStringLiteral("http") && base.scheme() != QStringLiteral("https"))) {
         emit notification(QStringLiteral("Enter a valid HTTP(S) relay URL"), QStringLiteral("error"));
@@ -105,11 +132,22 @@ void PartyClient::createParty(const QString &displayName, const QString &relayBa
     QNetworkRequest request(QUrl(m_relayBaseUrl + QStringLiteral("/v1/party-sessions")));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     auto *reply = m_network.post(request, QByteArrayLiteral("{\"ttlSeconds\":7200}"));
+    m_creatingParty = true;
+    QTimer::singleShot(15'000, reply, [reply] {
+        if (reply->isRunning()) reply->abort();
+    });
     setStatus(QStringLiteral("Creating party…"));
     connect(reply, &QNetworkReply::finished, this, [this, reply, displayName] {
+        m_creatingParty = false;
         const auto body = reply->readAll();
         const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto networkError = reply->error();
         reply->deleteLater();
+        if (networkError != QNetworkReply::NoError) {
+            setStatus(QStringLiteral("Could not reach the party relay"));
+            emit notification(m_status, QStringLiteral("error"));
+            return;
+        }
         const auto document = QJsonDocument::fromJson(body);
         if (document.object().value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion) {
             setStatus(QStringLiteral("This relay requires a different Colorful version"));
@@ -148,11 +186,7 @@ void PartyClient::createParty(const QString &displayName, const QString &relayBa
 bool PartyClient::handlePartyLink(const QString &link)
 {
     const QUrl url(link);
-    const bool custom = url.scheme() == QStringLiteral("colorful") && url.host() == QStringLiteral("party");
-    const bool web = url.scheme() == QStringLiteral("https")
-        && url.host() == QStringLiteral("colorful.valerie.sh")
-        && url.path().startsWith(QStringLiteral("/party/"));
-    if ((!custom && !web) || url.fragment(QUrl::FullyEncoded).isEmpty()) return false;
+    if (partySessionFromUrl(url).isEmpty() || url.fragment(QUrl::FullyEncoded).isEmpty()) return false;
     emit joinLinkReceived(link);
     return true;
 }
@@ -162,18 +196,15 @@ void PartyClient::joinParty(const QString &link, const QString &displayName,
 {
     if (m_active || displayName.trimmed().isEmpty()) return;
     const QUrl url(link);
-    const bool custom = url.scheme() == QStringLiteral("colorful") && url.host() == QStringLiteral("party");
-    const bool web = url.scheme() == QStringLiteral("https")
-        && url.host() == QStringLiteral("colorful.valerie.sh")
-        && url.path().startsWith(QStringLiteral("/party/"));
-    if (!custom && !web) {
+    const auto session = partySessionFromUrl(url);
+    if (session.isEmpty()) {
         emit notification(QStringLiteral("That is not a colorful party link"), QStringLiteral("error"));
         return;
     }
-    const auto session = custom ? url.path().sliced(1) : url.path().sliced(QStringLiteral("/party/").size());
     const auto fragment = url.fragment(QUrl::FullyEncoded);
     QUrl base(relayBaseUrl.trimmed());
-    if (session.isEmpty() || fragment.isEmpty() || !base.isValid()) {
+    if (fragment.isEmpty() || !base.isValid()
+        || (base.scheme() != QStringLiteral("http") && base.scheme() != QStringLiteral("https"))) {
         emit notification(QStringLiteral("The party link or relay URL is invalid"), QStringLiteral("error"));
         return;
     }
@@ -239,8 +270,19 @@ void PartyClient::applyResult(const QJsonObject &value)
     m_active = true;
     updateState(value.value(QStringLiteral("state")).toObject());
     const auto outbound = value.value(QStringLiteral("outbound")).toArray();
-    for (const auto &frame : outbound)
-        m_pendingFrames.append(QJsonDocument(frame.toObject()).toJson(QJsonDocument::Compact));
+    for (const auto &frame : outbound) {
+        const auto bytes = QJsonDocument(frame.toObject()).toJson(QJsonDocument::Compact);
+        if (m_pendingFrames.size() >= MaxPendingPartyFrames
+            || m_pendingFrameBytes + bytes.size() > MaxPendingPartyBytes) {
+            m_pendingFrames.clear();
+            m_pendingFrameBytes = 0;
+            m_needsResync = true;
+            setStatus(QStringLiteral("Party connection is catching up"));
+            break;
+        }
+        m_pendingFrameBytes += bytes.size();
+        m_pendingFrames.append(bytes);
+    }
     flushOutbound();
     if (value.value(QStringLiteral("event")).isObject())
         applyRemoteEvent(value.value(QStringLiteral("event")).toObject());
@@ -250,7 +292,11 @@ void PartyClient::applyResult(const QJsonObject &value)
 void PartyClient::flushOutbound()
 {
     if (!m_socket.connected()) return;
-    while (!m_pendingFrames.isEmpty()) m_socket.sendBinary(m_pendingFrames.takeFirst());
+    while (!m_pendingFrames.isEmpty()) {
+        const auto frame = m_pendingFrames.takeFirst();
+        m_pendingFrameBytes -= frame.size();
+        m_socket.sendBinary(frame);
+    }
 }
 
 void PartyClient::receiveFrame(const QByteArray &payload)
@@ -474,7 +520,11 @@ void PartyClient::applyClockPong(const QJsonObject &body)
     if (rtt < 0 || rtt > 10'000) return;
     const auto sample = (double(t1 - t0) + double(t2 - t3)) / 2.0;
     if (m_bestClockRttMs < 0 || rtt < m_bestClockRttMs) m_bestClockRttMs = rtt;
-    if (rtt > m_bestClockRttMs + 50) return;
+    if (rtt > m_bestClockRttMs + 50) {
+        if (++m_clockOutlierSamples < 5) return;
+        m_bestClockRttMs = rtt;
+    }
+    m_clockOutlierSamples = 0;
     ++m_clockSampleCount;
     if (!m_clockSynchronized || std::abs(sample - m_hostClockOffsetMs) > 2000.0) {
         m_hostClockOffsetMs = sample;
@@ -633,6 +683,7 @@ void PartyClient::leave()
     m_clockSampler.stop();
     m_driftController.stop();
     m_pendingFrames.clear();
+    m_pendingFrameBytes = 0;
     m_active = false;
     m_everConnected = false;
     m_role.clear();
@@ -650,6 +701,7 @@ void PartyClient::leave()
     m_lastPlayback = {};
     m_clockSynchronized = false;
     m_bestClockRttMs = -1;
+    m_clockOutlierSamples = 0;
     m_hostClockOffsetMs = 0.0;
     m_lastDriftMs = 0;
     m_filteredDriftMs = 0.0;
@@ -658,6 +710,7 @@ void PartyClient::leave()
     m_remoteGeneration = 0;
     m_clockSampleCount = 0;
     m_hardResyncCount = 0;
+    m_needsResync = false;
     emit timingChanged();
     m_backend->leavePartyPlayback();
     QString resetError;

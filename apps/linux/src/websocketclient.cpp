@@ -5,6 +5,8 @@
 
 namespace {
 constexpr auto WebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+constexpr qsizetype MaxUpgradeHeaderBytes = 16 * 1024;
+constexpr qsizetype MaxFrameBytes = 512 * 1024;
 }
 
 WebSocketClient::WebSocketClient(QObject *parent) : QObject(parent)
@@ -36,8 +38,9 @@ WebSocketClient::WebSocketClient(QObject *parent) : QObject(parent)
 
 WebSocketClient::~WebSocketClient()
 {
+    m_socket.disconnect();
+    m_reconnectTimer.disconnect();
     close();
-    m_socket.disconnect(this);
 }
 
 void WebSocketClient::open(const QUrl &url, const QString &bearerToken)
@@ -59,11 +62,19 @@ void WebSocketClient::connectSocket()
 {
     if (!m_shouldReconnect || m_url.host().isEmpty()
         || m_socket.state() != QAbstractSocket::UnconnectedState) return;
+    const auto generation = ++m_connectionGeneration;
     m_socket.connectToHost(m_url.host(), m_url.port(m_url.scheme() == QStringLiteral("wss") ? 443 : 80));
+    QTimer::singleShot(10'000, this, [this, generation] {
+        if (generation != m_connectionGeneration || m_upgraded
+            || m_socket.state() == QAbstractSocket::UnconnectedState) return;
+        emit failed(QStringLiteral("Party relay WebSocket upgrade timed out"));
+        m_socket.abort();
+    });
 }
 
 void WebSocketClient::close()
 {
+    ++m_connectionGeneration;
     m_shouldReconnect = false;
     m_reconnectTimer.stop();
     if (m_upgraded) sendFrame(0x8, {});
@@ -127,7 +138,18 @@ void WebSocketClient::readAvailable()
     m_buffer += m_socket.readAll();
     if (!m_upgraded) {
         const auto end = m_buffer.indexOf("\r\n\r\n");
-        if (end < 0) return;
+        if (end < 0) {
+            if (m_buffer.size() > MaxUpgradeHeaderBytes) {
+                emit failed(QStringLiteral("Party relay upgrade headers exceed the client limit"));
+                m_socket.abort();
+            }
+            return;
+        }
+        if (end + 4 > MaxUpgradeHeaderBytes) {
+            emit failed(QStringLiteral("Party relay upgrade headers exceed the client limit"));
+            m_socket.abort();
+            return;
+        }
         const auto headers = m_buffer.left(end + 4);
         m_buffer.remove(0, end + 4);
         const auto expected = QCryptographicHash::hash(
@@ -169,7 +191,7 @@ void WebSocketClient::parseFrames()
             for (int index = 2; index < 10; ++index) length = (length << 8) | quint8(m_buffer[index]);
             header = 10;
         }
-        if (length > 512 * 1024) {
+        if (length > MaxFrameBytes) {
             emit failed(QStringLiteral("Party relay frame exceeds the client limit"));
             m_socket.abort();
             return;
@@ -192,7 +214,7 @@ void WebSocketClient::sendBinary(const QByteArray &payload)
 
 void WebSocketClient::sendFrame(quint8 opcode, const QByteArray &payload)
 {
-    if (payload.size() > 512 * 1024) { emit failed(QStringLiteral("Party frame is too large")); return; }
+    if (payload.size() > MaxFrameBytes) { emit failed(QStringLiteral("Party frame is too large")); return; }
     QByteArray frame;
     frame.append(char(0x80 | opcode));
     const quint64 length = payload.size();

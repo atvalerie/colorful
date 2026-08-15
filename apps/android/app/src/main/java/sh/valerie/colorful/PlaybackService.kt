@@ -38,7 +38,7 @@ class PlaybackService : MediaSessionService() {
         override fun run() {
             val player = mediaSession?.player ?: return
             if (player.currentMediaItem != null) {
-                dispatchCore("checkpoint_position", "positionMs" to player.currentPosition.coerceAtLeast(0L))
+                dispatchCore("checkpoint_position", "position_ms" to player.currentPosition.coerceAtLeast(0L))
             }
             mainHandler.postDelayed(this, 15_000L)
         }
@@ -75,7 +75,7 @@ class PlaybackService : MediaSessionService() {
                 reason: Int,
             ) {
                 if (player.currentMediaItem != null) {
-                    dispatchCore("checkpoint_position", "positionMs" to newPosition.positionMs.coerceAtLeast(0L))
+                    dispatchCore("checkpoint_position", "position_ms" to newPosition.positionMs.coerceAtLeast(0L))
                 }
             }
         })
@@ -91,7 +91,7 @@ class PlaybackService : MediaSessionService() {
         mainHandler.removeCallbacks(checkpoint)
         mediaSession?.run {
             if (player.currentMediaItem != null) {
-                dispatchCore("checkpoint_position", "positionMs" to player.currentPosition.coerceAtLeast(0L))
+                dispatchCore("checkpoint_position", "position_ms" to player.currentPosition.coerceAtLeast(0L))
             }
             player.release()
             release()
@@ -108,10 +108,12 @@ class PlaybackService : MediaSessionService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
-            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                .add(PlaybackProtocol.playTrack)
-                .add(PlaybackProtocol.enqueueTrack)
-                .build()
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
+                if (controller.packageName == packageName) {
+                    add(PlaybackProtocol.playTrack)
+                    add(PlaybackProtocol.enqueueTrack)
+                }
+            }.build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
                 .build()
@@ -134,17 +136,25 @@ class PlaybackService : MediaSessionService() {
                 runCatching { prepareTrack(trackJson) }
                     .onSuccess { prepared ->
                         mainHandler.post {
-                            if (enqueue) {
-                                dispatchTrack("enqueue", prepared.track)
-                                session.player.addMediaItem(prepared.mediaItem)
-                            } else {
-                                dispatchTrack("play_tracks", prepared.track)
-                                lastMediaIndex = C.INDEX_UNSET
-                                session.player.setMediaItem(prepared.mediaItem)
-                                session.player.prepare()
-                                session.player.play()
+                            runCatching {
+                                if (enqueue) {
+                                    dispatchTrack("enqueue", prepared.track)
+                                    session.player.addMediaItem(prepared.mediaItem)
+                                } else {
+                                    dispatchTrack("play_tracks", prepared.track)
+                                    lastMediaIndex = C.INDEX_UNSET
+                                    session.player.setMediaItem(prepared.mediaItem)
+                                    session.player.prepare()
+                                    session.player.play()
+                                }
+                            }.onSuccess {
+                                future.set(SessionResult(SessionResult.RESULT_SUCCESS))
+                            }.onFailure { error ->
+                                val extras = Bundle().apply {
+                                    putString(PlaybackProtocol.RESULT_ERROR, error.message ?: "Playback failed")
+                                }
+                                future.set(SessionResult(SessionError.ERROR_UNKNOWN, extras))
                             }
-                            future.set(SessionResult(SessionResult.RESULT_SUCCESS))
                         }
                     }
                     .onFailure { error ->

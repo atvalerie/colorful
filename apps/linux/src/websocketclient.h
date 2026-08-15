@@ -39,6 +39,7 @@ private:
     QByteArray m_buffer;
     QTimer m_reconnectTimer;
     int m_reconnectAttempt = 0;
+    quint64 m_connectionGeneration = 0;
     bool m_upgraded = false;
     bool m_shouldReconnect = false;
 };

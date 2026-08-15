@@ -93,11 +93,13 @@ Item {
         function onLinkedChanged() { if (colorful.linked) colorful.loadTidalHub(false) }
         function onYoutubeAccountChanged() {
             if (colorful.youtubeLinked && !colorful.youtubeHubLoading
-                    && !(colorful.youtubeHub || {}).tracks) colorful.loadYouTubeHub(false)
+                    && !(colorful.youtubeHub || {}).tracks
+                    && !(colorful.youtubeHub || {}).loadAttempted) colorful.loadYouTubeHub(false)
         }
         function onSoundcloudAccountChanged() {
             if (colorful.soundcloudLinked && !colorful.soundcloudHubLoading
-                    && !(colorful.soundcloudHub || {}).tracks) colorful.loadSoundCloudHub(false)
+                    && !(colorful.soundcloudHub || {}).tracks
+                    && !(colorful.soundcloudHub || {}).loadAttempted) colorful.loadSoundCloudHub(false)
         }
     }
 

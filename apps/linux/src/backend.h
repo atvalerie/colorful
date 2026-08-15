@@ -332,6 +332,7 @@ private:
     using ReplyHandler = std::function<void(const QJsonObject &)>;
 
     void startProviderHost();
+    void failPendingProviderRequests(const QString &message);
     int request(const QString &type, const QJsonObject &payload, ReplyHandler handler);
     void processProviderOutput();
     void handleProviderMessage(const QJsonObject &message);

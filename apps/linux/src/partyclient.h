@@ -116,6 +116,7 @@ private:
     QTimer m_driftController;
     QElapsedTimer m_monotonicClock;
     QList<QByteArray> m_pendingFrames;
+    qsizetype m_pendingFrameBytes = 0;
     QString m_relayBaseUrl;
     QString m_role;
     QString m_status = QStringLiteral("No active party");
@@ -145,9 +146,12 @@ private:
     double m_correctionRate = 1.0;
     qint64 m_bestClockRttMs = -1;
     int m_excessiveDriftSamples = 0;
+    int m_clockOutlierSamples = 0;
     bool m_clockSynchronized = false;
     bool m_joinEnabled = true;
     bool m_active = false;
     bool m_applyingRemote = false;
     bool m_everConnected = false;
+    bool m_needsResync = false;
+    bool m_creatingParty = false;
 };

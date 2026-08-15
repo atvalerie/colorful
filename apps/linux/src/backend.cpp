@@ -209,11 +209,13 @@ Backend::Backend(QObject *parent)
     connect(&m_provider, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
         setProviderReady(false);
         setProviderStatusResolved(true);
+        failPendingProviderRequests(QStringLiteral("Provider host is unavailable"));
         setStatus(QStringLiteral("Could not start the TIDAL provider host: %1").arg(m_provider.errorString()));
     });
     connect(&m_provider, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this](int exitCode, QProcess::ExitStatus) {
         setProviderReady(false);
+        failPendingProviderRequests(QStringLiteral("Provider host stopped unexpectedly"));
         if (QCoreApplication::closingDown()) return;
         setStatus(QStringLiteral("TIDAL provider stopped (exit %1)").arg(exitCode));
     });
@@ -1020,6 +1022,8 @@ int Backend::request(const QString &type, const QJsonObject &payload, ReplyHandl
 {
     if (m_provider.state() != QProcess::Running) {
         setStatus(QStringLiteral("Provider host is not running"));
+        if (handler) handler({{QStringLiteral("ok"), false},
+                              {QStringLiteral("error"), QStringLiteral("Provider host is not running")}});
         return -1;
     }
     const int id = m_nextRequestId++;
@@ -1034,6 +1038,15 @@ int Backend::request(const QString &type, const QJsonObject &payload, ReplyHandl
     m_provider.write(QJsonDocument(request).toJson(QJsonDocument::Compact));
     m_provider.write("\n");
     return id;
+}
+
+void Backend::failPendingProviderRequests(const QString &message)
+{
+    auto replies = std::move(m_replies);
+    m_replies.clear();
+    const QJsonObject failure{{QStringLiteral("ok"), false},
+                              {QStringLiteral("error"), message}};
+    for (auto handler : replies) if (handler) handler(failure);
 }
 
 void Backend::processProviderOutput()
@@ -1319,6 +1332,7 @@ void Backend::loadSoundCloudHub(bool refresh)
 {
     if (!m_soundcloudLinked || m_soundcloudHubLoading) return;
     if (!refresh && m_soundcloudHub.contains(QStringLiteral("tracks"))) return;
+    m_soundcloudHub.insert(QStringLiteral("loadAttempted"), true);
     m_soundcloudHubLoading = true;
     emit soundcloudAccountChanged();
     request(QStringLiteral("soundcloud.account"), {}, [this](const QJsonObject &message) {
@@ -1425,6 +1439,7 @@ void Backend::loadYouTubeHub(bool refresh)
 {
     if (!m_youtubeLinked || m_youtubeHubLoading) return;
     if (!refresh && m_youtubeHub.contains(QStringLiteral("tracks"))) return;
+    m_youtubeHub.insert(QStringLiteral("loadAttempted"), true);
     m_youtubeHubLoading = true;
     emit youtubeAccountChanged();
     request(QStringLiteral("youtube.account"), {}, [this](const QJsonObject &message) {
