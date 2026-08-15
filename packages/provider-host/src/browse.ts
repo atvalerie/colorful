@@ -547,8 +547,24 @@ export class BrowseClient {
     return tracks;
   }
 
+  // TIDAL moved the search query out of the URL path: /searchResults/{query}
+  // now fails with INVALID_RESOURCE_ID. The query is resolved via filter[query]
+  // and the returned resource id is used for the relationship requests.
+  private readonly searchResultIds = new Map<string, string>();
+
+  private async searchResultsId(query: string): Promise<string> {
+    const cached = this.searchResultIds.get(query);
+    if (cached) return cached;
+    const document = await this.get("searchResults", { "filter[query]": query, "page[limit]": "1" });
+    const id = document?.data?.[0]?.id;
+    if (!id) throw new Error("TIDAL returned no search results resource");
+    this.searchResultIds.set(query, id);
+    return id;
+  }
+
   async searchTracks(query: string, limit = 30): Promise<TrackSummary[]> {
-    const document = await this.get(`searchResults/${encodeURIComponent(query)}/relationships/tracks`, {
+    const searchId = await this.searchResultsId(query);
+    const document = await this.get(`searchResults/${encodeURIComponent(searchId)}/relationships/tracks`, {
       include: "tracks.albums,tracks.artists",
       collapseBy: "FINGERPRINT",
       "page[limit]": String(Math.max(1, Math.min(limit, 20))),
@@ -558,7 +574,7 @@ export class BrowseClient {
 
   async searchCatalog(query: string, limit = 20, cursors: CatalogSearchCursors = {}): Promise<CatalogSearchPage> {
     const pageLimit = String(Math.max(1, Math.min(limit, 20)));
-    const encoded = encodeURIComponent(query);
+    const encoded = encodeURIComponent(await this.searchResultsId(query));
     const continuation = Object.keys(cursors).length > 0;
     const [tracksResult, albumsResult, artistsResult] = await Promise.allSettled([
       continuation && !cursors.tracks ? Promise.resolve(null) : this.get(`searchResults/${encoded}/relationships/tracks`, {
