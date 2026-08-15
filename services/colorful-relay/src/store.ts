@@ -7,6 +7,7 @@ import {
   MAX_MESSAGE_BYTES,
   MAX_PARTY_TTL_SECONDS,
   MAX_PARTY_SESSIONS,
+  MAX_TOTAL_MAILBOX_BYTES,
   bytesToBase64,
   clampTtl,
   randomToken,
@@ -51,6 +52,8 @@ export class OpaqueRelayStore {
   private readonly parties = new Map<string, PartySession>();
   private mailboxesCreated = 0;
   private partiesCreated = 0;
+  private queuedMessages = 0;
+  private queuedBytes = 0;
 
   public async createMailbox(ttlSeconds?: unknown): Promise<MailboxDescriptor> {
     this.cleanup();
@@ -109,6 +112,7 @@ export class OpaqueRelayStore {
     }
     if (mailbox.messages.size >= MAX_MAILBOX_MESSAGES || mailbox.bytes + ciphertext.byteLength > MAX_MAILBOX_BYTES)
       throw new StoreError("quota");
+    if (this.queuedBytes + ciphertext.byteLength > MAX_TOTAL_MAILBOX_BYTES) throw new StoreError("quota");
     const now = Date.now();
     const expiresAtMs = Math.min(
       mailbox.expiresAtMs,
@@ -122,6 +126,8 @@ export class OpaqueRelayStore {
       expiresAtMs,
     });
     mailbox.bytes += ciphertext.byteLength;
+    this.queuedMessages += 1;
+    this.queuedBytes += ciphertext.byteLength;
     return { created: true, expiresAtMs };
   }
 
@@ -151,6 +157,8 @@ export class OpaqueRelayStore {
     if (!message) return false;
     mailbox.messages.delete(messageId);
     mailbox.bytes -= message.ciphertext.byteLength;
+    this.queuedMessages -= 1;
+    this.queuedBytes -= message.ciphertext.byteLength;
     return true;
   }
 
@@ -167,9 +175,15 @@ export class OpaqueRelayStore {
     throw new StoreError("not_found");
   }
 
+  public partyExpiresAt(sessionId: string): number | undefined {
+    return this.parties.get(sessionId)?.expiresAtMs;
+  }
+
   public cleanup(now = Date.now()): void {
     for (const [id, mailbox] of this.mailboxes) {
       if (mailbox.expiresAtMs <= now) {
+        this.queuedMessages -= mailbox.messages.size;
+        this.queuedBytes -= mailbox.bytes;
         this.mailboxes.delete(id);
         continue;
       }
@@ -188,16 +202,10 @@ export class OpaqueRelayStore {
     partySessionsCreated: number;
   } {
     this.cleanup();
-    let queuedMessages = 0;
-    let queuedBytes = 0;
-    for (const mailbox of this.mailboxes.values()) {
-      queuedMessages += mailbox.messages.size;
-      queuedBytes += mailbox.bytes;
-    }
     return {
       activeMailboxes: this.mailboxes.size,
-      queuedMessages,
-      queuedBytes,
+      queuedMessages: this.queuedMessages,
+      queuedBytes: this.queuedBytes,
       activePartySessions: this.parties.size,
       mailboxesCreated: this.mailboxesCreated,
       partySessionsCreated: this.partiesCreated,
@@ -220,6 +228,8 @@ export class OpaqueRelayStore {
       if (message.expiresAtMs <= now) {
         mailbox.messages.delete(id);
         mailbox.bytes -= message.ciphertext.byteLength;
+        this.queuedMessages -= 1;
+        this.queuedBytes -= message.ciphertext.byteLength;
       }
     }
   }

@@ -7,9 +7,14 @@ export const MAX_MAILBOX_MESSAGES = 256;
 export const MAX_MAILBOX_BYTES = 8 * 1024 * 1024;
 export const MAX_MESSAGE_BYTES = 256 * 1024;
 export const MAX_RELAY_PEERS = 64;
+export const MAX_RELAY_CONNECTIONS = 512;
 export const MAX_RELAY_FRAME_BYTES = 512 * 1024;
+export const MAX_RELAY_FRAMES_PER_SECOND = 120;
+export const MAX_RELAY_BYTES_PER_SECOND = 8 * 1024 * 1024;
 export const MAX_MAILBOXES = 10_000;
 export const MAX_PARTY_SESSIONS = 2_000;
+export const MAX_TOTAL_MAILBOX_BYTES = 256 * 1024 * 1024;
+export const MAX_ALLOCATIONS_PER_MINUTE = 600;
 
 const tokenBytes = 32;
 
@@ -43,7 +48,7 @@ export function randomToken(): string {
 
 export async function sha256(value: string | Uint8Array): Promise<string> {
   const input = typeof value === "string" ? new TextEncoder().encode(value) : value;
-  const digest = await crypto.subtle.digest("SHA-256", input);
+  const digest = await crypto.subtle.digest("SHA-256", input as BufferSource);
   return Buffer.from(digest).toString("hex");
 }
 

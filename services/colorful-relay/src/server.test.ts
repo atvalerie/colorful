@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createRelayApp } from "./server";
+import type { RelaySocketData } from "./server";
 import { OpaqueRelayStore } from "./store";
 
-const servers: Bun.Server[] = [];
+const servers: Bun.Server<RelaySocketData>[] = [];
 
 afterEach(() => {
   for (const server of servers.splice(0)) server.stop(true);
 });
 
-async function startTestServer(): Promise<Bun.Server> {
-  const server = Bun.serve({
-    ...createRelayApp(new OpaqueRelayStore()),
+async function startTestServer(): Promise<Bun.Server<RelaySocketData>> {
+  const server = Bun.serve<RelaySocketData>(createRelayApp(new OpaqueRelayStore(), {
     hostname: "127.0.0.1",
     port: 0,
-  });
+  }));
   servers.push(server);
   return server;
 }
@@ -113,8 +113,8 @@ describe("relay HTTP API", () => {
       party: { sessionId: string; hostCapability: string; guestCapability: string };
     }).party;
     const relayUrl = `ws://${server.hostname}:${server.port}/v1/party-sessions/${party.sessionId}/relay?protocolVersion=2`;
-    const host = new WebSocket(relayUrl, { headers: { authorization: `Bearer ${party.hostCapability}` } });
-    const guest = new WebSocket(relayUrl, { headers: { authorization: `Bearer ${party.guestCapability}` } });
+    const host = new WebSocket(relayUrl, { headers: { authorization: `Bearer ${party.hostCapability}` } } as never);
+    const guest = new WebSocket(relayUrl, { headers: { authorization: `Bearer ${party.guestCapability}` } } as never);
     const opened = (socket: WebSocket) => new Promise<void>((resolve, reject) => {
       socket.addEventListener("open", () => resolve(), { once: true });
       socket.addEventListener("error", () => reject(new Error("websocket failed")), { once: true });

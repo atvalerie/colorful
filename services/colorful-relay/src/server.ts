@@ -1,5 +1,9 @@
 import {
+  MAX_ALLOCATIONS_PER_MINUTE,
+  MAX_RELAY_BYTES_PER_SECOND,
+  MAX_RELAY_CONNECTIONS,
   MAX_RELAY_FRAME_BYTES,
+  MAX_RELAY_FRAMES_PER_SECOND,
   MAX_RELAY_PEERS,
   MAX_MESSAGE_BYTES,
   PROTOCOL_VERSION,
@@ -11,6 +15,10 @@ import { OpaqueRelayStore, StoreError } from "./store";
 export interface RelaySocketData {
   sessionId: string;
   role: PartyRole;
+  expiresAtMs: number;
+  rateWindowMs: number;
+  rateFrames: number;
+  rateBytes: number;
 }
 
 type RelaySocket = Bun.ServerWebSocket<RelaySocketData>;
@@ -67,14 +75,21 @@ function pathParts(request: Request): string[] {
   }
 }
 
-export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore()): Bun.Serve.Options<RelaySocketData> {
+export function createRelayApp(
+  store: OpaqueRelayStore = new OpaqueRelayStore(),
+  listen: { hostname?: string; port?: number } = {},
+): Bun.Serve.Options<RelaySocketData> {
   const sockets = new Map<string, Set<RelaySocket>>();
   const startedAtMs = Date.now();
+  let allocationWindowMs = startedAtMs;
+  let allocationsThisMinute = 0;
+  let activeRelayConnections = 0;
   let relayConnectionsAccepted = 0;
   let framesForwarded = 0;
   let bytesForwarded = 0;
 
   return {
+    ...listen,
     async fetch(request, server) {
       const url = new URL(request.url);
       const parts = pathParts(request);
@@ -84,8 +99,6 @@ export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore())
 
       if (request.method === "GET" && url.pathname === "/stats") {
         const storeStats = store.publicStats();
-        const activeRelayConnections = [...sockets.values()]
-          .reduce((total, peers) => total + peers.size, 0);
         return json({
           ok: true,
           service: "colorful-relay",
@@ -101,10 +114,16 @@ export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore())
       }
 
       if (request.method === "GET" && parts[0] === "party" && parts.length === 2
-          && /^[A-Za-z0-9_-]{8,64}$/.test(parts[1]))
-        return partyLandingPage(parts[1]);
+          && /^[A-Za-z0-9_-]{8,64}$/.test(parts[1]!))
+        return partyLandingPage(parts[1]!);
 
       if (request.method === "POST" && url.pathname === "/v1/mailboxes") {
+        const now = Date.now();
+        if (now - allocationWindowMs >= 60_000) {
+          allocationWindowMs = now;
+          allocationsThisMinute = 0;
+        }
+        if (++allocationsThisMinute > MAX_ALLOCATIONS_PER_MINUTE) return errorResponse(429, "rate_limited");
         try {
           const body = await requestJson(request);
           return json({ ok: true, protocolVersion: PROTOCOL_VERSION, mailbox: await store.createMailbox(body.ttlSeconds) }, 201);
@@ -114,6 +133,12 @@ export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore())
       }
 
       if (request.method === "POST" && url.pathname === "/v1/party-sessions") {
+        const now = Date.now();
+        if (now - allocationWindowMs >= 60_000) {
+          allocationWindowMs = now;
+          allocationsThisMinute = 0;
+        }
+        if (++allocationsThisMinute > MAX_ALLOCATIONS_PER_MINUTE) return errorResponse(429, "rate_limited");
         try {
           const body = await requestJson(request);
           return json({ ok: true, protocolVersion: PROTOCOL_VERSION, party: await store.createParty(body.ttlSeconds) }, 201);
@@ -129,12 +154,18 @@ export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore())
         try {
           if (request.method === "GET" && parts.length === 4) {
             const limit = Number(url.searchParams.get("limit") ?? 100);
+            if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+              return errorResponse(400, "invalid_limit");
             const after = url.searchParams.get("after") ?? undefined;
             return json({ ok: true, protocolVersion: PROTOCOL_VERSION, messages: await store.listMessages(mailboxId, capability, after, limit) });
           }
           if (request.method === "PUT" && parts[4]) {
-            const contentLength = Number(request.headers.get("content-length") ?? 0);
-            if (contentLength <= 0 || contentLength > MAX_MESSAGE_BYTES) return errorResponse(413, "message_too_large");
+            const lengthHeader = request.headers.get("content-length");
+            if (lengthHeader !== null) {
+              const contentLength = Number(lengthHeader);
+              if (!Number.isInteger(contentLength) || contentLength < 0 || contentLength > MAX_MESSAGE_BYTES)
+                return errorResponse(413, "message_too_large");
+            }
             const body = new Uint8Array(await request.arrayBuffer());
             const result = await store.putMessage(mailboxId, capability, parts[4], body);
             return json({ ok: true, protocolVersion: PROTOCOL_VERSION, ...result }, result.created ? 201 : 200);
@@ -156,7 +187,13 @@ export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore())
           const role = await store.authorizeParty(parts[2], capability);
           const existing = sockets.get(parts[2]) ?? new Set<RelaySocket>();
           if (existing.size >= MAX_RELAY_PEERS) return errorResponse(429, "too_many_peers");
-          if (server.upgrade(request, { data: { sessionId: parts[2], role } })) return undefined;
+          if (activeRelayConnections >= MAX_RELAY_CONNECTIONS) return errorResponse(503, "relay_capacity");
+          const expiresAtMs = store.partyExpiresAt(parts[2]);
+          if (!expiresAtMs) return errorResponse(404, "not_found");
+          if (server.upgrade(request, { data: {
+            sessionId: parts[2], role, expiresAtMs,
+            rateWindowMs: Date.now(), rateFrames: 0, rateBytes: 0,
+          } })) return undefined;
           return errorResponse(400, "upgrade_failed");
         } catch (error) {
           return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "internal");
@@ -166,13 +203,20 @@ export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore())
       return errorResponse(404, "not_found");
     },
     websocket: {
+      maxPayloadLength: MAX_RELAY_FRAME_BYTES,
       open(socket) {
         const peers = sockets.get(socket.data.sessionId) ?? new Set<RelaySocket>();
         peers.add(socket);
         sockets.set(socket.data.sessionId, peers);
+        activeRelayConnections += 1;
         relayConnectionsAccepted += 1;
       },
       message(socket, message) {
+        const now = Date.now();
+        if (now >= socket.data.expiresAtMs) {
+          socket.close(1008, "party session expired");
+          return;
+        }
         if (typeof message === "string") {
           socket.close(1003, "binary frames required");
           return;
@@ -182,20 +226,35 @@ export function createRelayApp(store: OpaqueRelayStore = new OpaqueRelayStore())
           socket.close(1009, "frame too large");
           return;
         }
+        if (now - socket.data.rateWindowMs >= 1000) {
+          socket.data.rateWindowMs = now;
+          socket.data.rateFrames = 0;
+          socket.data.rateBytes = 0;
+        }
+        socket.data.rateFrames += 1;
+        socket.data.rateBytes += frame.byteLength;
+        if (socket.data.rateFrames > MAX_RELAY_FRAMES_PER_SECOND
+            || socket.data.rateBytes > MAX_RELAY_BYTES_PER_SECOND) {
+          socket.close(1008, "relay rate exceeded");
+          return;
+        }
         for (const peer of sockets.get(socket.data.sessionId) ?? [])
           if (peer !== socket) {
-            peer.send(frame);
+            if (peer.send(frame) <= 0) {
+              peer.close(1013, "relay peer is too slow");
+              continue;
+            }
             framesForwarded += 1;
             bytesForwarded += frame.byteLength;
           }
       },
       close(socket) {
+        activeRelayConnections = Math.max(0, activeRelayConnections - 1);
         const peers = sockets.get(socket.data.sessionId);
         peers?.delete(socket);
         if (peers?.size === 0) sockets.delete(socket.data.sessionId);
       },
     },
-    maxPayloadLength: MAX_RELAY_FRAME_BYTES,
     maxRequestBodySize: MAX_MESSAGE_BYTES,
     idleTimeout: 120,
   };
