@@ -117,6 +117,10 @@ const MUSIC_ORIGIN = "https://music.youtube.com";
 const PLAYER_ORIGIN = "https://www.youtube.com";
 const ANDROID_VR_CLIENT_VERSION = "1.65.10";
 const ANDROID_VR_USER_AGENT = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_CLIENT_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
+const WEB_SAFARI_CLIENT_VERSION = "2.20260708.00.00";
+const WEB_SAFARI_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)";
+const TV_DOWNGRADED_CLIENT_VERSION = "5.20260707";
+const TV_DOWNGRADED_USER_AGENT = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version";
 
 function cookieValue(cookie: string, name: string): string {
   const prefix = `${name}=`;
@@ -219,6 +223,133 @@ export async function requestYouTubePlayer(
     playabilityStatus: typeof playability === "string" ? playability : "missing",
   });
   if (!response.ok) throw new Error(`YouTube player returned HTTP ${response.status}`);
+  return { document, mediaUserAgent: plan.mediaUserAgent };
+}
+
+export function buildYouTubeWebSafariPlayerRequest(
+  videoId: string,
+  visitorData: string,
+  signatureTimestamp: number,
+): { url: string; headers: Record<string, string>; body: Record<string, unknown>; mediaUserAgent: string } {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) throw new Error("Invalid YouTube video ID");
+  if (!visitorData.trim()) throw new Error("YouTube Music player requires visitor data");
+  if (!Number.isSafeInteger(signatureTimestamp) || signatureTimestamp <= 0) {
+    throw new Error("YouTube Music player requires a valid signature timestamp");
+  }
+  return {
+    url: `${PLAYER_ORIGIN}/youtubei/v1/player?prettyPrint=false`,
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": WEB_SAFARI_USER_AGENT,
+      "X-Youtube-Client-Name": "1",
+      "X-Youtube-Client-Version": WEB_SAFARI_CLIENT_VERSION,
+      "X-Goog-Visitor-Id": visitorData,
+      Origin: PLAYER_ORIGIN,
+    },
+    body: {
+      context: { client: {
+        clientName: "WEB",
+        clientVersion: WEB_SAFARI_CLIENT_VERSION,
+        userAgent: WEB_SAFARI_USER_AGENT,
+        hl: "en",
+        gl: "US",
+        visitorData,
+      } },
+      videoId,
+      playbackContext: { contentPlaybackContext: {
+        html5Preference: "HTML5_PREF_WANTS",
+        signatureTimestamp,
+      } },
+      contentCheckOk: true,
+      racyCheckOk: true,
+    },
+    mediaUserAgent: WEB_SAFARI_USER_AGENT,
+  };
+}
+
+export async function requestYouTubeWebSafariPlayer(
+  videoId: string,
+  visitorData: string,
+  signatureTimestamp: number,
+): Promise<{ document: unknown; mediaUserAgent: string }> {
+  const plan = buildYouTubeWebSafariPlayerRequest(videoId, visitorData, signatureTimestamp);
+  const response = await fetch(plan.url, {
+    method: "POST",
+    headers: plan.headers,
+    body: JSON.stringify(plan.body),
+  });
+  const document: unknown = await response.json().catch(() => ({}));
+  const playability = (document as { playabilityStatus?: { status?: unknown } }).playabilityStatus?.status;
+  debugLog("youtube.player", "web_safari_response", {
+    videoId,
+    httpStatus: response.status,
+    playabilityStatus: typeof playability === "string" ? playability : "missing",
+  });
+  if (!response.ok) throw new Error(`YouTube web player returned HTTP ${response.status}`);
+  return { document, mediaUserAgent: plan.mediaUserAgent };
+}
+
+export function buildYouTubeTvDowngradedPlayerRequest(
+  videoId: string,
+  visitorData: string,
+  signatureTimestamp: number,
+): { url: string; headers: Record<string, string>; body: Record<string, unknown>; mediaUserAgent: string } {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) throw new Error("Invalid YouTube video ID");
+  if (!visitorData.trim()) throw new Error("YouTube Music player requires visitor data");
+  if (!Number.isSafeInteger(signatureTimestamp) || signatureTimestamp <= 0) {
+    throw new Error("YouTube Music player requires a valid signature timestamp");
+  }
+  return {
+    url: `${PLAYER_ORIGIN}/youtubei/v1/player?prettyPrint=false`,
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": TV_DOWNGRADED_USER_AGENT,
+      "X-Youtube-Client-Name": "7",
+      "X-Youtube-Client-Version": TV_DOWNGRADED_CLIENT_VERSION,
+      "X-Goog-Visitor-Id": visitorData,
+      Origin: PLAYER_ORIGIN,
+    },
+    body: {
+      context: {
+        client: {
+          clientName: "TVHTML5",
+          clientVersion: TV_DOWNGRADED_CLIENT_VERSION,
+          hl: "en",
+          gl: "US",
+          visitorData,
+        },
+      },
+      videoId,
+      playbackContext: { contentPlaybackContext: {
+        html5Preference: "HTML5_PREF_WANTS",
+        signatureTimestamp,
+      } },
+      contentCheckOk: true,
+      racyCheckOk: true,
+    },
+    mediaUserAgent: TV_DOWNGRADED_USER_AGENT,
+  };
+}
+
+export async function requestYouTubeTvDowngradedPlayer(
+  videoId: string,
+  visitorData: string,
+  signatureTimestamp: number,
+): Promise<{ document: unknown; mediaUserAgent: string }> {
+  const plan = buildYouTubeTvDowngradedPlayerRequest(videoId, visitorData, signatureTimestamp);
+  const response = await fetch(plan.url, {
+    method: "POST",
+    headers: plan.headers,
+    body: JSON.stringify(plan.body),
+  });
+  const document: unknown = await response.json().catch(() => ({}));
+  const playability = (document as { playabilityStatus?: { status?: unknown } }).playabilityStatus?.status;
+  debugLog("youtube.player", "tv_downgraded_response", {
+    videoId,
+    httpStatus: response.status,
+    playabilityStatus: typeof playability === "string" ? playability : "missing",
+  });
+  if (!response.ok) throw new Error(`YouTube TV player returned HTTP ${response.status}`);
   return { document, mediaUserAgent: plan.mediaUserAgent };
 }
 

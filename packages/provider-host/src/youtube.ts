@@ -4,6 +4,8 @@ import { clearYouTubeDecipherCache, decipherYouTubeFormat } from "./youtube-deci
 import { refreshYouTubeMusicPlayerState, youtubeMusicPlayerId, youtubeMusicSignatureTimestamp, youtubeMusicVisitorData } from "./youtube-music";
 import { youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { parseYouTubePlayerResponse, requestAuthenticatedYouTubePlayer, requestYouTubePlayer,
+  requestYouTubeWebSafariPlayer,
+  requestYouTubeTvDowngradedPlayer,
   selectYouTubeCipheredAudioFormat, youtubeBrowserIdentity, type YouTubePlaybackSource } from "./youtube-player";
 
 export type YouTubeTrackSummary = TrackSummary & { provider: "youtube" };
@@ -26,6 +28,28 @@ async function probeYouTubeSource(source: YouTubePlaybackSource): Promise<void> 
   }
 }
 
+async function decipheredInnertubeSource(
+  videoId: string,
+  document: unknown,
+  userAgent: string,
+  referrer: string,
+): Promise<YouTubePlaybackSource> {
+  const selected = selectYouTubeCipheredAudioFormat(document);
+  const playerId = await youtubeMusicPlayerId();
+  const uri = await decipherYouTubeFormat(
+    playerId, selected.url, selected.signatureCipher, selected.cipher,
+  );
+  return parseYouTubePlayerResponse({
+    playabilityStatus: { status: "OK" },
+    streamingData: { adaptiveFormats: [{
+      ...selected.format,
+      url: uri,
+      signatureCipher: undefined,
+      cipher: undefined,
+    }] },
+  }, videoId, userAgent, referrer);
+}
+
 async function authenticatedInnertubeSource(
   videoId: string,
   visitorData: string,
@@ -34,22 +58,57 @@ async function authenticatedInnertubeSource(
   const browserHeaders = await youtubeBrowserHeaders();
   const identity = youtubeBrowserIdentity(browserHeaders, visitorData);
   const authenticated = await requestAuthenticatedYouTubePlayer(videoId, identity, signatureTimestamp);
-  const selected = selectYouTubeCipheredAudioFormat(authenticated.document);
-  const playerId = await youtubeMusicPlayerId();
-  const uri = await decipherYouTubeFormat(
-    playerId, selected.url, selected.signatureCipher, selected.cipher,
-  );
-  const source = parseYouTubePlayerResponse({
-    playabilityStatus: { status: "OK" },
-    streamingData: { adaptiveFormats: [{
-      ...selected.format,
-      url: uri,
-      signatureCipher: undefined,
-      cipher: undefined,
-    }] },
-  }, videoId, authenticated.mediaUserAgent, authenticated.referrer);
+  const source = await decipheredInnertubeSource(
+    videoId, authenticated.document, authenticated.mediaUserAgent, authenticated.referrer);
   await probeYouTubeSource(source);
   return source;
+}
+
+async function webSafariHlsSource(
+  videoId: string,
+  visitorData: string,
+  signatureTimestamp: number,
+): Promise<YouTubePlaybackSource> {
+  const player = await requestYouTubeWebSafariPlayer(videoId, visitorData, signatureTimestamp);
+  const hlsManifestUrl = text(object(object(player.document).streamingData).hlsManifestUrl);
+  if (!hlsManifestUrl.startsWith("https://")) {
+    throw new Error("YouTube web player returned no HLS manifest");
+  }
+  const source: YouTubePlaybackSource = {
+    uri: hlsManifestUrl,
+    httpHeaders: { "User-Agent": player.mediaUserAgent },
+    userAgent: player.mediaUserAgent,
+    referrer: "https://www.youtube.com/",
+    webpageUrl: `${MUSIC_ORIGIN}/watch?v=${videoId}`,
+    mimeType: "application/vnd.apple.mpegurl",
+    bitrate: 0,
+    itag: 0,
+    contentLength: null,
+    durationMs: null,
+  };
+  await probeYouTubeSource(source);
+  return source;
+}
+
+async function tvDowngradedInnertubeSource(
+  videoId: string,
+  visitorData: string,
+  signatureTimestamp: number,
+): Promise<YouTubePlaybackSource> {
+  const tv = await requestYouTubeTvDowngradedPlayer(videoId, visitorData, signatureTimestamp);
+  try {
+    const source = parseYouTubePlayerResponse(tv.document, videoId, tv.mediaUserAgent);
+    await probeYouTubeSource(source);
+    return source;
+  } catch (directError) {
+    debugLog("youtube.source", "tv_downgraded_decipher_started", {
+      videoId,
+      error: directError instanceof Error ? directError.message : String(directError),
+    });
+    const source = await decipheredInnertubeSource(videoId, tv.document, tv.mediaUserAgent, "");
+    await probeYouTubeSource(source);
+    return source;
+  }
 }
 
 function sourceExpiry(source: { uri: string }): number {
@@ -143,41 +202,56 @@ export async function youtubeSource(videoId: string, refresh = false): Promise<Y
   const player = await requestYouTubePlayer(videoId, visitorData, signatureTimestamp);
   let source: YouTubePlaybackSource;
   try {
-    source = parseYouTubePlayerResponse(player.document, videoId, player.mediaUserAgent);
-  } catch (error) {
-    if (!youtubeLinked()) throw error;
-    debugLog("youtube.source", "authenticated_decipher_started", { videoId });
+    const publicSource = parseYouTubePlayerResponse(player.document, videoId, player.mediaUserAgent);
+    await probeYouTubeSource(publicSource);
+    source = publicSource;
+  } catch (publicError) {
+    debugLog("youtube.source", "android_vr_source_failed", {
+      videoId,
+      error: publicError instanceof Error ? publicError.message : String(publicError),
+    });
     try {
-      source = await authenticatedInnertubeSource(videoId, visitorData, signatureTimestamp);
-      debugLog("youtube.source", "authenticated_decipher_completed", {
+      source = await webSafariHlsSource(videoId, visitorData, signatureTimestamp);
+      debugLog("youtube.source", "web_safari_hls_completed", { videoId });
+    } catch (webError) {
+      debugLog("youtube.source", "web_safari_hls_failed", {
         videoId,
-        itag: source.itag,
-        mimeType: source.mimeType,
-        bitrate: source.bitrate,
+        error: webError instanceof Error ? webError.message : String(webError),
       });
-    } catch (decipherError) {
-      debugLog("youtube.source", "authenticated_decipher_failed", {
-        videoId,
-        error: decipherError instanceof Error ? decipherError.message : String(decipherError),
-      });
-      debugLog("youtube.source", "native_refresh_retry_started", { videoId });
-      refreshYouTubeMusicPlayerState();
-      clearYouTubeDecipherCache();
       try {
-        const [freshVisitorData, freshSignatureTimestamp] = await Promise.all([
-          youtubeMusicVisitorData(), youtubeMusicSignatureTimestamp(),
-        ]);
-        source = await authenticatedInnertubeSource(videoId, freshVisitorData, freshSignatureTimestamp);
-        debugLog("youtube.source", "native_refresh_retry_completed", {
+        source = await tvDowngradedInnertubeSource(videoId, visitorData, signatureTimestamp);
+        debugLog("youtube.source", "tv_downgraded_source_completed", {
           videoId,
           itag: source.itag,
           mimeType: source.mimeType,
           bitrate: source.bitrate,
         });
-      } catch (retryError) {
-        const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
-        debugLog("youtube.source", "native_refresh_retry_failed", { videoId, error: retryMessage });
-        throw new Error(`Native YouTube playback failed after refreshing the player: ${retryMessage}`);
+      } catch (tvError) {
+        debugLog("youtube.source", "tv_downgraded_source_failed", {
+          videoId,
+          error: tvError instanceof Error ? tvError.message : String(tvError),
+        });
+        if (!youtubeLinked()) throw publicError;
+        debugLog("youtube.source", "authenticated_decipher_started", { videoId });
+        debugLog("youtube.source", "native_refresh_retry_started", { videoId });
+        refreshYouTubeMusicPlayerState();
+        clearYouTubeDecipherCache();
+        try {
+          const [freshVisitorData, freshSignatureTimestamp] = await Promise.all([
+            youtubeMusicVisitorData(), youtubeMusicSignatureTimestamp(),
+          ]);
+          source = await authenticatedInnertubeSource(videoId, freshVisitorData, freshSignatureTimestamp);
+          debugLog("youtube.source", "native_refresh_retry_completed", {
+            videoId,
+            itag: source.itag,
+            mimeType: source.mimeType,
+            bitrate: source.bitrate,
+          });
+        } catch (retryError) {
+          const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+          debugLog("youtube.source", "native_refresh_retry_failed", { videoId, error: retryMessage });
+          throw new Error(`Native YouTube playback failed after refreshing the player: ${retryMessage}`);
+        }
       }
     }
   }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mapYouTubePlayerTrack } from "../src/youtube";
-import { buildYouTubePlayerRequest, parseYouTubePlayerResponse, selectYouTubeAudioFormat,
+import { buildYouTubePlayerRequest, buildYouTubeTvDowngradedPlayerRequest, buildYouTubeWebSafariPlayerRequest, parseYouTubePlayerResponse, selectYouTubeAudioFormat,
   selectYouTubeCipheredAudioFormat, youtubeBrowserIdentity } from "../src/youtube-player";
 
 describe("YouTube Music mapping", () => {
@@ -97,6 +97,34 @@ describe("YouTube Music mapping", () => {
       clientName: "ANDROID_VR",
       clientVersion: "1.65.10",
       visitorData: "public-visitor",
+    }));
+  });
+
+  test("builds the TV downgraded fallback player request", () => {
+    const plan = buildYouTubeTvDowngradedPlayerRequest("abcdefghijk", "public-visitor", 20653);
+    expect(plan.headers).toEqual(expect.objectContaining({
+      "X-Youtube-Client-Name": "7",
+      "X-Youtube-Client-Version": "5.20260707",
+      "X-Goog-Visitor-Id": "public-visitor",
+    }));
+    expect(plan.body).toEqual(expect.objectContaining({
+      videoId: "abcdefghijk",
+      contentCheckOk: true,
+      racyCheckOk: true,
+      context: { client: expect.objectContaining({ clientName: "TVHTML5" }) },
+    }));
+  });
+
+  test("builds the Safari web HLS fallback player request", () => {
+    const plan = buildYouTubeWebSafariPlayerRequest("abcdefghijk", "public-visitor", 20653);
+    expect(plan.headers).toEqual(expect.objectContaining({
+      "X-Youtube-Client-Name": "1",
+      "X-Youtube-Client-Version": "2.20260708.00.00",
+      "X-Goog-Visitor-Id": "public-visitor",
+    }));
+    expect(plan.body).toEqual(expect.objectContaining({
+      videoId: "abcdefghijk",
+      context: expect.objectContaining({ client: expect.objectContaining({ clientName: "WEB" }) }),
     }));
   });
 
