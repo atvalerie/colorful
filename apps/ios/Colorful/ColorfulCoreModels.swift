@@ -135,6 +135,11 @@ struct CoreSimpleCommand: Encodable, Sendable {
     let command: String
 }
 
+struct CorePositionCommand: Encodable, Sendable {
+    let command: String
+    let positionMs: UInt64
+}
+
 struct CorePlayTracksCommand: Encodable, Sendable {
     let command = "play_tracks"
     let tracks: [CoreTrack]

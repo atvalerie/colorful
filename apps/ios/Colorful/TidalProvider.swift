@@ -161,10 +161,24 @@ struct TidalAlbumCollection: Sendable {
     let tracks: [CoreTrack]
 }
 
+struct TidalPlaybackSource: Sendable {
+    let uri: String
+    let manifestType: String
+    let formats: [String]
+    let presentation: String?
+    let previewReason: String?
+}
+
+struct TidalPlaybackResolution: Sendable {
+    let source: TidalPlaybackSource
+    let refreshToken: String
+}
+
 actor TidalClient {
     private let configuration: TidalConfiguration
     private var browseAccessToken: String?
     private var browseTokenExpiresAtMs: Int64 = 0
+    private var userToken: TidalUserToken?
 
     init(configuration: TidalConfiguration = .bundled) {
         self.configuration = configuration
@@ -286,6 +300,10 @@ actor TidalClient {
         )
     }
 
+    func clearUserSession() {
+        userToken = nil
+    }
+
     func searchTracks(query: String, countryCode: String) async throws -> String {
         let cleaned = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return "{\"data\":[]}" }
@@ -315,6 +333,40 @@ actor TidalClient {
                 return try await fetchAlbumPage(albumID: cleaned, countryCode: countryCode, token: token)
             }
             throw error
+        }
+    }
+
+    func playbackSource(
+        trackID: String,
+        countryCode: String,
+        refreshToken: String
+    ) async throws -> TidalPlaybackResolution {
+        let token = try await userAccessToken(refreshToken: refreshToken, force: false)
+        do {
+            let source = try await fetchPlaybackSource(
+                trackID: trackID,
+                countryCode: countryCode,
+                accessToken: token.accessToken
+            )
+            if source.presentation == "PREVIEW", source.previewReason == "FULL_REQUIRES_SUBSCRIPTION" {
+                let refreshed = try await userAccessToken(refreshToken: token.refreshToken, force: true)
+                let entitled = try await fetchPlaybackSource(
+                    trackID: trackID,
+                    countryCode: countryCode,
+                    accessToken: refreshed.accessToken
+                )
+                return try entitledResolution(source: entitled, refreshToken: refreshed.refreshToken)
+            }
+            return try entitledResolution(source: source, refreshToken: token.refreshToken)
+        } catch let error as TidalClientError {
+            guard case .http(let status, _) = error, status == 401 else { throw error }
+            let refreshed = try await userAccessToken(refreshToken: token.refreshToken, force: true)
+            let source = try await fetchPlaybackSource(
+                trackID: trackID,
+                countryCode: countryCode,
+                accessToken: refreshed.accessToken
+            )
+            return try entitledResolution(source: source, refreshToken: refreshed.refreshToken)
         }
     }
 
@@ -440,6 +492,70 @@ actor TidalClient {
             artworkURL: coverURL,
             tracksDocument: document
         )
+    }
+
+    private func fetchPlaybackSource(
+        trackID: String,
+        countryCode: String,
+        accessToken: String
+    ) async throws -> TidalPlaybackSource {
+        let country = countryCode.uppercased().range(of: "^[A-Z]{2}$", options: .regularExpression) != nil
+            ? countryCode.uppercased() : configuration.countryCode
+        let encodedID = trackID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trackID
+        let url = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "trackManifests/\(encodedID)",
+            query: [
+                URLQueryItem(name: "manifestType", value: "HLS"),
+                URLQueryItem(name: "formats", value: "FLAC_HIRES"),
+                URLQueryItem(name: "formats", value: "FLAC"),
+                URLQueryItem(name: "formats", value: "AACLC"),
+                URLQueryItem(name: "uriScheme", value: "HTTPS"),
+                URLQueryItem(name: "usage", value: "PLAYBACK"),
+                URLQueryItem(name: "adaptive", value: "false"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let value = try object(from: await request(url, headers: [
+            "Authorization": "Bearer \(accessToken)",
+            "Accept": "application/vnd.api+json",
+        ]))
+        guard let data = value["data"] as? [String: Any],
+              let attributes = data["attributes"] as? [String: Any] else {
+            throw TidalClientError.invalidResponse("TIDAL returned no playback attributes.")
+        }
+        let uri = string(attributes, key: "uri")
+        guard uri.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil else {
+            throw TidalClientError.invalidResponse("TIDAL returned an unsupported playback URL.")
+        }
+        let formats = (attributes["formats"] as? [Any])?.compactMap { $0 as? String } ?? []
+        return TidalPlaybackSource(
+            uri: uri,
+            manifestType: string(attributes, key: "manifestType").ifBlank { "HLS" },
+            formats: formats,
+            presentation: string(attributes, key: "trackPresentation").ifBlankOptional,
+            previewReason: string(attributes, key: "previewReason").ifBlankOptional
+        )
+    }
+
+    private func userAccessToken(refreshToken: String, force: Bool) async throws -> TidalUserToken {
+        if !force, let userToken, userToken.refreshToken == refreshToken, nowMs < userToken.expiresAtMs - 30_000 {
+            return userToken
+        }
+        let token = try await refreshUserToken(refreshToken)
+        userToken = token
+        return token
+    }
+
+    private func entitledResolution(
+        source: TidalPlaybackSource,
+        refreshToken: String
+    ) throws -> TidalPlaybackResolution {
+        if source.presentation == "PREVIEW" {
+            let reason = source.previewReason ?? "unknown reason"
+            throw TidalClientError.invalidResponse("TIDAL only returned a preview (\(reason)).")
+        }
+        return TidalPlaybackResolution(source: source, refreshToken: refreshToken)
     }
 
     private func relationshipIDs(_ resource: [String: Any], name: String) -> [String] {
@@ -661,6 +777,7 @@ final class TidalAccountStore: ObservableObject {
         pollingTask = nil
         accountRefreshTask = nil
         pollingID = nil
+        Task { await client.clearUserSession() }
         try? keychain.deleteValue(forKey: Self.refreshTokenKey)
         clearPendingAuthorization()
         isLinked = false
@@ -705,6 +822,24 @@ final class TidalAccountStore: ObservableObject {
             artworkURL: page.artworkURL,
             tracks: tracks
         )
+    }
+
+    func playbackSource(for track: CoreTrack) async throws -> TidalPlaybackResolution {
+        guard track.id.provider.lowercased() == "tidal" else {
+            throw TidalClientError.invalidResponse("This iOS playback slice only supports TIDAL tracks.")
+        }
+        guard let refreshToken = try? keychain.readString(forKey: Self.refreshTokenKey) else {
+            throw TidalClientError.invalidResponse("Connect TIDAL before starting playback.")
+        }
+        let resolution = try await client.playbackSource(
+            trackID: track.id.providerID,
+            countryCode: countryCode,
+            refreshToken: refreshToken
+        )
+        if resolution.refreshToken != refreshToken {
+            try keychain.writeString(resolution.refreshToken, forKey: Self.refreshTokenKey)
+        }
+        return resolution
     }
 
     private func startPollingIfNeeded() {
@@ -819,5 +954,9 @@ final class TidalAccountStore: ObservableObject {
 private extension String {
     func ifBlank(_ fallback: () -> String) -> String {
         isEmpty ? fallback() : self
+    }
+
+    var ifBlankOptional: String? {
+        isEmpty ? nil : self
     }
 }

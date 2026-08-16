@@ -25,6 +25,7 @@ final class PlaybackStore: ObservableObject {
     @Published var selectedTab: ColorfulTab = .home
     @Published var currentTrack: CoreTrack?
     @Published var isPlaying = false
+    @Published private(set) var positionMs: UInt64 = 0
     @Published private(set) var coreSnapshot: ColorfulCoreSnapshot?
     @Published private(set) var coreError: String?
 
@@ -71,6 +72,7 @@ final class PlaybackStore: ObservableObject {
 
             currentTrack = currentTrack(in: snapshot)
             isPlaying = snapshot.playback.playing
+            positionMs = snapshot.playback.positionMs
         } catch {
             coreError = error.localizedDescription
         }
@@ -87,6 +89,34 @@ final class PlaybackStore: ObservableObject {
 
     func enqueue(_ track: CoreTrack) {
         dispatch(CoreEnqueueCommand(track: track))
+    }
+
+    func pause() {
+        dispatch(CoreSimpleCommand(command: "pause"))
+    }
+
+    func resume() {
+        dispatch(CoreSimpleCommand(command: "play"))
+    }
+
+    func skipNext() {
+        dispatch(CoreSimpleCommand(command: "skip_next"))
+    }
+
+    func skipPrevious() {
+        dispatch(CoreSimpleCommand(command: "skip_previous"))
+    }
+
+    func seek(to positionMs: UInt64) {
+        dispatch(CorePositionCommand(command: "seek_to", positionMs: positionMs))
+    }
+
+    func updatePositionFromPlayer(_ positionMs: UInt64) {
+        self.positionMs = positionMs
+    }
+
+    func checkpointPosition() {
+        dispatch(CorePositionCommand(command: "checkpoint_position", positionMs: positionMs))
     }
 
     func togglePlayback() {

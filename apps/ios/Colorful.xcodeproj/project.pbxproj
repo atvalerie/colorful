@@ -14,6 +14,7 @@
 		A10000000000000000000005 /* ColorfulRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* ColorfulRootView.swift */; };
 		A10000000000000000000006 /* ColorfulCoreModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* ColorfulCoreModels.swift */; };
 		A10000000000000000000007 /* TidalProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* TidalProvider.swift */; };
+		A10000000000000000000008 /* IOSPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* IOSPlaybackService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 		B10000000000000000000009 /* Colorful.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = wrapper.pb-project; name = Colorful.xcodeproj; path = Colorful.xcodeproj; sourceTree = "<group>"; };
 		B10000000000000000000010 /* ColorfulCoreModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorfulCoreModels.swift; sourceTree = "<group>"; };
 		B10000000000000000000011 /* TidalProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidalProvider.swift; sourceTree = "<group>"; };
+		B10000000000000000000012 /* IOSPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSPlaybackService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -59,6 +61,7 @@
 				B10000000000000000000005 /* ColorfulRootView.swift */,
 				B10000000000000000000010 /* ColorfulCoreModels.swift */,
 				B10000000000000000000011 /* TidalProvider.swift */,
+				B10000000000000000000012 /* IOSPlaybackService.swift */,
 				B10000000000000000000006 /* Colorful-Bridging-Header.h */,
 				B10000000000000000000007 /* Info.plist */,
 			);
@@ -150,6 +153,7 @@
 				A10000000000000000000005 /* ColorfulRootView.swift in Sources */,
 				A10000000000000000000006 /* ColorfulCoreModels.swift in Sources */,
 				A10000000000000000000007 /* TidalProvider.swift in Sources */,
+				A10000000000000000000008 /* IOSPlaybackService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

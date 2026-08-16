@@ -4,7 +4,14 @@ struct ColorfulRootView: View {
     @ObservedObject var store: PlaybackStore
     @ObservedObject var account: TidalAccountStore
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var playbackService: IOSPlaybackService
     @State private var isShowingPlayer = false
+
+    init(store: PlaybackStore, account: TidalAccountStore) {
+        self.store = store
+        self.account = account
+        _playbackService = StateObject(wrappedValue: IOSPlaybackService(store: store, account: account))
+    }
 
     var body: some View {
         TabView(selection: $store.selectedTab) {
@@ -46,6 +53,7 @@ struct ColorfulRootView: View {
         }
         .tint(ColorfulTheme.accent)
         .task {
+            playbackService.start()
             account.appBecameActive()
             await store.refreshFromCore()
         }
