@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import UIKit
 
 @MainActor
 final class IOSPlaybackService: NSObject, ObservableObject {
@@ -15,6 +16,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var sourceTask: Task<Void, Never>?
     private var activeTrackID: CoreMediaID?
     private var lastCheckpointMs: UInt64 = 0
+    private var artworkTask: Task<Void, Never>?
+    private var loadedArtworkURL: String?
     private var hasStarted = false
 
     init(store: PlaybackStore, account: TidalAccountStore) {
@@ -43,6 +46,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     func stop() {
         sourceTask?.cancel()
         sourceTask = nil
+        artworkTask?.cancel()
+        artworkTask = nil
+        loadedArtworkURL = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         if let timeObserver {
@@ -53,6 +59,35 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         notificationTokens.removeAll()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         hasStarted = false
+    }
+
+    func reconcileAfterActivation() async {
+        configureAudioSession()
+        await store.refreshFromCore()
+        synchronize()
+    }
+
+    func appBecameInactive() {
+        store.checkpointPosition()
+        updateNowPlaying(for: store.currentTrack)
+    }
+
+    func togglePlayback() {
+        guard store.currentTrack != nil else {
+            store.togglePlayback()
+            return
+        }
+
+        if store.effectiveIsPlaying {
+            player.pause()
+            store.pause()
+        } else {
+            if player.currentItem != nil {
+                player.play()
+            }
+            store.resume()
+        }
+        updateNowPlaying(for: store.currentTrack)
     }
 
     private func synchronize() {
@@ -111,7 +146,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     private func applyPlaybackState() {
         guard player.currentItem != nil else { return }
-        if store.isPlaying {
+        if store.effectiveIsPlaying {
             player.play()
         } else {
             player.pause()
@@ -204,6 +239,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     private func updateNowPlaying(for track: CoreTrack?) {
         guard let track else {
+            artworkTask?.cancel()
+            artworkTask = nil
+            loadedArtworkURL = nil
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             return
         }
@@ -212,11 +250,39 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         info[MPMediaItemPropertyArtist] = track.artistLabel
         info[MPMediaItemPropertyAlbumTitle] = track.albumLabel
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(store.positionMs) / 1_000
-        info[MPNowPlayingInfoPropertyPlaybackRate] = store.isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyPlaybackRate] = store.effectiveIsPlaying ? 1.0 : 0.0
         if let duration = player.currentItem?.asset.duration.seconds, duration.isFinite {
             info[MPMediaItemPropertyPlaybackDuration] = duration
+        } else if let durationMs = track.durationMs {
+            info[MPMediaItemPropertyPlaybackDuration] = Double(durationMs) / 1_000
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+        let artworkURL = track.artwork?.url
+        let artworkLink = artworkURL.flatMap { URL(string: $0)?.absoluteString }
+        guard artworkLink != loadedArtworkURL else { return }
+        artworkTask?.cancel()
+        artworkTask = nil
+        loadedArtworkURL = artworkLink
+        guard let artworkLink, let url = URL(string: artworkLink) else { return }
+
+        artworkTask = Task { @MainActor [weak self, track, url] in
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard !Task.isCancelled,
+                      (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) ?? true,
+                      let image = UIImage(data: data),
+                      let self,
+                      self.store.currentTrack?.id == track.id,
+                      self.loadedArtworkURL == url.absoluteString else { return }
+
+                var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                currentInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
+            } catch {
+                // Artwork is supplemental; playback should not depend on the image request.
+            }
+        }
     }
 
     private func installRemoteCommands() {

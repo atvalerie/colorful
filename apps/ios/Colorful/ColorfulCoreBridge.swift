@@ -135,12 +135,15 @@ actor ColorfulCoreBridge {
     }
 
     @discardableResult
-    func dispatch(commandJSON: String) -> Data? {
+    func dispatch(commandJSON: String) -> Bool {
 #if COLORFUL_CORE_ENABLED
-        guard handle != 0 else { return nil }
-        return commandJSON.withCString { colorful_engine_dispatch(handle, $0).flatMap(Self.consume) }
+        guard handle != 0,
+              let data = commandJSON.withCString({ colorful_engine_dispatch(handle, $0).flatMap(Self.consume) }),
+              let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let ok = response["ok"] as? Bool else { return false }
+        return ok
 #else
-        return nil
+        return false
 #endif
     }
 

@@ -31,6 +31,13 @@ final class PlaybackStore: ObservableObject {
 
     let core: ColorfulCoreBridge
 
+    private var commandTask: Task<Void, Never>?
+    private var pendingPlayingState: Bool?
+
+    var effectiveIsPlaying: Bool {
+        pendingPlayingState ?? isPlaying
+    }
+
     var libraryTracks: [CoreTrack] {
         coreSnapshot?.library ?? []
     }
@@ -67,11 +74,20 @@ final class PlaybackStore: ObservableObject {
             guard let snapshot else {
                 currentTrack = nil
                 isPlaying = false
+                pendingPlayingState = nil
                 return
             }
 
             currentTrack = currentTrack(in: snapshot)
-            isPlaying = snapshot.playback.playing
+            let coreIsPlaying = snapshot.playback.playing
+            if let pendingPlayingState {
+                if pendingPlayingState == coreIsPlaying {
+                    self.pendingPlayingState = nil
+                    isPlaying = coreIsPlaying
+                }
+            } else {
+                isPlaying = coreIsPlaying
+            }
             positionMs = snapshot.playback.positionMs
         } catch {
             coreError = error.localizedDescription
@@ -92,10 +108,14 @@ final class PlaybackStore: ObservableObject {
     }
 
     func pause() {
+        pendingPlayingState = false
+        isPlaying = false
         dispatch(CoreSimpleCommand(command: "pause"))
     }
 
     func resume() {
+        pendingPlayingState = true
+        isPlaying = true
         dispatch(CoreSimpleCommand(command: "play"))
     }
 
@@ -127,7 +147,11 @@ final class PlaybackStore: ObservableObject {
             return
         }
 
-        dispatch(CoreSimpleCommand(command: isPlaying ? "pause" : "play"))
+        if effectiveIsPlaying {
+            pause()
+        } else {
+            resume()
+        }
     }
 
     func stop() {
@@ -141,9 +165,15 @@ final class PlaybackStore: ObservableObject {
             return
         }
 
-        Task {
-            _ = await core.dispatch(commandJSON: commandJSON)
-            await refreshFromCore()
+        let previousTask = commandTask
+        commandTask = Task { [weak self] in
+            await previousTask?.value
+            guard let self, !Task.isCancelled else { return }
+            let succeeded = await self.core.dispatch(commandJSON: commandJSON)
+            if !succeeded {
+                self.pendingPlayingState = nil
+            }
+            await self.refreshFromCore()
         }
     }
 

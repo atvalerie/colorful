@@ -55,14 +55,18 @@ struct ColorfulRootView: View {
         .task {
             playbackService.start()
             account.appBecameActive()
-            await store.refreshFromCore()
+            await playbackService.reconcileAfterActivation()
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
                 account.appBecameActive()
+                Task { @MainActor in
+                    await playbackService.reconcileAfterActivation()
+                }
             case .background, .inactive:
                 account.appBecameInactive()
+                playbackService.appBecameInactive()
             @unknown default:
                 break
             }
@@ -70,8 +74,8 @@ struct ColorfulRootView: View {
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
         .sheet(isPresented: $isShowingPlayer) {
             if let track = store.currentTrack {
-                FullPlayer(track: track, isPlaying: store.isPlaying) {
-                    store.togglePlayback()
+                FullPlayer(track: track, isPlaying: store.effectiveIsPlaying) {
+                    playbackService.togglePlayback()
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
@@ -82,8 +86,8 @@ struct ColorfulRootView: View {
     @ViewBuilder
     private var miniPlayerInset: some View {
         if let track = store.currentTrack {
-            MiniPlayer(track: track, isPlaying: store.isPlaying) {
-                store.togglePlayback()
+            MiniPlayer(track: track, isPlaying: store.effectiveIsPlaying) {
+                playbackService.togglePlayback()
             } onExpand: {
                 isShowingPlayer = true
             }
