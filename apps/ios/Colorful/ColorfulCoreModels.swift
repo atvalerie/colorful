@@ -59,6 +59,13 @@ struct CoreTrack: Codable, Identifiable, Hashable, Sendable {
         return names.isEmpty ? "Unknown artist" : names.joined(separator: ", ")
     }
 
+    var compactArtistLabel: String {
+        let names = artists.map { $0.name }.filter { !$0.isEmpty }
+        guard !names.isEmpty else { return "Unknown artist" }
+        guard names.count > 2 else { return names.joined(separator: ", ") }
+        return "\(names[0]), \(names[1]) + \(names.count - 2) more"
+    }
+
     var albumLabel: String {
         albumTitle?.isEmpty == false ? albumTitle! : "Single"
     }

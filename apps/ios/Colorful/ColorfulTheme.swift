@@ -241,18 +241,38 @@ struct ColorfulAlbumArt: View {
 
 struct ColorfulArtworkBackground: View {
     let palette: ColorfulPalette
+    let image: UIImage?
+
+    init(palette: ColorfulPalette, image: UIImage? = nil) {
+        self.palette = palette
+        self.image = image
+    }
 
     var body: some View {
         ZStack {
             palette.backgroundColor
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 56)
+                    .opacity(0.24)
+                    .scaleEffect(1.35)
+            }
             LinearGradient(
-                colors: [palette.primaryColor.opacity(0.72), palette.backgroundColor, .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [
+                    palette.primaryColor.opacity(0.26),
+                    palette.backgroundColor.opacity(0.82),
+                    .black.opacity(0.96)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
-            .opacity(0.94)
-            Rectangle()
-                .fill(.black.opacity(0.22))
+            LinearGradient(
+                colors: [.black.opacity(0.05), .black.opacity(0.52)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         }
         .ignoresSafeArea()
     }

@@ -6,7 +6,6 @@ struct ColorfulRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var playbackService: IOSPlaybackService
     @State private var isShowingPlayer = false
-    @State private var isShowingQueue = false
 
     init(store: PlaybackStore, account: TidalAccountStore) {
         self.store = store
@@ -76,6 +75,7 @@ struct ColorfulRootView: View {
         .sheet(isPresented: $isShowingPlayer) {
             if let track = store.currentTrack {
                 FullPlayer(
+                    store: store,
                     track: track,
                     isPlaying: store.effectiveIsPlaying,
                     positionMs: store.positionMs,
@@ -86,17 +86,11 @@ struct ColorfulRootView: View {
                     onPlayPause: { playbackService.togglePlayback() },
                     onNext: { playbackService.skipNext() },
                     onShuffle: { store.toggleShuffle() },
-                    onRepeat: { store.cycleRepeat() },
-                    onQueue: { isShowingQueue = true }
+                    onRepeat: { store.cycleRepeat() }
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
-        }
-        .sheet(isPresented: $isShowingQueue) {
-            QueueView(store: store)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
         }
     }
 
@@ -287,7 +281,7 @@ private struct TrackRowContent: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(ColorfulTheme.ink)
                     .lineLimit(1)
-                Text("\(track.artistLabel) · \(track.albumLabel)")
+                Text("\(track.compactArtistLabel) · \(track.albumLabel)")
                     .font(.caption)
                     .foregroundStyle(ColorfulTheme.mutedInk)
                     .lineLimit(1)
@@ -658,7 +652,7 @@ private struct MiniPlayer: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(ColorfulTheme.ink)
                             .lineLimit(1)
-                        Text(track.artistLabel)
+                        Text(track.compactArtistLabel)
                             .font(.caption)
                             .foregroundStyle(ColorfulTheme.mutedInk)
                             .lineLimit(1)
@@ -682,6 +676,7 @@ private struct MiniPlayer: View {
 }
 
 private struct FullPlayer: View {
+    @ObservedObject var store: PlaybackStore
     let track: CoreTrack
     let isPlaying: Bool
     let positionMs: UInt64
@@ -693,12 +688,13 @@ private struct FullPlayer: View {
     let onNext: () -> Void
     let onShuffle: () -> Void
     let onRepeat: () -> Void
-    let onQueue: () -> Void
     @StateObject private var paletteLoader: ColorfulArtworkPaletteLoader
     @State private var scrubPosition = 0.0
     @State private var isScrubbing = false
+    @State private var isShowingQueue = false
 
     init(
+        store: PlaybackStore,
         track: CoreTrack,
         isPlaying: Bool,
         positionMs: UInt64,
@@ -709,9 +705,9 @@ private struct FullPlayer: View {
         onPlayPause: @escaping () -> Void,
         onNext: @escaping () -> Void,
         onShuffle: @escaping () -> Void,
-        onRepeat: @escaping () -> Void,
-        onQueue: @escaping () -> Void
+        onRepeat: @escaping () -> Void
     ) {
+        self.store = store
         self.track = track
         self.isPlaying = isPlaying
         self.positionMs = positionMs
@@ -723,7 +719,6 @@ private struct FullPlayer: View {
         self.onNext = onNext
         self.onShuffle = onShuffle
         self.onRepeat = onRepeat
-        self.onQueue = onQueue
         _paletteLoader = StateObject(wrappedValue: ColorfulArtworkPaletteLoader())
     }
 
@@ -738,7 +733,7 @@ private struct FullPlayer: View {
 
     var body: some View {
         ZStack {
-            ColorfulArtworkBackground(palette: paletteLoader.palette)
+            ColorfulArtworkBackground(palette: paletteLoader.palette, image: paletteLoader.image)
             VStack(spacing: 28) {
                 ColorfulAlbumArt(
                     title: track.title,
@@ -746,12 +741,11 @@ private struct FullPlayer: View {
                     artworkURL: track.artwork?.url,
                     size: 280
                 )
-                    .shadow(color: Color(hex: track.accent).opacity(0.35), radius: 28, x: 8, y: 8)
                 VStack(spacing: 6) {
                     Text(track.title)
                         .font(.title2.weight(.bold))
                         .foregroundStyle(ColorfulTheme.ink)
-                    Text("\(track.artistLabel) · \(track.albumLabel)")
+                    Text("\(track.compactArtistLabel) · \(track.albumLabel)")
                         .font(.subheadline)
                         .foregroundStyle(ColorfulTheme.mutedInk)
                 }
@@ -786,7 +780,7 @@ private struct FullPlayer: View {
                     }
                     .accessibilityLabel(shuffleEnabled ? "Disable shuffle" : "Enable shuffle")
 
-                    Button(action: onQueue) {
+                    Button { isShowingQueue = true } label: {
                         Image(systemName: "list.bullet")
                     }
                     .accessibilityLabel("Open queue")
@@ -812,6 +806,12 @@ private struct FullPlayer: View {
         }
         .task(id: track.artwork?.url) {
             paletteLoader.load(for: track.artwork?.url)
+        }
+        .sheet(isPresented: $isShowingQueue) {
+            QueueView(store: store)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(ColorfulTheme.background)
         }
     }
 }
