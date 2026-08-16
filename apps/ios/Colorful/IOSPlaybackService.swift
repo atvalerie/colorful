@@ -220,7 +220,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 try session.setActive(true)
             }
         } catch {
-            errorMessage = "Could not activate the iOS audio session: \(error.localizedDescription)"
+            // Sideloading containers can reject explicit session ownership while
+            // AVPlayer still receives a working playback session. Player/item
+            // failures are surfaced separately and remain actionable.
         }
     }
 

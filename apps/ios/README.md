@@ -9,7 +9,9 @@ Playing metadata, remote controls, lifecycle reconciliation, and artwork
 loading are present. The full player now includes adaptive layout, output
 routing, honest buffering/error feedback, artwork-derived color, nested queue
 editing, repeat/shuffle, and occurrence-safe duplicate handling. Physical-device
-hardening is still in progress.
+hardening is still in progress. Credited artists are navigable from the full
+player, including an artist chooser for collaborations and native TIDAL artist
+pages with top tracks.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

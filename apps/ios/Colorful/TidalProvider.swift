@@ -161,6 +161,20 @@ struct TidalAlbumCollection: Sendable {
     let tracks: [CoreTrack]
 }
 
+struct TidalArtistPage: Sendable {
+    let id: String
+    let name: String
+    let artworkURL: String?
+    let tracksDocument: String
+}
+
+struct TidalArtistCollection: Sendable {
+    let id: String
+    let name: String
+    let artworkURL: String?
+    let topTracks: [CoreTrack]
+}
+
 struct TidalPlaybackSource: Sendable {
     let uri: String
     let manifestType: String
@@ -336,6 +350,22 @@ actor TidalClient {
         }
     }
 
+    func artistPage(artistID: String, countryCode: String) async throws -> TidalArtistPage {
+        let cleaned = artistID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { throw TidalClientError.missingValue("artist ID") }
+
+        do {
+            let token = try await browseAccessToken(force: false)
+            return try await fetchArtistPage(artistID: cleaned, countryCode: countryCode, token: token)
+        } catch let error as TidalClientError {
+            if case .http(let status, _) = error, status == 401 {
+                let token = try await browseAccessToken(force: true)
+                return try await fetchArtistPage(artistID: cleaned, countryCode: countryCode, token: token)
+            }
+            throw error
+        }
+    }
+
     func playbackSource(
         trackID: String,
         countryCode: String,
@@ -490,6 +520,59 @@ actor TidalClient {
             title: title,
             artistLabel: artistNames.isEmpty ? "Unknown artist" : artistNames.joined(separator: ", "),
             artworkURL: coverURL,
+            tracksDocument: document
+        )
+    }
+
+    private func fetchArtistPage(artistID: String, countryCode: String, token: String) async throws -> TidalArtistPage {
+        let country = countryCode.uppercased().range(of: "^[A-Z]{2}$", options: .regularExpression) != nil
+            ? countryCode.uppercased() : configuration.countryCode
+        let encodedID = artistID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? artistID
+        let headers = [
+            "Authorization": "Bearer \(token)",
+            "Accept": "application/vnd.api+json",
+        ]
+        let artistURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "artists/\(encodedID)",
+            query: [
+                URLQueryItem(name: "include", value: "profileArt"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let tracksURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "artists/\(encodedID)/relationships/tracks",
+            query: [
+                URLQueryItem(name: "include", value: "tracks,tracks.albums,tracks.artists,tracks.albums.coverArt"),
+                URLQueryItem(name: "collapseBy", value: "FINGERPRINT"),
+                URLQueryItem(name: "page[limit]", value: "20"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let artistValue = try object(from: await request(artistURL, headers: headers))
+        let tracksData = try await request(tracksURL, headers: headers)
+        guard let artist = artistValue["data"] as? [String: Any],
+              let returnedID = artist["id"] as? String,
+              let attributes = artist["attributes"] as? [String: Any] else {
+            throw TidalClientError.invalidResponse("TIDAL returned an incomplete artist.")
+        }
+
+        let included = (artistValue["included"] as? [[String: Any]]) ?? []
+        var resources = [String: [String: Any]]()
+        for resource in included {
+            guard let type = resource["type"] as? String,
+                  let id = resource["id"] as? String else { continue }
+            resources["\(type):\(id)"] = resource
+        }
+        let artwork = relationshipIDs(artist, name: "profileArt").compactMap { id in
+            resources["artworks:\(id)"]
+        }.compactMap(artworkURL).first ?? imageLinkURL(attributes)
+        let document = String(data: tracksData, encoding: .utf8) ?? "{\"data\":[]}"
+        return TidalArtistPage(
+            id: returnedID,
+            name: string(attributes, key: "name").ifBlank { "Unknown artist" },
+            artworkURL: artwork,
             tracksDocument: document
         )
     }
@@ -821,6 +904,17 @@ final class TidalAccountStore: ObservableObject {
             artistLabel: page.artistLabel,
             artworkURL: page.artworkURL,
             tracks: tracks
+        )
+    }
+
+    func loadArtist(artistID: String, core: ColorfulCoreBridge) async throws -> TidalArtistCollection {
+        let page = try await client.artistPage(artistID: artistID, countryCode: countryCode)
+        let tracks = try await core.mapTidalTracks(documentJSON: page.tracksDocument)
+        return TidalArtistCollection(
+            id: page.id,
+            name: page.name,
+            artworkURL: page.artworkURL,
+            topTracks: tracks
         )
     }
 

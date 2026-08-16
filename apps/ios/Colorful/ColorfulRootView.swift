@@ -77,6 +77,7 @@ struct ColorfulRootView: View {
             if let track = store.currentTrack {
                 FullPlayer(
                     store: store,
+                    account: account,
                     track: track,
                     isPlaying: store.effectiveIsPlaying,
                     positionMs: store.positionMs,
@@ -718,6 +719,7 @@ private struct MiniPlayer: View {
 
 private struct FullPlayer: View {
     @ObservedObject var store: PlaybackStore
+    @ObservedObject var account: TidalAccountStore
     let track: CoreTrack
     let isPlaying: Bool
     let positionMs: UInt64
@@ -738,9 +740,12 @@ private struct FullPlayer: View {
     @State private var scrubPosition = 0.0
     @State private var isScrubbing = false
     @State private var isShowingQueue = false
+    @State private var isChoosingArtist = false
+    @State private var artistDestination: ArtistDestination?
 
     init(
         store: PlaybackStore,
+        account: TidalAccountStore,
         track: CoreTrack,
         isPlaying: Bool,
         positionMs: UInt64,
@@ -759,6 +764,7 @@ private struct FullPlayer: View {
         onRetry: @escaping () -> Void
     ) {
         self.store = store
+        self.account = account
         self.track = track
         self.isPlaying = isPlaying
         self.positionMs = positionMs
@@ -804,18 +810,14 @@ private struct FullPlayer: View {
                             artworkURL: track.artwork?.url,
                             size: 280
                         )
-                        .padding(.top, 8)
+                        .padding(.top, 28)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(track.title)
                                 .font(.title2.weight(.bold))
                                 .foregroundStyle(ColorfulTheme.ink)
                                 .lineLimit(2)
-                            Text(track.compactArtistLabel)
-                                .font(.body)
-                                .foregroundStyle(ColorfulTheme.ink.opacity(0.78))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            artistControl
                             if track.albumLabel != "Single" {
                                 Text(track.albumLabel)
                                     .font(.caption)
@@ -930,7 +932,7 @@ private struct FullPlayer: View {
                         .padding(.horizontal, 8)
                 }
                 .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .padding(.bottom, 32)
                 .containerRelativeFrame(.horizontal)
             }
             .scrollIndicators(.hidden)
@@ -943,6 +945,62 @@ private struct FullPlayer: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(ColorfulTheme.background)
+        }
+        .confirmationDialog("Choose an artist", isPresented: $isChoosingArtist, titleVisibility: .visible) {
+            ForEach(Array(navigableArtists.enumerated()), id: \.offset) { item in
+                Button(item.element.name) {
+                    artistDestination = ArtistDestination(artist: item.element)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(item: $artistDestination) { destination in
+            NavigationStack {
+                ArtistCollectionView(artist: destination.artist, account: account, store: store)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(ColorfulTheme.background)
+        }
+    }
+
+    @ViewBuilder
+    private var artistControl: some View {
+        if navigableArtists.isEmpty {
+            Text(track.compactArtistLabel)
+                .font(.body)
+                .foregroundStyle(ColorfulTheme.ink.opacity(0.78))
+                .lineLimit(1)
+        } else {
+            Button(action: openArtist) {
+                HStack(spacing: 6) {
+                    Text(track.compactArtistLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Image(systemName: navigableArtists.count > 1 ? "chevron.down.circle.fill" : "chevron.right")
+                        .font(.caption.weight(.semibold))
+                }
+                .font(.body)
+                .foregroundStyle(ColorfulTheme.ink.opacity(0.82))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(navigableArtists.count > 1
+                ? "Choose an artist from \(track.compactArtistLabel)"
+                : "Open artist \(navigableArtists[0].name)")
+        }
+    }
+
+    private var navigableArtists: [CoreArtistCredit] {
+        track.artists.filter {
+            $0.id?.provider.lowercased() == "tidal" && $0.id?.providerID.isEmpty == false
+        }
+    }
+
+    private func openArtist() {
+        if navigableArtists.count == 1, let artist = navigableArtists.first {
+            artistDestination = ArtistDestination(artist: artist)
+        } else if !navigableArtists.isEmpty {
+            isChoosingArtist = true
         }
     }
 
@@ -976,6 +1034,120 @@ private struct FullPlayer: View {
         }
         .foregroundStyle(active ? paletteLoader.palette.primaryColor : ColorfulTheme.ink.opacity(0.72))
         .accessibilityLabel(label)
+    }
+}
+
+private struct ArtistDestination: Identifiable {
+    let id = UUID()
+    let artist: CoreArtistCredit
+}
+
+private struct ArtistCollectionView: View {
+    let artist: CoreArtistCredit
+    @ObservedObject var account: TidalAccountStore
+    @ObservedObject var store: PlaybackStore
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var paletteLoader = ColorfulArtworkPaletteLoader()
+    @State private var collection: TidalArtistCollection?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ZStack {
+            ColorfulCollectionBackground(palette: paletteLoader.palette)
+            Group {
+                if isLoading {
+                    ProgressView("Loading artist…")
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("Artist unavailable", systemImage: "person.crop.circle.badge.exclamationmark")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("Retry") { Task { await load(force: true) } }
+                    }
+                } else if let collection {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 22) {
+                            VStack(spacing: 12) {
+                                ColorfulAlbumArt(
+                                    title: collection.name,
+                                    accent: 0xFF5C9A,
+                                    artworkURL: collection.artworkURL,
+                                    size: 190
+                                )
+                                .clipShape(Circle())
+                                Text(collection.name)
+                                    .font(.largeTitle.bold())
+                                    .foregroundStyle(ColorfulTheme.ink)
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                if !collection.topTracks.isEmpty {
+                                    Button("Play top tracks", systemImage: "play.fill") {
+                                        store.playTracks(collection.topTracks)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(paletteLoader.palette.primaryColor)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            if collection.topTracks.isEmpty {
+                                ContentUnavailableView(
+                                    "No tracks available",
+                                    systemImage: "music.note.list",
+                                    description: Text("TIDAL did not return top tracks for this artist.")
+                                )
+                            } else {
+                                Text("Top tracks")
+                                    .font(.title2.bold())
+                                    .foregroundStyle(ColorfulTheme.ink)
+                                LazyVStack(spacing: 10) {
+                                    ForEach(collection.topTracks) { track in
+                                        TrackRow(track: track) {
+                                            store.play(track)
+                                        } enqueue: {
+                                            store.enqueue(track)
+                                        } playNext: {
+                                            store.playNext(track)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(20)
+                    }
+                }
+            }
+        }
+        .navigationTitle(collection?.name ?? artist.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Done") { dismiss() }
+            }
+        }
+        .task { await load(force: false) }
+        .task(id: collection?.artworkURL) {
+            paletteLoader.load(for: collection?.artworkURL)
+        }
+    }
+
+    private func load(force: Bool) async {
+        guard force || collection == nil else { return }
+        guard let id = artist.id?.providerID else {
+            errorMessage = "This track does not include an artist identifier."
+            isLoading = false
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        do {
+            collection = try await account.loadArtist(artistID: id, core: store.core)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
     }
 }
 
