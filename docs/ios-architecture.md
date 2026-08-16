@@ -1,6 +1,7 @@
 # iOS native architecture
 
-**Status:** Initial implementation contract, 2026-08-16.
+**Status:** Initial implementation contract; shell, TIDAL account/search, and
+core snapshot wiring are implemented. Native playback remains the next slice.
 
 The iOS target is a native SwiftUI shell around the existing portable Rust
 engine. The shell owns Apple platform behavior; it must not create a second

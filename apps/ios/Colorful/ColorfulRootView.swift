@@ -2,12 +2,13 @@ import SwiftUI
 
 struct ColorfulRootView: View {
     @ObservedObject var store: PlaybackStore
+    @ObservedObject var account: TidalAccountStore
     @State private var isShowingPlayer = false
 
     var body: some View {
         TabView(selection: $store.selectedTab) {
             NavigationStack {
-                HomeView(store: store)
+                HomeView(store: store, account: account)
             }
             .tabItem { Label(ColorfulTab.home.title, systemImage: ColorfulTab.home.symbol) }
             .tag(ColorfulTab.home)
@@ -25,13 +26,14 @@ struct ColorfulRootView: View {
             .tag(ColorfulTab.offline)
 
             NavigationStack {
-                SettingsView(store: store)
+                SettingsView(store: store, account: account)
             }
             .tabItem { Label(ColorfulTab.settings.title, systemImage: ColorfulTab.settings.symbol) }
             .tag(ColorfulTab.settings)
         }
         .tint(ColorfulTheme.accent)
         .task {
+            account.resumeIfNeeded()
             await store.refreshFromCore()
         }
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
@@ -60,6 +62,8 @@ struct ColorfulRootView: View {
 
 private struct HomeView: View {
     @ObservedObject var store: PlaybackStore
+    @ObservedObject var account: TidalAccountStore
+    @State private var isShowingSearch = false
 
     var body: some View {
         ScrollView {
@@ -122,7 +126,17 @@ private struct HomeView: View {
         .background(ColorfulTheme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
-            HomeHeader(greeting: greeting) { }
+            HomeHeader(greeting: greeting) {
+                isShowingSearch = true
+            }
+        }
+        .sheet(isPresented: $isShowingSearch) {
+            SearchView(account: account, store: store) { track in
+                store.play(track)
+                isShowingSearch = false
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -222,6 +236,107 @@ private struct TrackRow: View {
     }
 }
 
+private struct SearchView: View {
+    @ObservedObject var account: TidalAccountStore
+    @ObservedObject var store: PlaybackStore
+    let onPlay: (CoreTrack) -> Void
+
+    @State private var query = ""
+    @State private var results: [CoreTrack] = []
+    @State private var isSearching = false
+    @State private var errorMessage: String?
+    @FocusState private var isSearchFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(ColorfulTheme.mutedInk)
+                    TextField("Search TIDAL", text: $query)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($isSearchFocused)
+                        .onSubmit(search)
+                    if !query.isEmpty {
+                        Button("Clear", systemImage: "xmark.circle.fill") {
+                            query = ""
+                            results = []
+                            errorMessage = nil
+                        }
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(ColorfulTheme.mutedInk)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(ColorfulTheme.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: ColorfulTheme.cardRadius, style: .continuous))
+
+                if isSearching {
+                    ProgressView("Searching…")
+                        .tint(ColorfulTheme.accent)
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("Search failed", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    }
+                } else if results.isEmpty {
+                    ContentUnavailableView {
+                        Label("Search TIDAL", systemImage: "music.magnifyingglass")
+                    } description: {
+                        Text("Search for a track, artist, or album.")
+                    }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(results) { track in
+                                TrackRow(track: track) {
+                                    onPlay(track)
+                                } enqueue: {
+                                    store.enqueue(track)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .background(ColorfulTheme.background.ignoresSafeArea())
+            .navigationTitle("Search")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Search", systemImage: "arrow.right") {
+                        search()
+                    }
+                    .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                }
+            }
+        }
+        .task {
+            isSearchFocused = true
+        }
+    }
+
+    private func search() {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !isSearching else { return }
+        isSearching = true
+        errorMessage = nil
+        Task {
+            do {
+                results = try await account.searchTracks(query: value, core: store.core)
+            } catch {
+                results = []
+                errorMessage = error.localizedDescription
+            }
+            isSearching = false
+        }
+    }
+}
+
 private struct LibraryView: View {
     @ObservedObject var store: PlaybackStore
 
@@ -288,13 +403,46 @@ private struct OfflineView: View {
 
 private struct SettingsView: View {
     @ObservedObject var store: PlaybackStore
+    @ObservedObject var account: TidalAccountStore
     @AppStorage("appearance.accent") private var useMintAccent = false
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         Form {
             Section("Playback") {
                 LabeledContent("Engine", value: store.core.availability.label)
                 LabeledContent("Audio session", value: "Not connected yet")
+            }
+            Section("TIDAL") {
+                if account.isLinked {
+                    LabeledContent("Status", value: "Connected")
+                    LabeledContent("Country", value: account.countryCode)
+                    Button("Disconnect TIDAL", role: .destructive) {
+                        account.unlink()
+                    }
+                } else {
+                    Button(account.isBusy ? "Waiting for TIDAL…" : "Connect TIDAL") {
+                        account.startLink()
+                    }
+                    .disabled(account.isBusy)
+                }
+
+                if let pending = account.pendingAuthorization {
+                    Button("Open TIDAL authorization", systemImage: "arrow.up.right.square") {
+                        if let url = URL(string: pending.authorization.verificationURL) {
+                            openURL(url)
+                        }
+                    }
+                    Text("Code: \(pending.authorization.userCode)")
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(ColorfulTheme.mutedInk)
+                }
+
+                if let message = account.message {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(ColorfulTheme.mutedInk)
+                }
             }
             Section("Appearance") {
                 Toggle("Mint accent", isOn: $useMintAccent)

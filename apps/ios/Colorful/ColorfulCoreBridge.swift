@@ -112,6 +112,28 @@ actor ColorfulCoreBridge {
 #endif
     }
 
+    func mapTidalTracks(documentJSON: String) throws -> [CoreTrack] {
+#if COLORFUL_CORE_ENABLED
+        guard let data = documentJSON.withCString({ colorful_tidal_map_tracks($0).flatMap(Self.consume) }) else {
+            throw ColorfulCoreBridgeError.invalidResponse
+        }
+
+        let response = try JSONDecoder().decode(
+            ColorfulCoreResponse<[CoreTrack]>.self,
+            from: data
+        )
+        guard response.abiVersion == 1 else {
+            throw ColorfulCoreBridgeError.abiMismatch(response.abiVersion)
+        }
+        guard response.ok else {
+            throw ColorfulCoreBridgeError.core(response.error ?? "The Rust TIDAL mapper rejected the catalog response.")
+        }
+        return response.value ?? []
+#else
+        throw ColorfulCoreBridgeError.unavailable
+#endif
+    }
+
     @discardableResult
     func dispatch(commandJSON: String) -> Data? {
 #if COLORFUL_CORE_ENABLED
