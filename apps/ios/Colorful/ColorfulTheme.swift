@@ -21,7 +21,7 @@ extension Color {
             red: Double((hex >> 16) & 0xFF) / 255,
             green: Double((hex >> 8) & 0xFF) / 255,
             blue: Double(hex & 0xFF) / 255,
-            opacity: alpha,
+            opacity: alpha
         )
     }
 }
@@ -57,7 +57,7 @@ struct ColorfulAlbumArt: View {
             LinearGradient(
                 colors: [Color(hex: accent), Color(hex: accent).opacity(0.32), .black],
                 startPoint: .topLeading,
-                endPoint: .bottomTrailing,
+                endPoint: .bottomTrailing
             )
             Text(title.prefix(1).uppercased())
                 .font(.system(size: size * 0.34, weight: .black, design: .rounded))

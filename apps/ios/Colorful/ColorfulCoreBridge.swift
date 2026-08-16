@@ -26,9 +26,9 @@ actor ColorfulCoreBridge {
         if colorful_core_abi_version() == 1 {
             let databaseURL = Self.databaseURL()
             try? FileManager.default.createDirectory(
-                at: databaseURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-            )
+            at: databaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
 
             if let response = databaseURL.path.withCString({ colorful_engine_open($0) }),
                let data = Self.consume(response),
