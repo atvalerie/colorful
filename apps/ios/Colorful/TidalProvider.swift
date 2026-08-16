@@ -459,7 +459,10 @@ final class TidalAccountStore: ObservableObject {
     let client: TidalClient
     private let keychain = ColorfulKeychain()
     private let defaults = UserDefaults.standard
-    private var loginTask: Task<Void, Never>?
+    private var authorizationTask: Task<Void, Never>?
+    private var pollingTask: Task<Void, Never>?
+    private var pollingID: UUID?
+    private var isAppActive = true
 
     init(client: TidalClient = TidalClient()) {
         self.client = client
@@ -468,32 +471,52 @@ final class TidalAccountStore: ObservableObject {
         pendingAuthorization = Self.readPending(from: defaults)
     }
 
+    func appBecameActive() {
+        isAppActive = true
+        resumeIfNeeded()
+    }
+
+    func appBecameInactive() {
+        isAppActive = false
+        pollingTask?.cancel()
+        pollingTask = nil
+        pollingID = nil
+    }
+
     func resumeIfNeeded() {
-        guard !isLinked, loginTask == nil, let pendingAuthorization else { return }
+        guard !isLinked, let pendingAuthorization else { return }
         guard pendingAuthorization.authorization.expiresAtMs > nowMs else {
             clearPendingAuthorization()
+            isBusy = false
+            message = "The TIDAL authorization link expired. Start again to reconnect."
             return
         }
-        loginTask = Task { [weak self] in
-            await self?.completeDeviceAuthorization(pendingAuthorization.authorization)
-        }
+        startPollingIfNeeded()
     }
 
     func startLink() {
-        loginTask?.cancel()
+        authorizationTask?.cancel()
+        pollingTask?.cancel()
+        pollingTask = nil
+        pollingID = nil
+        clearPendingAuthorization()
         message = "Starting TIDAL device authorization…"
         isBusy = true
-        loginTask = Task { [weak self] in
+        authorizationTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let authorization = try await client.startDeviceAuthorization()
                 pendingAuthorization = PendingAuthorization(authorization: authorization)
                 savePendingAuthorization()
                 message = "Approve this device in TIDAL, then return here."
-                await completeDeviceAuthorization(authorization)
+                authorizationTask = nil
+                startPollingIfNeeded()
             } catch is CancellationError {
-                isBusy = false
+                if isAppActive {
+                    isBusy = false
+                }
             } catch {
+                authorizationTask = nil
                 isBusy = false
                 message = error.localizedDescription
             }
@@ -501,11 +524,15 @@ final class TidalAccountStore: ObservableObject {
     }
 
     func unlink() {
-        loginTask?.cancel()
-        loginTask = nil
+        authorizationTask?.cancel()
+        pollingTask?.cancel()
+        authorizationTask = nil
+        pollingTask = nil
+        pollingID = nil
         try? keychain.deleteValue(forKey: Self.refreshTokenKey)
         clearPendingAuthorization()
         isLinked = false
+        isBusy = false
         countryCode = TidalConfiguration.bundled.countryCode
         defaults.removeObject(forKey: Self.countryCodeKey)
         message = "TIDAL disconnected from this device."
@@ -516,7 +543,29 @@ final class TidalAccountStore: ObservableObject {
         return try await core.mapTidalTracks(documentJSON: document)
     }
 
-    private func completeDeviceAuthorization(_ authorization: TidalDeviceAuthorization) async {
+    private func startPollingIfNeeded() {
+        guard isAppActive, !isLinked, pollingTask == nil,
+              let pendingAuthorization else { return }
+        guard pendingAuthorization.authorization.expiresAtMs > nowMs else {
+            clearPendingAuthorization()
+            isBusy = false
+            message = "The TIDAL authorization link expired. Start again to reconnect."
+            return
+        }
+
+        isBusy = true
+        let id = UUID()
+        pollingID = id
+        let authorization = pendingAuthorization.authorization
+        pollingTask = Task { [weak self] in
+            await self?.completeDeviceAuthorization(authorization, pollingID: id)
+        }
+    }
+
+    private func completeDeviceAuthorization(
+        _ authorization: TidalDeviceAuthorization,
+        pollingID: UUID
+    ) async {
         do {
             let token = try await client.pollDeviceAuthorization(authorization)
             try keychain.writeString(token.refreshToken, forKey: Self.refreshTokenKey)
@@ -527,12 +576,25 @@ final class TidalAccountStore: ObservableObject {
             isLinked = true
             isBusy = false
             message = "TIDAL linked. The refresh token is stored in iOS Keychain."
+            finishPolling(pollingID)
         } catch is CancellationError {
-            isBusy = false
+            if isAppActive {
+                isBusy = false
+            }
+            finishPolling(pollingID)
         } catch {
-            isBusy = false
-            message = error.localizedDescription
+            finishPolling(pollingID)
+            if isAppActive {
+                isBusy = false
+                message = error.localizedDescription
+            }
         }
+    }
+
+    private func finishPolling(_ id: UUID) {
+        guard pollingID == id else { return }
+        pollingID = nil
+        pollingTask = nil
     }
 
     private func savePendingAuthorization() {

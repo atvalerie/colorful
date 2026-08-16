@@ -3,6 +3,7 @@ import SwiftUI
 struct ColorfulRootView: View {
     @ObservedObject var store: PlaybackStore
     @ObservedObject var account: TidalAccountStore
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isShowingPlayer = false
 
     var body: some View {
@@ -33,8 +34,18 @@ struct ColorfulRootView: View {
         }
         .tint(ColorfulTheme.accent)
         .task {
-            account.resumeIfNeeded()
+            account.appBecameActive()
             await store.refreshFromCore()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                account.appBecameActive()
+            case .background, .inactive:
+                account.appBecameInactive()
+            @unknown default:
+                break
+            }
         }
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -405,7 +416,6 @@ private struct SettingsView: View {
     @ObservedObject var store: PlaybackStore
     @ObservedObject var account: TidalAccountStore
     @AppStorage("appearance.accent") private var useMintAccent = false
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         Form {
@@ -428,13 +438,20 @@ private struct SettingsView: View {
                 }
 
                 if let pending = account.pendingAuthorization {
-                    Button("Open TIDAL authorization", systemImage: "arrow.up.right.square") {
-                        if let url = URL(string: pending.authorization.verificationURL) {
-                            openURL(url)
+                    if let url = URL(string: pending.authorization.verificationURL) {
+                        Link(destination: url) {
+                            Label("Open TIDAL authorization URL", systemImage: "arrow.up.right.square")
                         }
                     }
+                    Text("This is a link URL. It opens TIDAL in Safari; return to colorful after approving the device.")
+                        .font(.footnote)
+                        .foregroundStyle(ColorfulTheme.mutedInk)
                     Text("Code: \(pending.authorization.userCode)")
                         .font(.footnote.monospaced())
+                        .foregroundStyle(ColorfulTheme.mutedInk)
+                    Text(pending.authorization.verificationURL)
+                        .font(.caption2.monospaced())
+                        .textSelection(.enabled)
                         .foregroundStyle(ColorfulTheme.mutedInk)
                 }
 

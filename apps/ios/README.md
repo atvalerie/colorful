@@ -2,8 +2,10 @@
 
 **Status:** The SwiftUI shell, Rust-backed snapshot, queue/library projection,
 TIDAL device authorization, Keychain refresh-token storage, and TIDAL search
-projection are connected. Native audio output and Now Playing integration are
-the next slice; search results can be queued, but they are not audible yet.
+projection are connected. Device authorization persists across the Safari
+handoff, pauses safely in the background, and resumes when the app is active.
+Native audio output and Now Playing integration are the next slice; search
+results can be queued, but they are not audible yet.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.
