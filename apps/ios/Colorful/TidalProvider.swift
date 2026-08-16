@@ -142,6 +142,23 @@ struct TidalUserToken: Sendable {
 struct TidalAccountInfo: Sendable {
     let userID: String
     let countryCode: String
+    let email: String?
+}
+
+struct TidalAlbumPage: Sendable {
+    let id: String
+    let title: String
+    let artistLabel: String
+    let artworkURL: String?
+    let tracksDocument: String
+}
+
+struct TidalAlbumCollection: Sendable {
+    let id: String
+    let title: String
+    let artistLabel: String
+    let artworkURL: String?
+    let tracks: [CoreTrack]
 }
 
 actor TidalClient {
@@ -234,11 +251,16 @@ actor TidalClient {
         let value = try object(from: await request(url, headers: ["Authorization": "Bearer \(accessToken)"]))
         let userID = string(value, key: "userId")
         let country = string(value, key: "countryCode").uppercased()
+        let email = string(value, key: "email")
         guard !userID.isEmpty else { throw TidalClientError.missingValue("user ID") }
         guard country.range(of: "^[A-Z]{2}$", options: .regularExpression) != nil else {
             throw TidalClientError.missingValue("account country")
         }
-        return TidalAccountInfo(userID: userID, countryCode: country)
+        return TidalAccountInfo(
+            userID: userID,
+            countryCode: country,
+            email: email.isEmpty ? nil : email
+        )
     }
 
     func refreshUserToken(_ refreshToken: String) async throws -> TidalUserToken {
@@ -275,6 +297,22 @@ actor TidalClient {
             if case .http(let status, _) = error, status == 401 {
                 let token = try await browseAccessToken(force: true)
                 return try await searchDocument(query: cleaned, countryCode: countryCode, token: token)
+            }
+            throw error
+        }
+    }
+
+    func albumPage(albumID: String, countryCode: String) async throws -> TidalAlbumPage {
+        let cleaned = albumID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { throw TidalClientError.missingValue("album ID") }
+
+        do {
+            let token = try await browseAccessToken(force: false)
+            return try await fetchAlbumPage(albumID: cleaned, countryCode: countryCode, token: token)
+        } catch let error as TidalClientError {
+            if case .http(let status, _) = error, status == 401 {
+                let token = try await browseAccessToken(force: true)
+                return try await fetchAlbumPage(albumID: cleaned, countryCode: countryCode, token: token)
             }
             throw error
         }
@@ -342,6 +380,92 @@ actor TidalClient {
             throw TidalClientError.invalidResponse("TIDAL returned non-UTF-8 catalog data.")
         }
         return document
+    }
+
+    private func fetchAlbumPage(albumID: String, countryCode: String, token: String) async throws -> TidalAlbumPage {
+        let country = countryCode.uppercased().range(of: "^[A-Z]{2}$", options: .regularExpression) != nil
+            ? countryCode.uppercased() : configuration.countryCode
+        let encodedID = albumID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? albumID
+        let headers = [
+            "Authorization": "Bearer \(token)",
+            "Accept": "application/vnd.api+json",
+        ]
+        let albumURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "albums/\(encodedID)",
+            query: [
+                URLQueryItem(name: "include", value: "artists,coverArt"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let tracksURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "albums/\(encodedID)/relationships/items",
+            query: [
+                URLQueryItem(name: "include", value: "items,items.albums,items.artists,items.albums.coverArt"),
+                URLQueryItem(name: "page[limit]", value: "20"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let albumValue = try object(from: await request(albumURL, headers: headers))
+        let tracksData = try await request(tracksURL, headers: headers)
+        guard let album = albumValue["data"] as? [String: Any],
+              let returnedID = album["id"] as? String,
+              let attributes = album["attributes"] as? [String: Any] else {
+            throw TidalClientError.invalidResponse("TIDAL returned an incomplete album.")
+        }
+
+        let included = (albumValue["included"] as? [[String: Any]]) ?? []
+        let resources = Dictionary(uniqueKeysWithValues: included.compactMap { resource -> ((String, String), [String: Any])? in
+            guard let type = resource["type"] as? String, let id = resource["id"] as? String else { return nil }
+            return ((type, id), resource)
+        })
+        let artistNames = relationshipIDs(album, name: "artists").compactMap { id in
+            resources[("artists", id)]?["attributes"] as? [String: Any]
+        }.map { string($0, key: "name") }.filter { !$0.isEmpty }
+        let coverURL = relationshipIDs(album, name: "coverArt").compactMap { id in
+            resources[("artworks", id)]
+        }.compactMap(artworkURL).first
+            ?? imageLinkURL(attributes)
+        let title = string(attributes, key: "title").ifBlank { "Unknown album" }
+        let document = String(data: tracksData, encoding: .utf8)
+            ?? "{\"data\":[]}"
+
+        return TidalAlbumPage(
+            id: returnedID,
+            title: title,
+            artistLabel: artistNames.isEmpty ? "Unknown artist" : artistNames.joined(separator: ", "),
+            artworkURL: coverURL,
+            tracksDocument: document
+        )
+    }
+
+    private func relationshipIDs(_ resource: [String: Any], name: String) -> [String] {
+        guard let relationships = resource["relationships"] as? [String: Any],
+              let relationship = relationships[name] as? [String: Any],
+              let data = relationship["data"] as? [[String: Any]] else {
+            return []
+        }
+        return data.compactMap { $0["id"] as? String }
+    }
+
+    private func artworkURL(_ resource: [String: Any]) -> String? {
+        guard let attributes = resource["attributes"] as? [String: Any],
+              let files = attributes["files"] as? [[String: Any]],
+              let href = files.first?["href"] as? String,
+              !href.isEmpty else {
+            return nil
+        }
+        return href
+    }
+
+    private func imageLinkURL(_ attributes: [String: Any]) -> String? {
+        guard let links = attributes["imageLinks"] as? [[String: Any]],
+              let href = links.first?["href"] as? String,
+              !href.isEmpty else {
+            return nil
+        }
+        return href
     }
 
     private func request(
@@ -452,6 +576,7 @@ final class TidalAccountStore: ObservableObject {
 
     @Published private(set) var isLinked: Bool
     @Published private(set) var countryCode: String
+    @Published private(set) var email: String?
     @Published private(set) var pendingAuthorization: PendingAuthorization?
     @Published private(set) var isBusy = false
     @Published private(set) var message: String?
@@ -461,6 +586,7 @@ final class TidalAccountStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private var authorizationTask: Task<Void, Never>?
     private var pollingTask: Task<Void, Never>?
+    private var accountRefreshTask: Task<Void, Never>?
     private var pollingID: UUID?
     private var isAppActive = true
 
@@ -468,12 +594,14 @@ final class TidalAccountStore: ObservableObject {
         self.client = client
         isLinked = (try? keychain.readString(forKey: Self.refreshTokenKey)) != nil
         countryCode = defaults.string(forKey: Self.countryCodeKey) ?? TidalConfiguration.bundled.countryCode
+        email = defaults.string(forKey: Self.emailKey)
         pendingAuthorization = Self.readPending(from: defaults)
     }
 
     func appBecameActive() {
         isAppActive = true
         resumeIfNeeded()
+        refreshLinkedAccountIfNeeded()
     }
 
     func appBecameInactive() {
@@ -526,21 +654,55 @@ final class TidalAccountStore: ObservableObject {
     func unlink() {
         authorizationTask?.cancel()
         pollingTask?.cancel()
+        accountRefreshTask?.cancel()
         authorizationTask = nil
         pollingTask = nil
+        accountRefreshTask = nil
         pollingID = nil
         try? keychain.deleteValue(forKey: Self.refreshTokenKey)
         clearPendingAuthorization()
         isLinked = false
         isBusy = false
+        email = nil
         countryCode = TidalConfiguration.bundled.countryCode
         defaults.removeObject(forKey: Self.countryCodeKey)
+        defaults.removeObject(forKey: Self.emailKey)
         message = "TIDAL disconnected from this device."
     }
 
     func searchTracks(query: String, core: ColorfulCoreBridge) async throws -> [CoreTrack] {
         let document = try await client.searchTracks(query: query, countryCode: countryCode)
         return try await core.mapTidalTracks(documentJSON: document)
+    }
+
+    func loadAlbum(albumID: String, core: ColorfulCoreBridge) async throws -> TidalAlbumCollection {
+        let page = try await client.albumPage(albumID: albumID, countryCode: countryCode)
+        let albumMediaID = CoreMediaID(provider: "tidal", providerID: page.id)
+        let albumArtwork = page.artworkURL.map {
+            CoreArtwork(url: $0, localKey: nil, width: nil, height: nil)
+        }
+        let mappedTracks = try await core.mapTidalTracks(documentJSON: page.tracksDocument)
+        let tracks = mappedTracks.map { track in
+            CoreTrack(
+                id: track.id,
+                title: track.title,
+                version: track.version,
+                artists: track.artists,
+                albumID: track.albumID ?? albumMediaID,
+                albumTitle: track.albumTitle ?? page.title,
+                artwork: track.artwork ?? albumArtwork,
+                durationMs: track.durationMs,
+                isrc: track.isrc,
+                explicit: track.explicit
+            )
+        }
+        return TidalAlbumCollection(
+            id: page.id,
+            title: page.title,
+            artistLabel: page.artistLabel,
+            artworkURL: page.artworkURL,
+            tracks: tracks
+        )
     }
 
     private func startPollingIfNeeded() {
@@ -571,7 +733,11 @@ final class TidalAccountStore: ObservableObject {
             try keychain.writeString(token.refreshToken, forKey: Self.refreshTokenKey)
             let account = try? await client.accountInfo(accessToken: token.accessToken)
             countryCode = account?.countryCode ?? countryCode
+            email = account?.email ?? email
             defaults.set(countryCode, forKey: Self.countryCodeKey)
+            if let email {
+                defaults.set(email, forKey: Self.emailKey)
+            }
             clearPendingAuthorization()
             isLinked = true
             isBusy = false
@@ -595,6 +761,28 @@ final class TidalAccountStore: ObservableObject {
         guard pollingID == id else { return }
         pollingID = nil
         pollingTask = nil
+    }
+
+    private func refreshLinkedAccountIfNeeded() {
+        guard isLinked, email == nil, accountRefreshTask == nil else { return }
+        accountRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { accountRefreshTask = nil }
+            guard let refreshToken = try? keychain.readString(forKey: Self.refreshTokenKey) else { return }
+            do {
+                let token = try await client.refreshUserToken(refreshToken)
+                try keychain.writeString(token.refreshToken, forKey: Self.refreshTokenKey)
+                let account = try await client.accountInfo(accessToken: token.accessToken)
+                countryCode = account.countryCode
+                email = account.email
+                defaults.set(countryCode, forKey: Self.countryCodeKey)
+                if let email {
+                    defaults.set(email, forKey: Self.emailKey)
+                }
+            } catch {
+                // Account metadata is supplementary; keep the linked state if it cannot refresh.
+            }
+        }
     }
 
     private func savePendingAuthorization() {
@@ -622,6 +810,7 @@ final class TidalAccountStore: ObservableObject {
 
     private static let refreshTokenKey = "tidal.refresh-token"
     private static let countryCodeKey = "tidal.country-code"
+    private static let emailKey = "tidal.email"
     private static let pendingAuthorizationKey = "tidal.pending-authorization"
 }
 

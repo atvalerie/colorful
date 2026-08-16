@@ -11,11 +11,17 @@ struct ColorfulRootView: View {
             NavigationStack {
                 HomeView(store: store, account: account)
             }
+            .safeAreaInset(edge: .bottom, spacing: 8) {
+                miniPlayerInset
+            }
             .tabItem { Label(ColorfulTab.home.title, systemImage: ColorfulTab.home.symbol) }
             .tag(ColorfulTab.home)
 
             NavigationStack {
                 LibraryView(store: store)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 8) {
+                miniPlayerInset
             }
             .tabItem { Label(ColorfulTab.library.title, systemImage: ColorfulTab.library.symbol) }
             .tag(ColorfulTab.library)
@@ -23,11 +29,17 @@ struct ColorfulRootView: View {
             NavigationStack {
                 OfflineView()
             }
+            .safeAreaInset(edge: .bottom, spacing: 8) {
+                miniPlayerInset
+            }
             .tabItem { Label(ColorfulTab.offline.title, systemImage: ColorfulTab.offline.symbol) }
             .tag(ColorfulTab.offline)
 
             NavigationStack {
                 SettingsView(store: store, account: account)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 8) {
+                miniPlayerInset
             }
             .tabItem { Label(ColorfulTab.settings.title, systemImage: ColorfulTab.settings.symbol) }
             .tag(ColorfulTab.settings)
@@ -48,17 +60,6 @@ struct ColorfulRootView: View {
             }
         }
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let track = store.currentTrack {
-                MiniPlayer(track: track, isPlaying: store.isPlaying) {
-                    store.togglePlayback()
-                } onExpand: {
-                    isShowingPlayer = true
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
-            }
-        }
         .sheet(isPresented: $isShowingPlayer) {
             if let track = store.currentTrack {
                 FullPlayer(track: track, isPlaying: store.isPlaying) {
@@ -67,6 +68,19 @@ struct ColorfulRootView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var miniPlayerInset: some View {
+        if let track = store.currentTrack {
+            MiniPlayer(track: track, isPlaying: store.isPlaying) {
+                store.togglePlayback()
+            } onExpand: {
+                isShowingPlayer = true
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
         }
     }
 }
@@ -219,31 +233,43 @@ private struct TrackRow: View {
 
     var body: some View {
         Button(action: play) {
-            HStack(spacing: 12) {
-                ColorfulAlbumArt(title: track.title, accent: track.accent)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(track.title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(ColorfulTheme.ink)
-                        .lineLimit(1)
-                    Text("\(track.artistLabel) · \(track.albumLabel)")
-                        .font(.caption)
-                        .foregroundStyle(ColorfulTheme.mutedInk)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                Text(track.durationLabel)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(ColorfulTheme.mutedInk)
-            }
-            .padding(10)
-            .contentShape(Rectangle())
+            TrackRowContent(track: track)
         }
         .buttonStyle(.plain)
         .contextMenu {
             Button("Play", systemImage: "play.fill") { play() }
             Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue() }
         }
+    }
+}
+
+private struct TrackRowContent: View {
+    let track: CoreTrack
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ColorfulAlbumArt(
+                title: track.title,
+                accent: track.accent,
+                artworkURL: track.artwork?.url
+            )
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(ColorfulTheme.ink)
+                    .lineLimit(1)
+                Text("\(track.artistLabel) · \(track.albumLabel)")
+                    .font(.caption)
+                    .foregroundStyle(ColorfulTheme.mutedInk)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Text(track.durationLabel)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(ColorfulTheme.mutedInk)
+        }
+        .padding(10)
+        .contentShape(Rectangle())
     }
 }
 
@@ -303,11 +329,7 @@ private struct SearchView: View {
                     ScrollView {
                         LazyVStack(spacing: 10) {
                             ForEach(results) { track in
-                                TrackRow(track: track) {
-                                    onPlay(track)
-                                } enqueue: {
-                                    store.enqueue(track)
-                                }
+                                SearchResultRow(track: track, account: account, store: store, onPlay: onPlay)
                             }
                         }
                     }
@@ -345,6 +367,113 @@ private struct SearchView: View {
             }
             isSearching = false
         }
+    }
+}
+
+private struct SearchResultRow: View {
+    let track: CoreTrack
+    @ObservedObject var account: TidalAccountStore
+    @ObservedObject var store: PlaybackStore
+    let onPlay: (CoreTrack) -> Void
+
+    var body: some View {
+        if let albumID = track.albumID?.providerID {
+            NavigationLink {
+                AlbumCollectionView(albumID: albumID, account: account, store: store)
+            } label: {
+                TrackRowContent(track: track)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button("Play", systemImage: "play.fill") { onPlay(track) }
+                Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                    store.enqueue(track)
+                }
+            }
+        } else {
+            TrackRow(track: track) {
+                onPlay(track)
+            } enqueue: {
+                store.enqueue(track)
+            }
+        }
+    }
+}
+
+private struct AlbumCollectionView: View {
+    let albumID: String
+    @ObservedObject var account: TidalAccountStore
+    @ObservedObject var store: PlaybackStore
+    @State private var collection: TidalAlbumCollection?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading album…")
+                    .tint(ColorfulTheme.accent)
+            } else if let errorMessage {
+                ContentUnavailableView {
+                    Label("Album unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                }
+            } else if let collection {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ColorfulAlbumArt(
+                                title: collection.title,
+                                accent: 0xFF5C9A,
+                                artworkURL: collection.artworkURL,
+                                size: 220
+                            )
+                            Text(collection.title)
+                                .font(.title2.weight(.bold))
+                                .foregroundStyle(ColorfulTheme.ink)
+                            Text(collection.artistLabel)
+                                .font(.subheadline)
+                                .foregroundStyle(ColorfulTheme.mutedInk)
+                            Button("Play album", systemImage: "play.fill") {
+                                store.playTracks(collection.tracks)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(ColorfulTheme.accent)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        LazyVStack(spacing: 10) {
+                            ForEach(collection.tracks) { track in
+                                TrackRow(track: track) {
+                                    store.play(track)
+                                } enqueue: {
+                                    store.enqueue(track)
+                                }
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ColorfulTheme.background.ignoresSafeArea())
+        .navigationTitle(collection?.title ?? "Album")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await load()
+        }
+    }
+
+    private func load() async {
+        guard collection == nil else { return }
+        do {
+            collection = try await account.loadAlbum(albumID: albumID, core: store.core)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
     }
 }
 
@@ -427,6 +556,7 @@ private struct SettingsView: View {
                 if account.isLinked {
                     LabeledContent("Status", value: "Connected")
                     LabeledContent("Country", value: account.countryCode)
+                    LabeledContent("Email", value: account.email ?? "Loading…")
                     Button("Disconnect TIDAL", role: .destructive) {
                         account.unlink()
                     }
@@ -488,7 +618,12 @@ private struct MiniPlayer: View {
         HStack(spacing: 10) {
             Button(action: onExpand) {
                 HStack(spacing: 10) {
-                    ColorfulAlbumArt(title: track.title, accent: track.accent, size: 40)
+                    ColorfulAlbumArt(
+                        title: track.title,
+                        accent: track.accent,
+                        artworkURL: track.artwork?.url,
+                        size: 40
+                    )
                     VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)
                             .font(.subheadline.weight(.semibold))
@@ -526,7 +661,12 @@ private struct FullPlayer: View {
         ZStack {
             ColorfulTheme.background.ignoresSafeArea()
             VStack(spacing: 28) {
-                ColorfulAlbumArt(title: track.title, accent: track.accent, size: 280)
+                ColorfulAlbumArt(
+                    title: track.title,
+                    accent: track.accent,
+                    artworkURL: track.artwork?.url,
+                    size: 280
+                )
                     .shadow(color: Color(hex: track.accent).opacity(0.35), radius: 28, x: 8, y: 8)
                 VStack(spacing: 6) {
                     Text(track.title)

@@ -80,6 +80,11 @@ final class PlaybackStore: ObservableObject {
         dispatch(CorePlayTracksCommand(tracks: [track]))
     }
 
+    func playTracks(_ tracks: [CoreTrack]) {
+        guard !tracks.isEmpty else { return }
+        dispatch(CorePlayTracksCommand(tracks: tracks))
+    }
+
     func enqueue(_ track: CoreTrack) {
         dispatch(CoreEnqueueCommand(track: track))
     }

@@ -50,9 +50,33 @@ struct ColorfulSurface<Content: View>: View {
 struct ColorfulAlbumArt: View {
     let title: String
     let accent: UInt32
+    var artworkURL: String? = nil
     var size: CGFloat = 56
 
     var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            fallbackArtwork
+
+            if let artworkURL, let url = URL(string: artworkURL) {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(width: size, height: size)
+                .clipped()
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityLabel("Artwork for \(title)")
+    }
+
+    private var fallbackArtwork: some View {
         ZStack(alignment: .bottomLeading) {
             LinearGradient(
                 colors: [Color(hex: accent), Color(hex: accent).opacity(0.32), .black],
@@ -64,9 +88,6 @@ struct ColorfulAlbumArt: View {
                 .foregroundStyle(.white.opacity(0.88))
                 .padding(size * 0.12)
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .accessibilityLabel("Artwork for \(title)")
     }
 }
 
