@@ -62,8 +62,12 @@ jobs:
           bash scripts/build-ios-core.sh "$rust_target"
 
       - name: Build the unsigned simulator app
+        id: build_simulator
+        continue-on-error: true
         shell: bash
         run: |
+          set -o pipefail
+          mkdir -p build
           xcodebuild \
             -project apps/ios/Colorful.xcodeproj \
             -scheme Colorful \
@@ -76,7 +80,15 @@ jobs:
             COLORFUL_CORE_SWIFT_CONDITION=COLORFUL_CORE_ENABLED \
             COLORFUL_CORE_LIBRARY_SEARCH_PATH="$GITHUB_WORKSPACE/target/$rust_target/release" \
             COLORFUL_CORE_LDFLAGS="-lcolorful_core -framework Security" \
-            build
+            build 2>&1 | tee build/simulator-xcodebuild.log
+
+      - name: Surface simulator compiler diagnostics
+        if: steps.build_simulator.outcome == 'failure'
+        shell: bash
+        run: |
+          grep -E '(^| )(error:|fatal error:|BUILD FAILED)' build/simulator-xcodebuild.log \
+            | while IFS= read -r line; do echo "::error title=iOS simulator build::$line"; done || true
+          exit 1
 
       - name: Upload simulator app
         uses: actions/upload-artifact@v4
@@ -114,8 +126,12 @@ jobs:
           bash scripts/build-ios-core.sh "$rust_target"
 
       - name: Archive the unsigned device app
+        id: build_device
+        continue-on-error: true
         shell: bash
         run: |
+          set -o pipefail
+          mkdir -p build
           xcodebuild archive \
             -project apps/ios/Colorful.xcodeproj \
             -scheme Colorful \
@@ -129,7 +145,15 @@ jobs:
             COLORFUL_CORE_SWIFT_CONDITION=COLORFUL_CORE_ENABLED \
             COLORFUL_CORE_LIBRARY_SEARCH_PATH="$GITHUB_WORKSPACE/target/$rust_target/release" \
             COLORFUL_CORE_LDFLAGS="-lcolorful_core -framework Security" \
-            SKIP_INSTALL=NO
+            SKIP_INSTALL=NO 2>&1 | tee build/device-xcodebuild.log
+
+      - name: Surface device compiler diagnostics
+        if: steps.build_device.outcome == 'failure'
+        shell: bash
+        run: |
+          grep -E '(^| )(error:|fatal error:|BUILD FAILED)' build/device-xcodebuild.log \
+            | while IFS= read -r line; do echo "::error title=iOS device build::$line"; done || true
+          exit 1
 
       - name: Package the IPA container
         shell: bash
