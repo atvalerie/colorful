@@ -61,18 +61,9 @@ private struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("colorful")
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(ColorfulTheme.accent)
-                        .textCase(.uppercase)
-                    Text("Good evening.")
-                        .font(.system(.largeTitle, design: .rounded).weight(.black))
-                        .foregroundStyle(ColorfulTheme.ink)
-                    Text("A small, personal listening space for the music you actually reach for.")
-                        .font(.subheadline)
-                        .foregroundStyle(ColorfulTheme.mutedInk)
-                }
+                Text("A small, personal listening space for the music you actually reach for.")
+                    .font(.subheadline)
+                    .foregroundStyle(ColorfulTheme.mutedInk)
 
                 ColorfulSurface(fill: ColorfulTheme.surfaceRaised) {
                     HStack(spacing: 14) {
@@ -113,8 +104,19 @@ private struct HomeView: View {
         }
         .scrollContentBackground(.hidden)
         .background(ColorfulTheme.background.ignoresSafeArea())
-        .navigationTitle("Home")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("colorful")
+                        .font(.system(.caption2, design: .rounded).weight(.bold))
+                        .foregroundStyle(ColorfulTheme.accent)
+                        .textCase(.uppercase)
+                    Text("Good evening.")
+                        .font(.system(.headline, design: .rounded).weight(.black))
+                        .foregroundStyle(ColorfulTheme.ink)
+                }
+                .fixedSize()
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: {}) {
                     Image(systemName: "magnifyingglass")
