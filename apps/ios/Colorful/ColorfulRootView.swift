@@ -17,7 +17,9 @@ struct ColorfulRootView: View {
     var body: some View {
         TabView(selection: $store.selectedTab) {
             NavigationStack {
-                HomeView(store: store, account: account)
+                HomeView(store: store, account: account) {
+                    isShowingPlayer = true
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
@@ -124,7 +126,9 @@ struct ColorfulRootView: View {
 private struct HomeView: View {
     @ObservedObject var store: PlaybackStore
     @ObservedObject var account: TidalAccountStore
+    let onPresentPlayer: () -> Void
     @State private var isShowingSearch = false
+    @State private var presentsPlayerAfterSearch = false
 
     var body: some View {
         ScrollView {
@@ -186,12 +190,18 @@ private struct HomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
             HomeHeader(greeting: greeting) {
+                presentsPlayerAfterSearch = false
                 isShowingSearch = true
             }
         }
-        .sheet(isPresented: $isShowingSearch) {
-            SearchView(account: account, store: store) { track in
-                store.play(track)
+        .sheet(isPresented: $isShowingSearch, onDismiss: {
+            guard presentsPlayerAfterSearch else { return }
+            presentsPlayerAfterSearch = false
+            onPresentPlayer()
+        }) {
+            SearchView(account: account, store: store) { tracks in
+                store.playTracks(tracks)
+                presentsPlayerAfterSearch = true
                 isShowingSearch = false
             }
             .presentationDetents([.large])
@@ -407,7 +417,7 @@ private struct TrackRowContent: View {
 private struct SearchView: View {
     @ObservedObject var account: TidalAccountStore
     @ObservedObject var store: PlaybackStore
-    let onPlay: (CoreTrack) -> Void
+    let onPlay: ([CoreTrack]) -> Void
 
     @State private var query = ""
     @State private var results: TidalCatalogSearchResults?
@@ -481,7 +491,8 @@ private struct SearchView: View {
                                                     ),
                                                     account: account,
                                                     store: store,
-                                                    showsDismissButton: false
+                                                    showsDismissButton: false,
+                                                    onPlayCollection: onPlay
                                                 )
                                             } label: {
                                                 VStack(spacing: 7) {
@@ -517,7 +528,8 @@ private struct SearchView: View {
                                                 AlbumCollectionView(
                                                     albumID: album.id,
                                                     account: account,
-                                                    store: store
+                                                    store: store,
+                                                    onPlayCollection: onPlay
                                                 )
                                             } label: {
                                                 VStack(alignment: .leading, spacing: 6) {
@@ -623,20 +635,25 @@ private struct SearchResultRow: View {
     let track: CoreTrack
     @ObservedObject var account: TidalAccountStore
     @ObservedObject var store: PlaybackStore
-    let onPlay: (CoreTrack) -> Void
+    let onPlay: ([CoreTrack]) -> Void
 
     var body: some View {
         if let albumID = track.albumID?.providerID {
             HStack(spacing: 0) {
                 NavigationLink {
-                    AlbumCollectionView(albumID: albumID, account: account, store: store)
+                    AlbumCollectionView(
+                        albumID: albumID,
+                        account: account,
+                        store: store,
+                        onPlayCollection: onPlay
+                    )
                 } label: {
                     TrackRowContent(track: track)
                 }
                 .buttonStyle(.plain)
                 Menu {
                     TrackActionMenuItems(track: track, store: store) {
-                        onPlay(track)
+                        onPlay([track])
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -648,12 +665,12 @@ private struct SearchResultRow: View {
             }
             .contextMenu {
                 TrackActionMenuItems(track: track, store: store) {
-                    onPlay(track)
+                    onPlay([track])
                 }
             }
         } else {
             TrackRow(track: track, store: store) {
-                onPlay(track)
+                onPlay([track])
             }
         }
     }
@@ -663,10 +680,23 @@ private struct AlbumCollectionView: View {
     let albumID: String
     @ObservedObject var account: TidalAccountStore
     @ObservedObject var store: PlaybackStore
+    let onPlayCollection: (([CoreTrack]) -> Void)?
     @State private var collection: TidalAlbumCollection?
     @State private var isLoading = true
     @State private var errorMessage: String?
     @StateObject private var paletteLoader = ColorfulArtworkPaletteLoader()
+
+    init(
+        albumID: String,
+        account: TidalAccountStore,
+        store: PlaybackStore,
+        onPlayCollection: (([CoreTrack]) -> Void)? = nil
+    ) {
+        self.albumID = albumID
+        _account = ObservedObject(wrappedValue: account)
+        _store = ObservedObject(wrappedValue: store)
+        self.onPlayCollection = onPlayCollection
+    }
 
     var body: some View {
         ZStack {
@@ -684,7 +714,7 @@ private struct AlbumCollectionView: View {
                 } else if let collection {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
-                            VStack(alignment: .leading, spacing: 12) {
+                            VStack(spacing: 12) {
                                 ColorfulAlbumArt(
                                     title: collection.title,
                                     accent: 0xFF5C9A,
@@ -695,12 +725,14 @@ private struct AlbumCollectionView: View {
                                     .font(.title2.weight(.bold))
                                     .foregroundStyle(ColorfulTheme.ink)
                                     .lineLimit(2)
+                                    .multilineTextAlignment(.center)
                                 Text(collection.artistLabel)
                                     .font(.subheadline)
                                     .foregroundStyle(ColorfulTheme.mutedInk)
                                     .lineLimit(2)
+                                    .multilineTextAlignment(.center)
                                 Button {
-                                    store.playTracks(collection.tracks)
+                                    play(collection.tracks)
                                 } label: {
                                     Label("Play album", systemImage: "play.fill")
                                         .font(.headline)
@@ -714,12 +746,12 @@ private struct AlbumCollectionView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity)
 
                             LazyVStack(spacing: 10) {
                                 ForEach(collection.tracks) { track in
                                     TrackRow(track: track, store: store) {
-                                        store.play(track)
+                                        play([track])
                                     }
                                 }
                             }
@@ -749,6 +781,15 @@ private struct AlbumCollectionView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func play(_ tracks: [CoreTrack]) {
+        guard !tracks.isEmpty else { return }
+        if let onPlayCollection {
+            onPlayCollection(tracks)
+        } else {
+            store.playTracks(tracks)
+        }
     }
 }
 
@@ -1482,6 +1523,7 @@ private struct ArtistCollectionView: View {
     @ObservedObject var account: TidalAccountStore
     @ObservedObject var store: PlaybackStore
     let showsDismissButton: Bool
+    let onPlayCollection: (([CoreTrack]) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @StateObject private var paletteLoader = ColorfulArtworkPaletteLoader()
     @State private var collection: TidalArtistCollection?
@@ -1492,12 +1534,14 @@ private struct ArtistCollectionView: View {
         artist: CoreArtistCredit,
         account: TidalAccountStore,
         store: PlaybackStore,
-        showsDismissButton: Bool = true
+        showsDismissButton: Bool = true,
+        onPlayCollection: (([CoreTrack]) -> Void)? = nil
     ) {
         self.artist = artist
         _account = ObservedObject(wrappedValue: account)
         _store = ObservedObject(wrappedValue: store)
         self.showsDismissButton = showsDismissButton
+        self.onPlayCollection = onPlayCollection
     }
 
     var body: some View {
@@ -1532,7 +1576,7 @@ private struct ArtistCollectionView: View {
                                     .lineLimit(2)
                                 if !collection.topTracks.isEmpty {
                                     Button {
-                                        store.playTracks(collection.topTracks)
+                                        play(collection.topTracks)
                                     } label: {
                                         Label("Play top tracks", systemImage: "play.fill")
                                             .font(.headline)
@@ -1560,7 +1604,8 @@ private struct ArtistCollectionView: View {
                                                 AlbumCollectionView(
                                                     albumID: album.id,
                                                     account: account,
-                                                    store: store
+                                                    store: store,
+                                                    onPlayCollection: onPlayCollection
                                                 )
                                             } label: {
                                                 VStack(alignment: .leading, spacing: 6) {
@@ -1602,7 +1647,7 @@ private struct ArtistCollectionView: View {
                                 LazyVStack(spacing: 10) {
                                     ForEach(collection.topTracks) { track in
                                         TrackRow(track: track, store: store) {
-                                            store.play(track)
+                                            play([track])
                                         }
                                     }
                                 }
@@ -1643,6 +1688,15 @@ private struct ArtistCollectionView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func play(_ tracks: [CoreTrack]) {
+        guard !tracks.isEmpty else { return }
+        if let onPlayCollection {
+            onPlayCollection(tracks)
+        } else {
+            store.playTracks(tracks)
+        }
     }
 }
 
