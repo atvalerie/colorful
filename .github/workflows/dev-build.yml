@@ -8,10 +8,14 @@ on:
     paths-ignore:
       - "**/*.md"
       - "docs/**"
+      - "apps/ios/**"
+      - ".github/workflows/ios-build.yml"
   pull_request:
     paths-ignore:
       - "**/*.md"
       - "docs/**"
+      - "apps/ios/**"
+      - ".github/workflows/ios-build.yml"
   workflow_dispatch:
     inputs:
       target:
