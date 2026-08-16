@@ -263,7 +263,20 @@ private struct HomeHeader: View {
 private struct TrackRow: View {
     let track: CoreTrack
     @ObservedObject var store: PlaybackStore
+    let removeFromPlaylist: (() -> Void)?
     let play: () -> Void
+
+    init(
+        track: CoreTrack,
+        store: PlaybackStore,
+        removeFromPlaylist: (() -> Void)? = nil,
+        play: @escaping () -> Void
+    ) {
+        self.track = track
+        _store = ObservedObject(wrappedValue: store)
+        self.removeFromPlaylist = removeFromPlaylist
+        self.play = play
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -272,7 +285,12 @@ private struct TrackRow: View {
             }
             .buttonStyle(.plain)
             Menu {
-                TrackActionMenuItems(track: track, store: store, play: play)
+                TrackActionMenuItems(
+                    track: track,
+                    store: store,
+                    removeFromPlaylist: removeFromPlaylist,
+                    play: play
+                )
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.body.weight(.semibold))
@@ -281,8 +299,19 @@ private struct TrackRow: View {
             }
             .accessibilityLabel("Actions for \(track.title)")
         }
+        .background(ColorfulTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(ColorfulTheme.border, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .contextMenu {
-            TrackActionMenuItems(track: track, store: store, play: play)
+            TrackActionMenuItems(
+                track: track,
+                store: store,
+                removeFromPlaylist: removeFromPlaylist,
+                play: play
+            )
         }
     }
 }
@@ -290,7 +319,20 @@ private struct TrackRow: View {
 private struct TrackActionMenuItems: View {
     let track: CoreTrack
     @ObservedObject var store: PlaybackStore
+    let removeFromPlaylist: (() -> Void)?
     let play: () -> Void
+
+    init(
+        track: CoreTrack,
+        store: PlaybackStore,
+        removeFromPlaylist: (() -> Void)? = nil,
+        play: @escaping () -> Void
+    ) {
+        self.track = track
+        _store = ObservedObject(wrappedValue: store)
+        self.removeFromPlaylist = removeFromPlaylist
+        self.play = play
+    }
 
     var body: some View {
         Button("Play", systemImage: "play.fill", action: play)
@@ -307,11 +349,22 @@ private struct TrackActionMenuItems: View {
         ) {
             store.toggleSaved(track)
         }
+        if let removeFromPlaylist {
+            Button("Remove from playlist", systemImage: "minus.circle", role: .destructive) {
+                removeFromPlaylist()
+            }
+        }
         if !store.playlists.isEmpty {
             Menu("Add to playlist", systemImage: "text.badge.plus") {
                 ForEach(store.playlists) { playlist in
-                    Button(playlist.name) {
+                    let occurrenceCount = playlist.tracks.filter { $0.id == track.id }.count
+                    Button {
                         store.add(track, toPlaylist: playlist.id)
+                    } label: {
+                        Label(
+                            occurrenceCount == 0 ? playlist.name : "\(playlist.name) (\(occurrenceCount))",
+                            systemImage: occurrenceCount == 0 ? "music.note.list" : "checkmark"
+                        )
                     }
                 }
             }
@@ -327,7 +380,8 @@ private struct TrackRowContent: View {
             ColorfulAlbumArt(
                 title: track.title,
                 accent: track.accent,
-                artworkURL: track.artwork?.url
+                artworkURL: track.artwork?.url,
+                size: 48
             )
             VStack(alignment: .leading, spacing: 3) {
                 Text(track.title)
@@ -344,7 +398,8 @@ private struct TrackRowContent: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(ColorfulTheme.mutedInk)
         }
-        .padding(10)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
     }
 }
@@ -630,7 +685,8 @@ private struct LibraryView: View {
                         TrackRow(track: track, store: store) {
                             store.play(track)
                         }
-                        .listRowBackground(ColorfulTheme.surface)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowBackground(Color.clear)
                         .swipeActions(edge: .trailing) {
                             Button("Remove", systemImage: "heart.slash", role: .destructive) {
                                 store.toggleSaved(track)
@@ -734,10 +790,17 @@ private struct LocalPlaylistView: View {
                                 .listRowBackground(ColorfulTheme.surface)
                         } else {
                             ForEach(Array(playlist.tracks.enumerated()), id: \.offset) { item in
-                                TrackRow(track: item.element, store: store) {
+                                TrackRow(
+                                    track: item.element,
+                                    store: store,
+                                    removeFromPlaylist: {
+                                        store.removePlaylistItem(from: playlist.id, at: item.offset)
+                                    }
+                                ) {
                                     store.playTracks(Array(playlist.tracks.dropFirst(item.offset)))
                                 }
-                                .listRowBackground(ColorfulTheme.surface)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                .listRowBackground(Color.clear)
                             }
                             .onDelete { offsets in
                                 for position in offsets.sorted(by: >) {

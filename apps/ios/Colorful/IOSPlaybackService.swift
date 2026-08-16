@@ -37,10 +37,18 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         installNotifications()
 
         store.$currentTrack
-            .sink { [weak self] _ in self?.synchronize() }
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.synchronize()
+                }
+            }
             .store(in: &cancellables)
         store.$isPlaying
-            .sink { [weak self] _ in self?.applyPlaybackState() }
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.applyPlaybackState()
+                }
+            }
             .store(in: &cancellables)
         player.publisher(for: \.timeControlStatus)
             .sink { [weak self] status in
