@@ -92,24 +92,23 @@ colorful is an early personal alpha, not a packaged consumer release.
 - a persistent low-data mode that avoids loading remote artwork and profile images
 - qualified local listening history with per-provider usage plus
   top-track/top-artist/top-album statistics
-- opt-in Discord profile statistics publishing with Secret Service token storage
 - first-launch desktop setup for optional provider connections, playback
   defaults, and offline storage, with a Settings action to rerun it
 - registered desktop `colorful://` links for opening provider catalog pages;
   see [docs/deep-links.md](docs/deep-links.md)
 - desktop settings for accounts, stream quality, autoplay, EQ/normalization, Discord integrations, appearance, low-data behavior, storage, and build information
 - sync-ready, idempotent history event identities
-- a development hosted-relay foundation with expiring opaque mailboxes and
-  binary-only party forwarding; client-side encryption and party/sync
-  protocols are still pending
+- an experimental encrypted listening-party MVP over the hosted relay; durable
+  multi-device sync remains planned
 
 ### On the roadmap
 
-- Android EQ and normalization using the shared audio-processing contract
-- Android offline downloads and YouTube Music support
+- iOS native shell and the first daily-driver playback slice
+- Android product UI, EQ/normalization, offline downloads, and YouTube Music
+  support
 - encrypted multi-device library sync and playback handoff
-- parties over LAN, ICE/STUN, and an encrypted relay fallback
-- Windows interactive-runtime polish; iOS native shell
+- party LAN/P2P improvements and broader relay fallback
+- Windows interactive-runtime polish
 
 The maintained, milestone-oriented backlog is in [docs/todo.md](docs/todo.md).
 

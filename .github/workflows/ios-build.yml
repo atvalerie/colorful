@@ -1,0 +1,88 @@
+name: iOS shell build
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - "apps/ios/**"
+      - "crates/colorful-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/build-ios-core.sh"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - "crates/colorful-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/build-ios-core.sh"
+      - ".github/workflows/ios-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-shell-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: Build iOS simulator shell
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ios-rust-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ios-rust-${{ runner.arch }}-
+
+      - name: Build the Rust simulator library
+        shell: bash
+        run: |
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            rust_target="aarch64-apple-ios-sim"
+            xcode_arch="arm64"
+          else
+            rust_target="x86_64-apple-ios"
+            xcode_arch="x86_64"
+          fi
+          echo "rust_target=$rust_target" >> "$GITHUB_ENV"
+          echo "xcode_arch=$xcode_arch" >> "$GITHUB_ENV"
+          bash scripts/build-ios-core.sh "$rust_target"
+
+      - name: Build the unsigned simulator app
+        shell: bash
+        run: |
+          xcodebuild \
+            -project apps/ios/Colorful.xcodeproj \
+            -scheme Colorful \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            -derivedDataPath build \
+            ARCHS="$xcode_arch" \
+            CODE_SIGNING_ALLOWED=NO \
+            COLORFUL_CORE_SWIFT_CONDITION=COLORFUL_CORE_ENABLED \
+            COLORFUL_CORE_LIBRARY_SEARCH_PATH="$GITHUB_WORKSPACE/target/$rust_target/release" \
+            COLORFUL_CORE_LDFLAGS="-lcolorful_core -framework Security" \
+            build
+
+      - name: Upload simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: colorful-ios-simulator-${{ github.run_number }}
+          path: build/Build/Products/Debug-iphonesimulator/Colorful.app
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

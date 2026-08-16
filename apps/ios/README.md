@@ -1,16 +1,25 @@
 # iOS shell
 
-**Status:** Planned. There is no Xcode project or buildable iOS target in the
-repository yet.
+**Status:** Initial SwiftUI shell is present and has an Xcode project. The
+Rust-backed queue and real audio session are the next implementation slices;
+the current build intentionally uses preview tracks until those boundaries are
+connected.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.
 
-The iOS target follows Android so shared engine behavior is already exercised
-before each cloud-mac build cycle. The active prerequisite is Android feature
-parity across catalog navigation, providers, queue behavior, downloads,
-lyrics, local playlists, and audio processing; iOS should reuse those shared
-contracts instead of cloning desktop-side assumptions.
+The iOS target reuses the shared engine contracts and uses Android and desktop
+behavior as references. The first milestone is a real TIDAL playback slice on
+the daily-driver iPhone: SwiftUI, Keychain, AVFoundation/AVAudioEngine,
+background audio, Now Playing controls, queue restoration, and native device
+testing. Android product parity is not a prerequisite.
 
-See [`../../docs/macos-ci.md`](../../docs/macos-ci.md) for the proposed
-Linux-to-macOS CI and signing workflow.
+To build the shell on macOS, see [`../../docs/ios-builds.md`](../../docs/ios-builds.md).
+
+Read the implementation baseline in:
+
+- [`../../docs/ios-product.md`](../../docs/ios-product.md)
+- [`../../docs/ios-ui.md`](../../docs/ios-ui.md)
+- [`../../docs/ios-architecture.md`](../../docs/ios-architecture.md)
+- [`../../docs/ios-parity.md`](../../docs/ios-parity.md)
+- [`../../docs/ios-builds.md`](../../docs/ios-builds.md) for macOS CI and signing

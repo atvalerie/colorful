@@ -35,7 +35,12 @@ file unless it provides necessary context for the next milestone.
 - consider transcoding, format conversion, CD support, and deeper
   Strawberry-style library tools later.
 
-## Deferred: Android feature parity
+## Deferred: Android product parity
+
+Android remains an engineering vertical slice and will continue to receive
+shared-contract and playback fixes, but its unfinished product UI is not an
+iOS prerequisite. iOS is the next native product client because it is the
+owner's daily-driver platform.
 
 - replace the compact engineering UI with the colorful product design;
 - add first-launch provider/playback/storage setup and a personalized
@@ -54,18 +59,21 @@ file unless it provides necessary context for the next milestone.
 - test queue restoration, background ownership, seeking, rapid skipping,
   prepared-next playback, and gapless transitions on devices and emulators.
 
-## iOS native client
+## iOS native client — next product milestone
 
 - create the SwiftUI/Xcode project and bind the shared Rust core;
 - implement playback with AVFoundation/AVAudioEngine;
 - implement background audio, MPRemoteCommandCenter, and Now Playing metadata;
 - store credentials in Keychain;
-- implement the provider adapters, catalog UI, queue, downloads, lyrics, and
-  local library behavior exercised by Android;
+- implement the TIDAL provider slice, native catalog UI, queue, and playback
+  behavior using the shared contracts and the iOS documents;
+- add offline downloads, lyrics, local playlists, and appearance/settings
+  behavior in the order defined by `docs/ios-parity.md`;
 - establish macOS CI, signing, and sideloadable IPA builds.
 
-The iOS client should follow the Android parity milestone so shared behavior is
-already exercised before each remote macOS build cycle.
+The iOS client should be tested on the daily-driver phone as soon as the first
+native playback slice is buildable. Android remains a later product-parity
+track and must not gate iOS work.
 
 ## Multi-device sync
 

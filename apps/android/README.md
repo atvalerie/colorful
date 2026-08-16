@@ -60,10 +60,11 @@ debug APK is written to `apps/android/app/build/outputs/apk/debug/app-debug.apk`
 Provider secrets and signed playback URLs must never be included in bug-report
 logs or screenshots.
 
-## Next milestone
+## Product sequencing
 
-Android feature parity is the active cross-platform milestone: product UI,
-complete catalog navigation, YouTube Music and SoundCloud, provider-neutral
-playlists, downloads and storage controls, lyrics caching, EQ/normalization,
-and device/emulator playback restoration tests. iOS follows after these shared
-behaviors have been exercised on Android.
+Android remains an engineering vertical slice with a later product-parity
+track: product UI, complete catalog navigation, YouTube Music and SoundCloud,
+provider-neutral playlists, downloads and storage controls, lyrics caching,
+EQ/normalization, and device/emulator playback restoration tests. iOS is being
+started independently as the owner's daily-driver client; both platforms
+continue to reuse the shared engine contracts.

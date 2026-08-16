@@ -1,0 +1,243 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* ColorfulApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* ColorfulApp.swift */; };
+		A10000000000000000000002 /* ColorfulTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ColorfulTheme.swift */; };
+		A10000000000000000000003 /* ColorfulCoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* ColorfulCoreBridge.swift */; };
+		A10000000000000000000004 /* PlaybackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* PlaybackStore.swift */; };
+		A10000000000000000000005 /* ColorfulRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* ColorfulRootView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B10000000000000000000001 /* ColorfulApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorfulApp.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* ColorfulTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorfulTheme.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* ColorfulCoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorfulCoreBridge.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* PlaybackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* ColorfulRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorfulRootView.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* Colorful-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Colorful-Bridging-Header.h; sourceTree = "<group>"; };
+		B10000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10000000000000000000008 /* Colorful.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Colorful.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000009 /* Colorful.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = wrapper.pb-project; name = Colorful.xcodeproj; path = Colorful.xcodeproj; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C10000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D10000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				D10000000000000000000002 /* Colorful */,
+				D10000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D10000000000000000000002 /* Colorful */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000001 /* ColorfulApp.swift */,
+				B10000000000000000000002 /* ColorfulTheme.swift */,
+				B10000000000000000000003 /* ColorfulCoreBridge.swift */,
+				B10000000000000000000004 /* PlaybackStore.swift */,
+				B10000000000000000000005 /* ColorfulRootView.swift */,
+				B10000000000000000000006 /* Colorful-Bridging-Header.h */,
+				B10000000000000000000007 /* Info.plist */,
+			);
+			path = Colorful;
+			sourceTree = "<group>";
+		};
+		D10000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000008 /* Colorful.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E10000000000000000000001 /* Colorful */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10000000000000000000002 /* Build configuration list for PBXNativeTarget "Colorful" */;
+			buildPhases = (
+				C10000000000000000000002 /* Sources */,
+				C10000000000000000000001 /* Frameworks */,
+				C10000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Colorful;
+			productName = Colorful;
+			productReference = B10000000000000000000008 /* Colorful.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E10000000000000000000002 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					E10000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = F10000000000000000000001 /* Build configuration list for PBXProject "Colorful" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = D10000000000000000000001;
+			productRefGroup = D10000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E10000000000000000000001 /* Colorful */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C10000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C10000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* ColorfulApp.swift in Sources */,
+				A10000000000000000000002 /* ColorfulTheme.swift in Sources */,
+				A10000000000000000000003 /* ColorfulCoreBridge.swift in Sources */,
+				A10000000000000000000004 /* PlaybackStore.swift in Sources */,
+				A10000000000000000000005 /* ColorfulRootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		F20000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Colorful/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.valerie.colorful;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) $(COLORFUL_CORE_SWIFT_CONDITION)";
+				SWIFT_OBJC_BRIDGING_HEADER = Colorful/Colorful-Bridging-Header.h;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		F20000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Colorful/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.valerie.colorful;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) $(COLORFUL_CORE_SWIFT_CONDITION)";
+				SWIFT_OBJC_BRIDGING_HEADER = Colorful/Colorful-Bridging-Header.h;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		F20000000000000000000003 /* Project Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COLORFUL_CORE_LDFLAGS = "";
+				COLORFUL_CORE_LIBRARY_SEARCH_PATH = "";
+				COLORFUL_CORE_SWIFT_CONDITION = "";
+				LIBRARY_SEARCH_PATHS = "$(inherited) $(COLORFUL_CORE_LIBRARY_SEARCH_PATH)";
+				OTHER_LDFLAGS = "$(inherited) $(COLORFUL_CORE_LDFLAGS)";
+			};
+			name = Debug;
+		};
+		F20000000000000000000004 /* Project Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COLORFUL_CORE_LDFLAGS = "";
+				COLORFUL_CORE_LIBRARY_SEARCH_PATH = "";
+				COLORFUL_CORE_SWIFT_CONDITION = "";
+				LIBRARY_SEARCH_PATHS = "$(inherited) $(COLORFUL_CORE_LIBRARY_SEARCH_PATH)";
+				OTHER_LDFLAGS = "$(inherited) $(COLORFUL_CORE_LDFLAGS)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F10000000000000000000001 /* Build configuration list for PBXProject "Colorful" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20000000000000000000003 /* Project Debug */,
+				F20000000000000000000004 /* Project Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F10000000000000000000002 /* Build configuration list for PBXNativeTarget "Colorful" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20000000000000000000001 /* Debug */,
+				F20000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E10000000000000000000002 /* Project object */;
+}

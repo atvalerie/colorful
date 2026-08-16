@@ -75,8 +75,9 @@ This is a migration, not a rewrite performed all at once.
 - idempotent listening events and aggregate statistics, including per-provider usage
 - provider-neutral settings
 
-The sync journal, party transport, cache quotas/eviction, and portable provider
-orchestration remain planned. Linux currently owns the resumable transfer
+The sync journal, portable cache quotas/eviction, and portable provider
+orchestration remain planned. The desktop party transport is implemented as an
+experimental native shell feature. Linux currently owns the resumable transfer
 worker; the engine persists its provider-neutral job state.
 
 ### Native shell
@@ -131,7 +132,9 @@ remain incomplete.
 - Complete: domain contracts, queue state machine, SQLite schema, stable ABI,
   provider fixtures, desktop TIDAL/YouTube Music/SoundCloud alpha, desktop
   downloads/gapless playback/DSP, and the Android TIDAL playback vertical slice.
-- Next: validate and package the shared Windows desktop build, add Android
-  feature parity, and migrate more provider behavior away from the Bun host.
-- Later: Android SoundCloud parity, encrypted device sync and active-device
-  presence, parties, then iOS and its cloud build/signing workflow.
+- Next: establish the iOS SwiftUI shell and TIDAL playback slice, validate and
+  package the shared Windows desktop build, and migrate more provider behavior
+  away from the Bun host where it directly benefits native clients.
+- Later: Android product parity, iOS provider expansion, encrypted device sync
+  and active-device presence, parties, and the broader iOS cloud
+  build/signing workflow.
