@@ -20,6 +20,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Offline downloads | Resumable desktop transfers and standalone `.mka` files | Background-capable resumable transfers | P1 |
 | Lyrics | Provider-first, synced, cached, LRCLIB fallback | Cached provider-first lyrics | P1 |
 | Appearance | Accent mode, fixed accent, low-data mode, text scale | Dynamic Type plus Colorful accent/low-data policies | P1 |
+| Detail behavior | Linux optional actions, fallbacks, metadata, toasts, and edge-case handling | Preserve these details in native presentations; document intentional iOS divergences | P0 |
 | EQ/normalization | Desktop contract; Android incomplete | Add after stable playback unless daily use requires it | P2 |
 | YouTube Music | Desktop public/private-session catalog and playback | Later native adapter; restricted source resolution is a risk | P2 |
 | SoundCloud | Desktop public/account catalog, playback, downloads | Later native adapter | P2 |
@@ -32,6 +33,12 @@ not a promise that every desktop feature belongs in the first phone release.
 - For current desktop product behavior, read `apps/linux/qml` and
   `apps/linux/src`; `apps/windows` contains the archived WinUI experiment plus
   documentation of the shared Qt Windows target.
+- Treat Linux as the mobile behavioral baseline, including small optional
+  actions and fallback states. A mobile-only simplification needs a reason;
+  a mobile-only enhancement should fit the same local-first product model.
+- Before closing an iOS feature, check the corresponding Linux surface for
+  secondary actions, empty/loading/error states, metadata, artwork fallbacks,
+  queue semantics, and feedback/toast behavior.
 - For portable state, read `crates/colorful-core`, `docs/core-abi.md`, and
   `docs/storage.md` before adding Swift models.
 - For provider semantics, read `docs/provider-migration.md` and the provider

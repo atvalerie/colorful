@@ -11,8 +11,11 @@ client, not a downstream port that must wait for Android feature parity.
 - Start the native iOS client before completing Android's product UI.
 - Treat the physical iPhone as the eventual source of truth for playback,
   permissions, background audio, media controls, credentials, and device sync.
-- Use Android and desktop behavior as implementation references and contract
-  tests, not as a release gate for iOS.
+- Use the Linux/Qt client as the behavioral reference for mobile parity: carry
+  over its small interaction details, optional controls, fallbacks, and useful
+  quirks unless iOS constraints require a change. Android and desktop behavior
+  remain implementation references and contract tests, not a release gate for
+  iOS.
 - Keep the client local-first: provider credentials stay on each device and the
   shared engine remains useful without a colorful account or mandatory server.
 
@@ -60,6 +63,8 @@ After the first slice is stable, add:
 ## Current references
 
 The active desktop behavior is documented in [the Linux client README](../apps/linux/README.md).
+When a mobile feature is marked complete, compare it with the Linux QML/backend
+behavior and preserve the detail-level behavior, not only the feature name.
 Windows uses that same Qt/QML client; its separate WinUI files are an archived
 experiment, as described in [the Windows README](../apps/windows/README.md).
 Portable ownership boundaries are in [architecture](architecture.md), the ABI
