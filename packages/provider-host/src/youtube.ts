@@ -14,17 +14,51 @@ const MUSIC_ORIGIN = "https://music.youtube.com";
 const sourceCache = new Map<string, { value: YouTubePlaybackSource; expiresAt: number }>();
 
 async function probeYouTubeSource(source: YouTubePlaybackSource): Promise<void> {
+  const headers = {
+    ...(source.userAgent ? { "User-Agent": source.userAgent } : {}),
+    ...(source.referrer ? { Referer: source.referrer } : {}),
+  };
+  const isHls = source.mimeType.toLowerCase().includes("mpegurl")
+    || source.uri.toLowerCase().includes(".m3u8");
   const response = await fetch(source.uri, {
-    headers: {
-      Range: "bytes=0-1023",
-      ...(source.userAgent ? { "User-Agent": source.userAgent } : {}),
-      ...(source.referrer ? { Referer: source.referrer } : {}),
-    },
+    headers: isHls ? headers : { Range: "bytes=0-1023", ...headers },
     signal: AbortSignal.timeout(5_000),
   });
-  await response.body?.cancel().catch(() => undefined);
   if (response.status !== 200 && response.status !== 206) {
     throw new Error(`Deciphered YouTube media probe returned HTTP ${response.status}`);
+  }
+  if (!isHls) {
+    await response.body?.cancel().catch(() => undefined);
+    return;
+  }
+
+  const manifest = await response.text();
+  const lines = manifest.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const variantIndex = lines.findIndex((line) => line.startsWith("#EXT-X-STREAM-INF:"));
+  const variantLine = variantIndex >= 0 ? lines[variantIndex + 1] : undefined;
+  if (!variantLine) {
+    throw new Error("YouTube HLS manifest returned no media variant");
+  }
+  const variantUrl = new URL(variantLine, source.uri).toString();
+  const variantResponse = await fetch(variantUrl, {
+    headers,
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (variantResponse.status !== 200) {
+    throw new Error(`YouTube HLS media playlist returned HTTP ${variantResponse.status}`);
+  }
+  const variant = await variantResponse.text();
+  const segment = variant.split(/\r?\n/).map((line) => line.trim())
+    .find((line) => line && !line.startsWith("#"));
+  if (!segment) throw new Error("YouTube HLS media playlist returned no segments");
+  const segmentUrl = new URL(segment, variantUrl).toString();
+  const segmentResponse = await fetch(segmentUrl, {
+    headers: { Range: "bytes=0-1023", ...headers },
+    signal: AbortSignal.timeout(5_000),
+  });
+  await segmentResponse.body?.cancel().catch(() => undefined);
+  if (segmentResponse.status !== 200 && segmentResponse.status !== 206) {
+    throw new Error(`YouTube HLS first media segment returned HTTP ${segmentResponse.status}`);
   }
 }
 
