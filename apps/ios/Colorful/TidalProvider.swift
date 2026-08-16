@@ -416,15 +416,17 @@ actor TidalClient {
         }
 
         let included = (albumValue["included"] as? [[String: Any]]) ?? []
-        let resources = Dictionary(uniqueKeysWithValues: included.compactMap { resource -> ((String, String), [String: Any])? in
-            guard let type = resource["type"] as? String, let id = resource["id"] as? String else { return nil }
-            return ((type, id), resource)
-        })
+        var resources = [String: [String: Any]]()
+        for resource in included {
+            guard let type = resource["type"] as? String,
+                  let id = resource["id"] as? String else { continue }
+            resources["\(type):\(id)"] = resource
+        }
         let artistNames = relationshipIDs(album, name: "artists").compactMap { id in
-            resources[("artists", id)]?["attributes"] as? [String: Any]
+            resources["artists:\(id)"]?["attributes"] as? [String: Any]
         }.map { string($0, key: "name") }.filter { !$0.isEmpty }
         let coverURL = relationshipIDs(album, name: "coverArt").compactMap { id in
-            resources[("artworks", id)]
+            resources["artworks:\(id)"]
         }.compactMap(artworkURL).first
             ?? imageLinkURL(attributes)
         let title = string(attributes, key: "title").ifBlank { "Unknown album" }
