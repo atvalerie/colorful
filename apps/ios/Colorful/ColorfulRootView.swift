@@ -893,9 +893,11 @@ private struct FullPlayer: View {
                                 Text(playbackError)
                                     .font(.footnote)
                                     .lineLimit(2)
-                                Spacer(minLength: 4)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 Button("Retry", action: onRetry)
                                     .font(.footnote.weight(.semibold))
+                                    .fixedSize()
                             }
                             .foregroundStyle(ColorfulTheme.ink)
                             .padding(12)
@@ -928,6 +930,7 @@ private struct FullPlayer: View {
                         }
                         .padding(.horizontal, 8)
                     }
+                    .frame(width: max(0, proxy.size.width - 48))
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
                     .frame(minHeight: proxy.size.height)
