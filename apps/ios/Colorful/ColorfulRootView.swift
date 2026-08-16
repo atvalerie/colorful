@@ -120,28 +120,9 @@ private struct HomeView: View {
         }
         .scrollContentBackground(.hidden)
         .background(ColorfulTheme.background.ignoresSafeArea())
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("colorful")
-                        .font(.system(.caption2, design: .rounded).weight(.bold))
-                        .foregroundStyle(ColorfulTheme.accent)
-                        .textCase(.uppercase)
-                    Text(greeting)
-                        .font(.system(.headline, design: .rounded).weight(.black))
-                        .foregroundStyle(ColorfulTheme.ink)
-                }
-                .fixedSize()
-                .allowsHitTesting(false)
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isHeader)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: {}) {
-                    Image(systemName: "magnifyingglass")
-                }
-                .accessibilityLabel("Search")
-            }
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HomeHeader(greeting: greeting) { }
         }
     }
 
@@ -161,6 +142,48 @@ private struct HomeView: View {
             return "Waiting for snapshot"
         }
         return "\(store.libraryTracks.count) saved · \(store.queueTracks.count) queued"
+    }
+}
+
+private struct HomeHeader: View {
+    let greeting: String
+    let onSearch: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("colorful")
+                    .font(.system(.caption2, design: .rounded).weight(.bold))
+                    .foregroundStyle(ColorfulTheme.accent)
+                    .textCase(.uppercase)
+                Text(greeting)
+                    .font(.system(.headline, design: .rounded).weight(.black))
+                    .foregroundStyle(ColorfulTheme.ink)
+            }
+            .fixedSize()
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+
+            Spacer(minLength: 0)
+
+            Button(action: onSearch) {
+                Image(systemName: "magnifyingglass")
+                    .font(.headline)
+                    .foregroundStyle(ColorfulTheme.ink)
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .background(.ultraThinMaterial, in: Circle())
+            .accessibilityLabel("Search")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(ColorfulTheme.border)
+                .frame(height: 1)
+        }
     }
 }
 
