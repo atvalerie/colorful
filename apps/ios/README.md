@@ -1,9 +1,9 @@
 # iOS shell
 
-**Status:** Initial SwiftUI shell is present and has an Xcode project. The
-Rust-backed queue and real audio session are the next implementation slices;
-the current build intentionally uses preview tracks until those boundaries are
-connected.
+**Status:** The SwiftUI shell, Rust-backed snapshot, queue projection, and
+library projection are connected. The current build intentionally stops before
+provider authentication and audio output; an empty library is expected until a
+provider integration populates the shared core.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

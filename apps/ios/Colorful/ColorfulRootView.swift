@@ -31,6 +31,9 @@ struct ColorfulRootView: View {
             .tag(ColorfulTab.settings)
         }
         .tint(ColorfulTheme.accent)
+        .task {
+            await store.refreshFromCore()
+        }
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let track = store.currentTrack {
@@ -61,39 +64,52 @@ private struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("A small, personal listening space for the music you actually reach for.")
-                    .font(.subheadline)
-                    .foregroundStyle(ColorfulTheme.mutedInk)
-
                 ColorfulSurface(fill: ColorfulTheme.surfaceRaised) {
                     HStack(spacing: 14) {
                         Image(systemName: "bolt.fill")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(ColorfulTheme.accent)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("iOS shell is alive")
+                            Text(store.core.availability.label)
                                 .font(.headline)
                                 .foregroundStyle(ColorfulTheme.ink)
-                            Text(store.core.availability.label)
+                            Text(statusText)
                                 .font(.caption)
                                 .foregroundStyle(ColorfulTheme.mutedInk)
                         }
                         Spacer(minLength: 0)
                         Circle()
-                            .fill(store.core.isReady ? ColorfulTheme.accentSecondary : ColorfulTheme.warning)
+                            .fill(store.core.isReady && store.coreError == nil ? ColorfulTheme.accentSecondary : ColorfulTheme.warning)
                             .frame(width: 10, height: 10)
                     }
                     .padding(16)
                 }
 
-                Text("Made for your listening")
+                Text(store.queueTracks.isEmpty ? "Library" : "Queue")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(ColorfulTheme.ink)
 
-                LazyVStack(spacing: 10) {
-                    ForEach(store.recommendations) { track in
-                        TrackRow(track: track) {
-                            store.play(track)
+                if store.homeTracks.isEmpty {
+                    ColorfulSurface {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("No tracks yet", systemImage: "music.note.list")
+                                .font(.headline)
+                                .foregroundStyle(ColorfulTheme.ink)
+                            Text("Connect a provider to start building your library.")
+                                .font(.subheadline)
+                                .foregroundStyle(ColorfulTheme.mutedInk)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                    }
+                } else {
+                    LazyVStack(spacing: 10) {
+                        ForEach(Array(store.homeTracks.enumerated()), id: \.offset) { item in
+                            TrackRow(track: item.element) {
+                                store.play(item.element)
+                            } enqueue: {
+                                store.enqueue(item.element)
+                            }
                         }
                     }
                 }
@@ -125,11 +141,22 @@ private struct HomeView: View {
             }
         }
     }
+
+    private var statusText: String {
+        if let coreError = store.coreError {
+            return coreError
+        }
+        guard store.coreSnapshot != nil else {
+            return "Waiting for snapshot"
+        }
+        return "\(store.libraryTracks.count) saved · \(store.queueTracks.count) queued"
+    }
 }
 
 private struct TrackRow: View {
-    let track: DemoTrack
+    let track: CoreTrack
     let play: () -> Void
+    let enqueue: () -> Void
 
     var body: some View {
         Button(action: play) {
@@ -140,13 +167,13 @@ private struct TrackRow: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(ColorfulTheme.ink)
                         .lineLimit(1)
-                    Text("\(track.artist) · \(track.album)")
+                    Text("\(track.artistLabel) · \(track.albumLabel)")
                         .font(.caption)
                         .foregroundStyle(ColorfulTheme.mutedInk)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Text(track.duration)
+                Text(track.durationLabel)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(ColorfulTheme.mutedInk)
             }
@@ -155,8 +182,8 @@ private struct TrackRow: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Play next", systemImage: "text.line.first.and.arrowtriangle.forward") { play() }
-            Button("Add to library", systemImage: "plus") {}
+            Button("Play", systemImage: "play.fill") { play() }
+            Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue() }
         }
     }
 }
@@ -166,16 +193,44 @@ private struct LibraryView: View {
 
     var body: some View {
         List {
-            Section("Recently played") {
-                ForEach(store.recommendations.prefix(2)) { track in
-                    TrackRow(track: track) { store.play(track) }
+            if !store.libraryTracks.isEmpty {
+                Section("Saved tracks") {
+                    ForEach(store.libraryTracks) { track in
+                        TrackRow(track: track) {
+                            store.play(track)
+                        } enqueue: {
+                            store.enqueue(track)
+                        }
+                        .listRowBackground(ColorfulTheme.surface)
+                    }
+                }
+            } else {
+                Section {
+                    Label("No saved tracks yet", systemImage: "music.note.list")
+                        .foregroundStyle(ColorfulTheme.mutedInk)
                         .listRowBackground(ColorfulTheme.surface)
                 }
             }
-            Section("Your library") {
-                Label("Saved tracks will appear here", systemImage: "music.note.list")
-                    .foregroundStyle(ColorfulTheme.mutedInk)
-                    .listRowBackground(ColorfulTheme.surface)
+
+            if !store.queueTracks.isEmpty {
+                Section("Queue") {
+                    ForEach(Array(store.queueTracks.enumerated()), id: \.offset) { item in
+                        TrackRow(track: item.element) {
+                            store.play(item.element)
+                        } enqueue: {
+                            store.enqueue(item.element)
+                        }
+                        .listRowBackground(ColorfulTheme.surface)
+                    }
+                }
+            }
+
+            if let coreError = store.coreError {
+                Section("Engine") {
+                    Label(coreError, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(ColorfulTheme.warning)
+                        .listRowBackground(ColorfulTheme.surface)
+                }
             }
         }
         .scrollContentBackground(.hidden)
@@ -225,7 +280,7 @@ private struct SettingsView: View {
 }
 
 private struct MiniPlayer: View {
-    let track: DemoTrack
+    let track: CoreTrack
     let isPlaying: Bool
     let onPlayPause: () -> Void
     let onExpand: () -> Void
@@ -240,7 +295,7 @@ private struct MiniPlayer: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(ColorfulTheme.ink)
                             .lineLimit(1)
-                        Text(track.artist)
+                        Text(track.artistLabel)
                             .font(.caption)
                             .foregroundStyle(ColorfulTheme.mutedInk)
                             .lineLimit(1)
@@ -264,7 +319,7 @@ private struct MiniPlayer: View {
 }
 
 private struct FullPlayer: View {
-    let track: DemoTrack
+    let track: CoreTrack
     let isPlaying: Bool
     let onPlayPause: () -> Void
 
@@ -278,7 +333,7 @@ private struct FullPlayer: View {
                     Text(track.title)
                         .font(.title2.weight(.bold))
                         .foregroundStyle(ColorfulTheme.ink)
-                    Text("\(track.artist) · \(track.album)")
+                    Text("\(track.artistLabel) · \(track.albumLabel)")
                         .font(.subheadline)
                         .foregroundStyle(ColorfulTheme.mutedInk)
                 }

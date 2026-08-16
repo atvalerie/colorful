@@ -14,6 +14,26 @@ enum ColorfulCoreAvailability: Sendable {
     }
 }
 
+enum ColorfulCoreBridgeError: LocalizedError, Sendable {
+    case unavailable
+    case abiMismatch(UInt32)
+    case core(String)
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "The Rust core is not available in this build."
+        case .abiMismatch(let version):
+            return "Unsupported Rust core ABI version \(version)."
+        case .core(let message):
+            return message
+        case .invalidResponse:
+            return "The Rust core returned an invalid snapshot."
+        }
+    }
+}
+
 actor ColorfulCoreBridge {
     nonisolated let availability: ColorfulCoreAvailability
     nonisolated let isReady: Bool
@@ -26,9 +46,9 @@ actor ColorfulCoreBridge {
         if colorful_core_abi_version() == 1 {
             let databaseURL = Self.databaseURL()
             try? FileManager.default.createDirectory(
-            at: databaseURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+                at: databaseURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
 
             if let response = databaseURL.path.withCString({ colorful_engine_open($0) }),
                let data = Self.consume(response),
@@ -59,6 +79,34 @@ actor ColorfulCoreBridge {
 #if COLORFUL_CORE_ENABLED
         guard handle != 0 else { return nil }
         return colorful_engine_snapshot(handle).flatMap(Self.consume)
+#else
+        return nil
+#endif
+    }
+
+    func loadSnapshot() throws -> ColorfulCoreSnapshot? {
+#if COLORFUL_CORE_ENABLED
+        guard let data = snapshot() else {
+            throw ColorfulCoreBridgeError.unavailable
+        }
+
+        let response = try JSONDecoder().decode(
+            ColorfulCoreResponse<ColorfulCoreSnapshot>.self,
+            from: data
+        )
+        guard response.abiVersion == 1 else {
+            throw ColorfulCoreBridgeError.abiMismatch(response.abiVersion)
+        }
+        guard response.ok else {
+            throw ColorfulCoreBridgeError.core(response.error ?? "The Rust core rejected the snapshot request.")
+        }
+        guard let value = response.value else {
+            throw ColorfulCoreBridgeError.invalidResponse
+        }
+        guard value.abiVersion == 1 else {
+            throw ColorfulCoreBridgeError.abiMismatch(value.abiVersion)
+        }
+        return value
 #else
         return nil
 #endif

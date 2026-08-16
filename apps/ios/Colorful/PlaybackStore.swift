@@ -20,55 +20,111 @@ enum ColorfulTab: String, CaseIterable, Hashable {
     }
 }
 
-struct DemoTrack: Identifiable, Hashable {
-    let id: String
-    let title: String
-    let artist: String
-    let album: String
-    let duration: String
-    let accent: UInt32
-}
-
 @MainActor
 final class PlaybackStore: ObservableObject {
     @Published var selectedTab: ColorfulTab = .home
-    @Published var currentTrack: DemoTrack?
+    @Published var currentTrack: CoreTrack?
     @Published var isPlaying = false
+    @Published private(set) var coreSnapshot: ColorfulCoreSnapshot?
+    @Published private(set) var coreError: String?
 
     let core: ColorfulCoreBridge
 
-    let recommendations = [
-        DemoTrack(id: "tidal-demo-1", title: "Soft Focus", artist: "Colorful Radio", album: "Night Routes", duration: "3:42", accent: 0xFF5C9A),
-        DemoTrack(id: "tidal-demo-2", title: "Afterimage", artist: "Mira Vale", album: "Afterimage", duration: "4:08", accent: 0x7DE2D1),
-        DemoTrack(id: "tidal-demo-3", title: "Low Orbit", artist: "North Arcade", album: "Low Orbit", duration: "2:57", accent: 0xFFC857),
-        DemoTrack(id: "tidal-demo-4", title: "Window Seat", artist: "Aster Bloom", album: "Window Seat", duration: "3:15", accent: 0xA18CFF),
-    ]
+    var libraryTracks: [CoreTrack] {
+        coreSnapshot?.library ?? []
+    }
+
+    var queueTracks: [CoreTrack] {
+        guard let snapshot = coreSnapshot,
+              snapshot.queue.entries.count == snapshot.queueTracks.count else {
+            return []
+        }
+
+        return zip(snapshot.queue.entries, snapshot.queueTracks).compactMap { pair in
+            pair.0.mediaID == pair.1.id ? pair.1 : nil
+        }
+    }
+
+    var homeTracks: [CoreTrack] {
+        let queued = queueTracks
+        if !queued.isEmpty {
+            return Array(queued.prefix(8))
+        }
+        return Array(libraryTracks.prefix(8))
+    }
 
     init() {
         core = ColorfulCoreBridge()
     }
 
-    func play(_ track: DemoTrack) {
-        currentTrack = track
-        isPlaying = true
+    func refreshFromCore() async {
+        do {
+            let snapshot = try await core.loadSnapshot()
+            coreSnapshot = snapshot
+            coreError = nil
+
+            guard let snapshot else {
+                currentTrack = nil
+                isPlaying = false
+                return
+            }
+
+            currentTrack = currentTrack(in: snapshot)
+            isPlaying = snapshot.playback.playing
+        } catch {
+            coreError = error.localizedDescription
+        }
+    }
+
+    func play(_ track: CoreTrack) {
+        dispatch(CorePlayTracksCommand(tracks: [track]))
+    }
+
+    func enqueue(_ track: CoreTrack) {
+        dispatch(CoreEnqueueCommand(track: track))
     }
 
     func togglePlayback() {
         guard currentTrack != nil else {
-            play(recommendations[0])
+            if let firstTrack = homeTracks.first {
+                play(firstTrack)
+            }
             return
         }
-        isPlaying.toggle()
-        let command = isPlaying ? #"{"command":"play"}"# : #"{"command":"pause"}"#
-        Task {
-            _ = await core.dispatch(commandJSON: command)
-        }
+
+        dispatch(CoreSimpleCommand(command: isPlaying ? "pause" : "play"))
     }
 
     func stop() {
-        isPlaying = false
-        Task {
-            _ = await core.dispatch(commandJSON: #"{"command":"stop"}"#)
+        dispatch(CoreSimpleCommand(command: "stop"))
+    }
+
+    private func dispatch<T: Encodable>(_ command: T) {
+        guard let data = try? JSONEncoder().encode(command),
+              let commandJSON = String(data: data, encoding: .utf8) else {
+            coreError = "Could not encode the playback command."
+            return
         }
+
+        Task {
+            _ = await core.dispatch(commandJSON: commandJSON)
+            await refreshFromCore()
+        }
+    }
+
+    private func currentTrack(in snapshot: ColorfulCoreSnapshot) -> CoreTrack? {
+        if let currentEntryID = snapshot.queue.current,
+           snapshot.queue.entries.count == snapshot.queueTracks.count,
+           let index = snapshot.queue.entries.firstIndex(where: { $0.id == currentEntryID }),
+           snapshot.queueTracks.indices.contains(index),
+           snapshot.queue.entries[index].mediaID == snapshot.queueTracks[index].id {
+            return snapshot.queueTracks[index]
+        }
+
+        guard let currentMediaID = snapshot.playback.current else {
+            return nil
+        }
+        return snapshot.library.first(where: { $0.id == currentMediaID })
+            ?? snapshot.queueTracks.first(where: { $0.id == currentMediaID })
     }
 }
