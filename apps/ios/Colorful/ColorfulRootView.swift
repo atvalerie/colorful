@@ -755,11 +755,6 @@ private struct MiniPlayer: View {
         }
         .frame(maxWidth: .infinity)
         .background(.regularMaterial)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(ColorfulTheme.border)
-                .frame(height: 0.5)
-        }
     }
 }
 
