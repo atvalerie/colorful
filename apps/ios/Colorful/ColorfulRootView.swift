@@ -127,11 +127,14 @@ private struct HomeView: View {
                         .font(.system(.caption2, design: .rounded).weight(.bold))
                         .foregroundStyle(ColorfulTheme.accent)
                         .textCase(.uppercase)
-                    Text("Good evening.")
+                    Text(greeting)
                         .font(.system(.headline, design: .rounded).weight(.black))
                         .foregroundStyle(ColorfulTheme.ink)
                 }
                 .fixedSize()
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: {}) {
@@ -139,6 +142,14 @@ private struct HomeView: View {
                 }
                 .accessibilityLabel("Search")
             }
+        }
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12: return "Good morning."
+        case 12..<18: return "Good afternoon."
+        default: return "Good evening."
         }
     }
 
