@@ -10,7 +10,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Desktop shell | Qt Quick/QML under `apps/linux`; shared by Windows | Native SwiftUI shell | P0 |
 | TIDAL authorization | Desktop device link; Android native vertical slice | Device authorization + Keychain | P0 |
 | TIDAL search/catalog/playback | Desktop broad implementation | Search, track, album, artist, playlist, and play | P0 |
-| Home feed | Cross-provider shelves ordered by local listening time | Home tab with the same ordering contract | P1 |
+| Home feed | Cross-provider shelves ordered by local listening time plus provider recommendations | Local rotation and native TIDAL daily/discovery/new-release shelves implemented | P1 |
 | Combined search | Provider-prioritized desktop search | Native search with provider grouping/order | P1 |
 | Queue | Rust/SQLite queue with duplicates, reorder, shuffle, repeat, autoplay | Same core state with iOS sheet UI | P0 |
 | Library/playlists | Rust/SQLite library and Colorful-owned ordered playlists | Same core state and native editing flows | P0 |

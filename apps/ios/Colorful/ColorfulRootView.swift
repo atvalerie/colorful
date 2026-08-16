@@ -130,6 +130,9 @@ private struct HomeView: View {
     @State private var isShowingSearch = false
     @State private var presentsPlayerAfterSearch = false
     @State private var pendingHomePlaybackID: CoreMediaID?
+    @State private var recommendations: TidalRecommendationPage?
+    @State private var recommendationsLoading = false
+    @State private var recommendationsError: String?
 
     var body: some View {
         ScrollView {
@@ -141,6 +144,32 @@ private struct HomeView: View {
                             .foregroundStyle(ColorfulTheme.warning)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(16)
+                    }
+                }
+
+                if account.isLinked {
+                    if recommendationsLoading, recommendations == nil {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Loading your TIDAL mixes…")
+                                .font(.subheadline)
+                                .foregroundStyle(ColorfulTheme.mutedInk)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if let recommendations {
+                        recommendationShelf("Your daily mixes", playlists: recommendations.dailyMixes)
+                        recommendationShelf("Daily discovery", playlists: recommendations.discoveryMixes)
+                        recommendationShelf("New releases for you", playlists: recommendations.newReleaseMixes)
+                    } else if let recommendationsError {
+                        Button {
+                            Task { await loadRecommendations(force: true) }
+                        } label: {
+                            Label("Retry TIDAL recommendations", systemImage: "arrow.clockwise")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(ColorfulTheme.accent)
+                        .accessibilityHint(recommendationsError)
                     }
                 }
 
@@ -266,6 +295,13 @@ private struct HomeView: View {
             self.pendingHomePlaybackID = nil
             onPresentPlayer()
         }
+        .task(id: account.isLinked) {
+            await loadRecommendations(force: false)
+        }
+        .refreshable {
+            await store.refreshFromCore()
+            await loadRecommendations(force: true)
+        }
     }
 
     private var greeting: String {
@@ -290,6 +326,44 @@ private struct HomeView: View {
     private func listeningSummary(_ stats: CoreListenStats) -> String {
         let minutes = max(1, stats.totalListenedMs / 60_000)
         return "\(stats.playCount) qualified plays · \(minutes) min listened"
+    }
+
+    @ViewBuilder
+    private func recommendationShelf(_ title: String, playlists: [TidalPlaylistSummary]) -> some View {
+        if !playlists.isEmpty {
+            HomeSectionHeader(title: title, subtitle: "Recommended by TIDAL")
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(playlists) { playlist in
+                        NavigationLink {
+                            TidalPlaylistCollectionView(
+                                playlist: playlist,
+                                account: account,
+                                store: store,
+                                onPlayCollection: requestPlayback
+                            )
+                        } label: {
+                            TidalRecommendationCard(playlist: playlist)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func loadRecommendations(force: Bool) async {
+        guard account.isLinked, force || recommendations == nil else { return }
+        recommendationsLoading = true
+        recommendationsError = nil
+        do {
+            recommendations = try await account.loadRecommendations()
+        } catch {
+            recommendationsError = error.localizedDescription
+        }
+        recommendationsLoading = false
     }
 }
 
@@ -334,6 +408,31 @@ private struct HomeAlbumCard: View {
         .frame(width: 154, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(album.title), \(album.artistLabel), \(album.playCount) plays")
+    }
+}
+
+private struct TidalRecommendationCard: View {
+    let playlist: TidalPlaylistSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ColorfulAlbumArt(
+                title: playlist.title,
+                accent: 0xFF5C9A,
+                artworkURL: playlist.artworkURL,
+                size: 164
+            )
+            Text(playlist.title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ColorfulTheme.ink)
+                .lineLimit(2)
+            Text("TIDAL")
+                .font(.caption)
+                .foregroundStyle(ColorfulTheme.mutedInk)
+        }
+        .frame(width: 164, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(playlist.title), recommended by TIDAL")
     }
 }
 
@@ -813,6 +912,102 @@ private struct SearchResultRow: View {
                 onPlay([track])
             }
         }
+    }
+}
+
+private struct TidalPlaylistCollectionView: View {
+    let playlist: TidalPlaylistSummary
+    @ObservedObject var account: TidalAccountStore
+    @ObservedObject var store: PlaybackStore
+    let onPlayCollection: ([CoreTrack]) -> Void
+    @State private var collection: TidalPlaylistCollection?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @StateObject private var paletteLoader = ColorfulArtworkPaletteLoader()
+
+    var body: some View {
+        ZStack {
+            ColorfulCollectionBackground(palette: paletteLoader.palette)
+            Group {
+                if isLoading {
+                    ProgressView("Loading mix…")
+                        .tint(ColorfulTheme.accent)
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("Mix unavailable", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("Retry") { Task { await load(force: true) } }
+                    }
+                } else if let collection {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            VStack(spacing: 12) {
+                                ColorfulAlbumArt(
+                                    title: collection.title,
+                                    accent: 0xFF5C9A,
+                                    artworkURL: collection.artworkURL,
+                                    size: 220
+                                )
+                                Text(collection.title)
+                                    .font(.title2.bold())
+                                    .foregroundStyle(ColorfulTheme.ink)
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                if let description = collection.description, !description.isEmpty {
+                                    Text(description)
+                                        .font(.subheadline)
+                                        .foregroundStyle(ColorfulTheme.mutedInk)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(3)
+                                }
+                                Button {
+                                    onPlayCollection(collection.tracks)
+                                } label: {
+                                    Label("Play mix", systemImage: "play.fill")
+                                        .font(.headline)
+                                        .foregroundStyle(paletteLoader.palette.primaryForegroundColor)
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, 11)
+                                        .background(paletteLoader.palette.primaryColor, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(collection.tracks.isEmpty)
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            LazyVStack(spacing: 10) {
+                                ForEach(collection.tracks) { track in
+                                    TrackRow(track: track, store: store) {
+                                        onPlayCollection([track])
+                                    }
+                                }
+                            }
+                        }
+                        .padding(16)
+                    }
+                }
+            }
+        }
+        .navigationTitle(collection?.title ?? playlist.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load(force: false) }
+        .task(id: collection?.artworkURL) {
+            paletteLoader.load(for: collection?.artworkURL)
+        }
+    }
+
+    private func load(force: Bool) async {
+        guard force || collection == nil else { return }
+        isLoading = true
+        errorMessage = nil
+        do {
+            collection = try await account.loadPlaylist(playlistID: playlist.id, core: store.core)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
     }
 }
 

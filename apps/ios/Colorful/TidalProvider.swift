@@ -190,6 +190,44 @@ struct TidalArtistSummary: Identifiable, Hashable, Sendable {
     let artworkURL: String?
 }
 
+struct TidalPlaylistSummary: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let description: String?
+    let artworkURL: String?
+}
+
+struct TidalRecommendationPage: Sendable {
+    let dailyMixes: [TidalPlaylistSummary]
+    let discoveryMixes: [TidalPlaylistSummary]
+    let newReleaseMixes: [TidalPlaylistSummary]
+
+    var isEmpty: Bool {
+        dailyMixes.isEmpty && discoveryMixes.isEmpty && newReleaseMixes.isEmpty
+    }
+}
+
+struct TidalPlaylistPage: Sendable {
+    let id: String
+    let title: String
+    let description: String?
+    let artworkURL: String?
+    let tracksDocument: String
+}
+
+struct TidalPlaylistCollection: Sendable {
+    let id: String
+    let title: String
+    let description: String?
+    let artworkURL: String?
+    let tracks: [CoreTrack]
+}
+
+struct TidalUserCatalogResolution<Value: Sendable>: Sendable {
+    let value: Value
+    let refreshToken: String
+}
+
 struct TidalCatalogSearchResults: Sendable {
     let tracks: [CoreTrack]
     let albums: [TidalAlbumSummary]
@@ -433,6 +471,51 @@ actor TidalClient {
         }
     }
 
+    func recommendations(
+        countryCode: String,
+        refreshToken: String
+    ) async throws -> TidalUserCatalogResolution<TidalRecommendationPage> {
+        try await withUserCatalog(refreshToken: refreshToken) { token in
+            try await self.fetchRecommendations(countryCode: countryCode, accessToken: token)
+        }
+    }
+
+    func playlistPage(
+        playlistID: String,
+        countryCode: String,
+        refreshToken: String
+    ) async throws -> TidalUserCatalogResolution<TidalPlaylistPage> {
+        let cleaned = playlistID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { throw TidalClientError.missingValue("playlist ID") }
+        return try await withUserCatalog(refreshToken: refreshToken) { token in
+            try await self.fetchPlaylistPage(
+                playlistID: cleaned,
+                countryCode: countryCode,
+                accessToken: token
+            )
+        }
+    }
+
+    private func withUserCatalog<Value: Sendable>(
+        refreshToken: String,
+        operation: (String) async throws -> Value
+    ) async throws -> TidalUserCatalogResolution<Value> {
+        let token = try await userAccessToken(refreshToken: refreshToken, force: false)
+        do {
+            return TidalUserCatalogResolution(
+                value: try await operation(token.accessToken),
+                refreshToken: token.refreshToken
+            )
+        } catch let error as TidalClientError {
+            guard case .http(let status, _) = error, status == 401 else { throw error }
+            let refreshed = try await userAccessToken(refreshToken: token.refreshToken, force: true)
+            return TidalUserCatalogResolution(
+                value: try await operation(refreshed.accessToken),
+                refreshToken: refreshed.refreshToken
+            )
+        }
+    }
+
     private func browseAccessToken(force: Bool) async throws -> String {
         if !force, let browseAccessToken, nowMs < browseTokenExpiresAtMs - 30_000 {
             return browseAccessToken
@@ -659,6 +742,87 @@ actor TidalClient {
         )
     }
 
+    private func fetchRecommendations(
+        countryCode: String,
+        accessToken: String
+    ) async throws -> TidalRecommendationPage {
+        let country = countryCode.uppercased().range(of: "^[A-Z]{2}$", options: .regularExpression) != nil
+            ? countryCode.uppercased() : configuration.countryCode
+        let headers = [
+            "Authorization": "Bearer \(accessToken)",
+            "Accept": "application/vnd.api+json",
+        ]
+        func relationshipURL(_ relationship: String) throws -> URL {
+            try makeURL(
+                base: configuration.apiBaseURL,
+                path: "userRecommendations/me/relationships/\(relationship)",
+                query: [
+                    URLQueryItem(name: "include", value: relationship),
+                    URLQueryItem(name: "locale", value: "en-US"),
+                    URLQueryItem(name: "page[limit]", value: "20"),
+                    URLQueryItem(name: "countryCode", value: country),
+                ]
+            )
+        }
+        async let dailyData = optionalRequest(try relationshipURL("myMixes"), headers: headers)
+        async let discoveryData = optionalRequest(try relationshipURL("discoveryMixes"), headers: headers)
+        async let releasesData = optionalRequest(try relationshipURL("newArrivalMixes"), headers: headers)
+        let responses = await (dailyData, discoveryData, releasesData)
+        guard responses.0 != nil || responses.1 != nil || responses.2 != nil else {
+            throw TidalClientError.invalidResponse("TIDAL did not return personalized recommendations.")
+        }
+        return TidalRecommendationPage(
+            dailyMixes: responses.0.flatMap { try? playlistSummaries(from: $0) } ?? [],
+            discoveryMixes: responses.1.flatMap { try? playlistSummaries(from: $0) } ?? [],
+            newReleaseMixes: responses.2.flatMap { try? playlistSummaries(from: $0) } ?? []
+        )
+    }
+
+    private func fetchPlaylistPage(
+        playlistID: String,
+        countryCode: String,
+        accessToken: String
+    ) async throws -> TidalPlaylistPage {
+        let country = countryCode.uppercased().range(of: "^[A-Z]{2}$", options: .regularExpression) != nil
+            ? countryCode.uppercased() : configuration.countryCode
+        let encodedID = playlistID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlistID
+        let headers = [
+            "Authorization": "Bearer \(accessToken)",
+            "Accept": "application/vnd.api+json",
+        ]
+        let metadataURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "playlists/\(encodedID)",
+            query: [
+                URLQueryItem(name: "include", value: "coverArt"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let tracksURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "playlists/\(encodedID)/relationships/items",
+            query: [
+                URLQueryItem(name: "include", value: "items,items.albums,items.artists,items.albums.coverArt"),
+                URLQueryItem(name: "page[limit]", value: "50"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        async let metadataData = request(metadataURL, headers: headers)
+        async let tracksData = request(tracksURL, headers: headers)
+        let (metadata, tracks) = try await (metadataData, tracksData)
+        let summaries = try playlistSummaries(from: metadata)
+        guard let playlist = summaries.first else {
+            throw TidalClientError.invalidResponse("TIDAL returned an incomplete playlist.")
+        }
+        return TidalPlaylistPage(
+            id: playlist.id,
+            title: playlist.title,
+            description: playlist.description,
+            artworkURL: playlist.artworkURL,
+            tracksDocument: String(data: tracks, encoding: .utf8) ?? "{\"data\":[]}"
+        )
+    }
+
     private func albumSummaries(from data: Data) throws -> [TidalAlbumSummary] {
         let document = try object(from: data)
         let primary = document["data"] as? [[String: Any]] ?? []
@@ -721,6 +885,41 @@ actor TidalClient {
                 id: id,
                 name: string(attributes, key: "name").ifBlank { "Unknown artist" },
                 artworkURL: profileArt
+            )
+        }
+    }
+
+    private func playlistSummaries(from data: Data) throws -> [TidalPlaylistSummary] {
+        let document = try object(from: data)
+        let primaryObject = document["data"] as? [String: Any]
+        let primary = (document["data"] as? [[String: Any]]) ?? primaryObject.map { [$0] } ?? []
+        let included = document["included"] as? [[String: Any]] ?? []
+        var resources = [String: [String: Any]]()
+        for resource in primary + included {
+            guard let type = resource["type"] as? String,
+                  let id = resource["id"] as? String else { continue }
+            resources["\(type):\(id)"] = resource
+        }
+        var seen = Set<String>()
+        return primary.compactMap { reference in
+            guard let id = reference["id"] as? String,
+                  seen.insert(id).inserted else { return nil }
+            let playlist = (reference["attributes"] as? [String: Any]) == nil
+                ? resources["playlists:\(id)"]
+                : reference
+            guard let playlist,
+                  let attributes = playlist["attributes"] as? [String: Any] else { return nil }
+            let cover = relationshipIDs(playlist, name: "coverArt").compactMap { artworkID in
+                resources["artworks:\(artworkID)"]
+            }.compactMap(artworkURL).first ?? imageLinkURL(attributes)
+            let description = string(attributes, key: "description").ifBlankOptional
+            return TidalPlaylistSummary(
+                id: id,
+                title: string(attributes, key: "name").ifBlank {
+                    string(attributes, key: "title").ifBlank { "TIDAL mix" }
+                },
+                description: description,
+                artworkURL: cover
             )
         }
     }
@@ -1073,6 +1272,60 @@ final class TidalAccountStore: ObservableObject {
             artworkURL: page.artworkURL,
             topTracks: tracks,
             albums: page.albums
+        )
+    }
+
+    func loadRecommendations() async throws -> TidalRecommendationPage {
+        guard let refreshToken = try? keychain.readString(forKey: Self.refreshTokenKey) else {
+            throw TidalClientError.invalidResponse("Connect TIDAL to load recommendations.")
+        }
+        let resolution = try await client.recommendations(
+            countryCode: countryCode,
+            refreshToken: refreshToken
+        )
+        if resolution.refreshToken != refreshToken {
+            try keychain.writeString(resolution.refreshToken, forKey: Self.refreshTokenKey)
+        }
+        return resolution.value
+    }
+
+    func loadPlaylist(playlistID: String, core: ColorfulCoreBridge) async throws -> TidalPlaylistCollection {
+        guard let refreshToken = try? keychain.readString(forKey: Self.refreshTokenKey) else {
+            throw TidalClientError.invalidResponse("Connect TIDAL to open this playlist.")
+        }
+        let resolution = try await client.playlistPage(
+            playlistID: playlistID,
+            countryCode: countryCode,
+            refreshToken: refreshToken
+        )
+        if resolution.refreshToken != refreshToken {
+            try keychain.writeString(resolution.refreshToken, forKey: Self.refreshTokenKey)
+        }
+        let page = resolution.value
+        let playlistArtwork = page.artworkURL.map {
+            CoreArtwork(url: $0, localKey: nil, width: nil, height: nil)
+        }
+        let mappedTracks = try await core.mapTidalTracks(documentJSON: page.tracksDocument)
+        let tracks = mappedTracks.map { track in
+            CoreTrack(
+                id: track.id,
+                title: track.title,
+                version: track.version,
+                artists: track.artists,
+                albumID: track.albumID,
+                albumTitle: track.albumTitle,
+                artwork: track.artwork ?? playlistArtwork,
+                durationMs: track.durationMs,
+                isrc: track.isrc,
+                explicit: track.explicit
+            )
+        }
+        return TidalPlaylistCollection(
+            id: page.id,
+            title: page.title,
+            description: page.description,
+            artworkURL: page.artworkURL,
+            tracks: tracks
         )
     }
 
