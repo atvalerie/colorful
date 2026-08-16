@@ -764,9 +764,12 @@ actor TidalClient {
                 ]
             )
         }
-        async let dailyData = optionalRequest(try relationshipURL("myMixes"), headers: headers)
-        async let discoveryData = optionalRequest(try relationshipURL("discoveryMixes"), headers: headers)
-        async let releasesData = optionalRequest(try relationshipURL("newArrivalMixes"), headers: headers)
+        let dailyURL = try relationshipURL("myMixes")
+        let discoveryURL = try relationshipURL("discoveryMixes")
+        let releasesURL = try relationshipURL("newArrivalMixes")
+        async let dailyData = optionalRequest(dailyURL, headers: headers)
+        async let discoveryData = optionalRequest(discoveryURL, headers: headers)
+        async let releasesData = optionalRequest(releasesURL, headers: headers)
         let responses = await (dailyData, discoveryData, releasesData)
         guard responses.0 != nil || responses.1 != nil || responses.2 != nil else {
             throw TidalClientError.invalidResponse("TIDAL did not return personalized recommendations.")
