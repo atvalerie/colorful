@@ -19,7 +19,7 @@ struct ColorfulRootView: View {
             NavigationStack {
                 HomeView(store: store, account: account)
             }
-            .safeAreaInset(edge: .bottom, spacing: 8) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
             .tabItem { Label(ColorfulTab.home.title, systemImage: ColorfulTab.home.symbol) }
@@ -28,7 +28,7 @@ struct ColorfulRootView: View {
             NavigationStack {
                 LibraryView(store: store)
             }
-            .safeAreaInset(edge: .bottom, spacing: 8) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
             .tabItem { Label(ColorfulTab.library.title, systemImage: ColorfulTab.library.symbol) }
@@ -37,7 +37,7 @@ struct ColorfulRootView: View {
             NavigationStack {
                 OfflineView()
             }
-            .safeAreaInset(edge: .bottom, spacing: 8) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
             .tabItem { Label(ColorfulTab.offline.title, systemImage: ColorfulTab.offline.symbol) }
@@ -46,7 +46,7 @@ struct ColorfulRootView: View {
             NavigationStack {
                 SettingsView(store: store, account: account)
             }
-            .safeAreaInset(edge: .bottom, spacing: 8) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
             .tabItem { Label(ColorfulTab.settings.title, systemImage: ColorfulTab.settings.symbol) }
@@ -107,14 +107,16 @@ struct ColorfulRootView: View {
             MiniPlayer(
                 track: track,
                 isPlaying: store.effectiveIsPlaying,
-                isBuffering: playbackService.isBuffering
+                isBuffering: playbackService.isBuffering,
+                positionMs: store.positionMs,
+                canSkipNext: store.canSkipNext
             ) {
                 playbackService.togglePlayback()
+            } onNext: {
+                playbackService.skipNext()
             } onExpand: {
                 isShowingPlayer = true
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 4)
         }
     }
 }
@@ -679,50 +681,85 @@ private struct MiniPlayer: View {
     let track: CoreTrack
     let isPlaying: Bool
     let isBuffering: Bool
+    let positionMs: UInt64
+    let canSkipNext: Bool
     let onPlayPause: () -> Void
+    let onNext: () -> Void
     let onExpand: () -> Void
 
+    private var progress: Double {
+        guard let durationMs = track.durationMs, durationMs > 0 else { return 0 }
+        return min(max(Double(positionMs) / Double(durationMs), 0), 1)
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onExpand) {
-                HStack(spacing: 10) {
-                    ColorfulAlbumArt(
-                        title: track.title,
-                        accent: track.accent,
-                        artworkURL: track.artwork?.url,
-                        size: 40
-                    )
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(track.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(ColorfulTheme.ink)
-                            .lineLimit(1)
-                        Text(track.compactArtistLabel)
-                            .font(.caption)
-                            .foregroundStyle(ColorfulTheme.mutedInk)
-                            .lineLimit(1)
-                    }
+        VStack(spacing: 0) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    ColorfulTheme.border
+                    ColorfulTheme.ink.opacity(0.82)
+                        .frame(width: proxy.size.width * CGFloat(progress))
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open player for \(track.title)")
-            Spacer(minLength: 0)
-            Button(action: onPlayPause) {
-                Group {
-                    if isBuffering {
-                        ProgressView().tint(ColorfulTheme.ink)
-                    } else {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.headline)
-                            .foregroundStyle(ColorfulTheme.ink)
+            .frame(height: 2)
+            .accessibilityHidden(true)
+
+            HStack(spacing: 10) {
+                Button(action: onExpand) {
+                    HStack(spacing: 10) {
+                        ColorfulAlbumArt(
+                            title: track.title,
+                            accent: track.accent,
+                            artworkURL: track.artwork?.url,
+                            size: 44
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(track.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(ColorfulTheme.ink)
+                                .lineLimit(1)
+                            Text(track.compactArtistLabel)
+                                .font(.caption)
+                                .foregroundStyle(ColorfulTheme.mutedInk)
+                                .lineLimit(1)
+                        }
                     }
                 }
-                .frame(width: 44, height: 44)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open player for \(track.title)")
+                Spacer(minLength: 0)
+                Button(action: onPlayPause) {
+                    Group {
+                        if isBuffering {
+                            ProgressView().tint(ColorfulTheme.ink)
+                        } else {
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(ColorfulTheme.ink)
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(isBuffering ? "Buffering, pause playback" : (isPlaying ? "Pause" : "Play"))
+                Button(action: onNext) {
+                    Image(systemName: "forward.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ColorfulTheme.ink.opacity(canSkipNext ? 1 : 0.32))
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(!canSkipNext)
+                .accessibilityLabel("Next")
             }
-            .accessibilityLabel(isBuffering ? "Buffering, pause playback" : (isPlaying ? "Pause" : "Play"))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
         }
-        .padding(8)
-        .colorfulNativeGlass()
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(ColorfulTheme.border)
+                .frame(height: 0.5)
+        }
     }
 }
 
@@ -818,7 +855,7 @@ private struct FullPlayer: View {
                             artworkURL: track.artwork?.url,
                             size: 280
                         )
-                        .padding(.top, 28)
+                        .padding(.top, 108)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(track.title)
