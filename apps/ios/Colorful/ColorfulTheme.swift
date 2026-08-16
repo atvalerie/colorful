@@ -278,6 +278,22 @@ struct ColorfulArtworkBackground: View {
     }
 }
 
+struct ColorfulCollectionBackground: View {
+    let palette: ColorfulPalette
+
+    var body: some View {
+        ZStack {
+            ColorfulTheme.background
+            LinearGradient(
+                colors: [palette.primaryColor.opacity(0.20), .clear],
+                startPoint: .top,
+                endPoint: UnitPoint(x: 0.5, y: 0.48)
+            )
+        }
+        .ignoresSafeArea()
+    }
+}
+
 struct ColorfulNativeGlass: ViewModifier {
     func body(content: Content) -> some View {
         content

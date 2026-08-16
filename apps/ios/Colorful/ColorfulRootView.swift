@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 struct ColorfulRootView: View {
@@ -81,12 +82,17 @@ struct ColorfulRootView: View {
                     positionMs: store.positionMs,
                     shuffleEnabled: store.isShuffleEnabled,
                     repeatMode: store.repeatMode,
+                    canSkipPrevious: store.canSkipPrevious,
+                    canSkipNext: store.canSkipNext,
+                    isBuffering: playbackService.isBuffering,
+                    playbackError: playbackService.errorMessage,
                     onSeek: { playbackService.seek(to: $0) },
                     onPrevious: { playbackService.skipPrevious() },
                     onPlayPause: { playbackService.togglePlayback() },
                     onNext: { playbackService.skipNext() },
                     onShuffle: { store.toggleShuffle() },
-                    onRepeat: { store.cycleRepeat() }
+                    onRepeat: { store.cycleRepeat() },
+                    onRetry: { playbackService.retryCurrentTrack() }
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
@@ -97,7 +103,11 @@ struct ColorfulRootView: View {
     @ViewBuilder
     private var miniPlayerInset: some View {
         if let track = store.currentTrack {
-            MiniPlayer(track: track, isPlaying: store.effectiveIsPlaying) {
+            MiniPlayer(
+                track: track,
+                isPlaying: store.effectiveIsPlaying,
+                isBuffering: playbackService.isBuffering
+            ) {
                 playbackService.togglePlayback()
             } onExpand: {
                 isShowingPlayer = true
@@ -161,6 +171,8 @@ private struct HomeView: View {
                                 store.play(item.element)
                             } enqueue: {
                                 store.enqueue(item.element)
+                            } playNext: {
+                                store.playNext(item.element)
                             }
                         }
                     }
@@ -253,6 +265,7 @@ private struct TrackRow: View {
     let track: CoreTrack
     let play: () -> Void
     let enqueue: () -> Void
+    let playNext: () -> Void
 
     var body: some View {
         Button(action: play) {
@@ -261,6 +274,7 @@ private struct TrackRow: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button("Play", systemImage: "play.fill") { play() }
+            Button("Play next", systemImage: "text.insert") { playNext() }
             Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue() }
         }
     }
@@ -409,6 +423,9 @@ private struct SearchResultRow: View {
             .buttonStyle(.plain)
             .contextMenu {
                 Button("Play", systemImage: "play.fill") { onPlay(track) }
+                Button("Play next", systemImage: "text.insert") {
+                    store.playNext(track)
+                }
                 Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") {
                     store.enqueue(track)
                 }
@@ -418,6 +435,8 @@ private struct SearchResultRow: View {
                 onPlay(track)
             } enqueue: {
                 store.enqueue(track)
+            } playNext: {
+                store.playNext(track)
             }
         }
     }
@@ -430,53 +449,61 @@ private struct AlbumCollectionView: View {
     @State private var collection: TidalAlbumCollection?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @StateObject private var paletteLoader = ColorfulArtworkPaletteLoader()
 
     var body: some View {
-        Group {
-            if isLoading {
-                ProgressView("Loading album…")
-                    .tint(ColorfulTheme.accent)
-            } else if let errorMessage {
-                ContentUnavailableView {
-                    Label("Album unavailable", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(errorMessage)
-                }
-            } else if let collection {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ColorfulAlbumArt(
-                                title: collection.title,
-                                accent: 0xFF5C9A,
-                                artworkURL: collection.artworkURL,
-                                size: 220
-                            )
-                            Text(collection.title)
-                                .font(.title2.weight(.bold))
-                                .foregroundStyle(ColorfulTheme.ink)
-                            Text(collection.artistLabel)
-                                .font(.subheadline)
-                                .foregroundStyle(ColorfulTheme.mutedInk)
-                            Button("Play album", systemImage: "play.fill") {
-                                store.playTracks(collection.tracks)
+        ZStack {
+            ColorfulCollectionBackground(palette: paletteLoader.palette)
+            Group {
+                if isLoading {
+                    ProgressView("Loading album…")
+                        .tint(ColorfulTheme.accent)
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("Album unavailable", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    }
+                } else if let collection {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ColorfulAlbumArt(
+                                    title: collection.title,
+                                    accent: 0xFF5C9A,
+                                    artworkURL: collection.artworkURL,
+                                    size: 220
+                                )
+                                Text(collection.title)
+                                    .font(.title2.weight(.bold))
+                                    .foregroundStyle(ColorfulTheme.ink)
+                                    .lineLimit(2)
+                                Text(collection.artistLabel)
+                                    .font(.subheadline)
+                                    .foregroundStyle(ColorfulTheme.mutedInk)
+                                    .lineLimit(2)
+                                Button("Play album", systemImage: "play.fill") {
+                                    store.playTracks(collection.tracks)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(paletteLoader.palette.primaryColor)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(ColorfulTheme.accent)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                        LazyVStack(spacing: 10) {
-                            ForEach(collection.tracks) { track in
-                                TrackRow(track: track) {
-                                    store.play(track)
-                                } enqueue: {
-                                    store.enqueue(track)
+                            LazyVStack(spacing: 10) {
+                                ForEach(collection.tracks) { track in
+                                    TrackRow(track: track) {
+                                        store.play(track)
+                                    } enqueue: {
+                                        store.enqueue(track)
+                                    } playNext: {
+                                        store.playNext(track)
+                                    }
                                 }
                             }
                         }
+                        .padding(16)
                     }
-                    .padding(16)
                 }
             }
         }
@@ -486,6 +513,9 @@ private struct AlbumCollectionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await load()
+        }
+        .task(id: collection?.artworkURL) {
+            paletteLoader.load(for: collection?.artworkURL)
         }
     }
 
@@ -512,6 +542,8 @@ private struct LibraryView: View {
                             store.play(track)
                         } enqueue: {
                             store.enqueue(track)
+                        } playNext: {
+                            store.playNext(track)
                         }
                         .listRowBackground(ColorfulTheme.surface)
                     }
@@ -531,6 +563,8 @@ private struct LibraryView: View {
                             store.play(item.element)
                         } enqueue: {
                             store.enqueue(item.element)
+                        } playNext: {
+                            store.playNext(item.element)
                         }
                         .listRowBackground(ColorfulTheme.surface)
                     }
@@ -634,6 +668,7 @@ private struct SettingsView: View {
 private struct MiniPlayer: View {
     let track: CoreTrack
     let isPlaying: Bool
+    let isBuffering: Bool
     let onPlayPause: () -> Void
     let onExpand: () -> Void
 
@@ -663,12 +698,18 @@ private struct MiniPlayer: View {
             .accessibilityLabel("Open player for \(track.title)")
             Spacer(minLength: 0)
             Button(action: onPlayPause) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.headline)
-                    .foregroundStyle(ColorfulTheme.ink)
-                    .frame(width: 44, height: 44)
+                Group {
+                    if isBuffering {
+                        ProgressView().tint(ColorfulTheme.ink)
+                    } else {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.headline)
+                            .foregroundStyle(ColorfulTheme.ink)
+                    }
+                }
+                .frame(width: 44, height: 44)
             }
-            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(isBuffering ? "Buffering, pause playback" : (isPlaying ? "Pause" : "Play"))
         }
         .padding(8)
         .colorfulNativeGlass()
@@ -682,12 +723,17 @@ private struct FullPlayer: View {
     let positionMs: UInt64
     let shuffleEnabled: Bool
     let repeatMode: CoreRepeatMode
+    let canSkipPrevious: Bool
+    let canSkipNext: Bool
+    let isBuffering: Bool
+    let playbackError: String?
     let onSeek: (UInt64) -> Void
     let onPrevious: () -> Void
     let onPlayPause: () -> Void
     let onNext: () -> Void
     let onShuffle: () -> Void
     let onRepeat: () -> Void
+    let onRetry: () -> Void
     @StateObject private var paletteLoader: ColorfulArtworkPaletteLoader
     @State private var scrubPosition = 0.0
     @State private var isScrubbing = false
@@ -700,12 +746,17 @@ private struct FullPlayer: View {
         positionMs: UInt64,
         shuffleEnabled: Bool,
         repeatMode: CoreRepeatMode,
+        canSkipPrevious: Bool,
+        canSkipNext: Bool,
+        isBuffering: Bool,
+        playbackError: String?,
         onSeek: @escaping (UInt64) -> Void,
         onPrevious: @escaping () -> Void,
         onPlayPause: @escaping () -> Void,
         onNext: @escaping () -> Void,
         onShuffle: @escaping () -> Void,
-        onRepeat: @escaping () -> Void
+        onRepeat: @escaping () -> Void,
+        onRetry: @escaping () -> Void
     ) {
         self.store = store
         self.track = track
@@ -713,12 +764,17 @@ private struct FullPlayer: View {
         self.positionMs = positionMs
         self.shuffleEnabled = shuffleEnabled
         self.repeatMode = repeatMode
+        self.canSkipPrevious = canSkipPrevious
+        self.canSkipNext = canSkipNext
+        self.isBuffering = isBuffering
+        self.playbackError = playbackError
         self.onSeek = onSeek
         self.onPrevious = onPrevious
         self.onPlayPause = onPlayPause
         self.onNext = onNext
         self.onShuffle = onShuffle
         self.onRepeat = onRepeat
+        self.onRetry = onRetry
         _paletteLoader = StateObject(wrappedValue: ColorfulArtworkPaletteLoader())
     }
 
@@ -727,82 +783,157 @@ private struct FullPlayer: View {
     }
 
     private var elapsedLabel: String {
-        let totalSeconds = Int(positionMs / 1_000)
+        let totalSeconds = Int(isScrubbing ? scrubPosition : Double(positionMs) / 1_000)
         return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
 
+    private var remainingLabel: String {
+        let currentSeconds = isScrubbing ? scrubPosition : Double(positionMs) / 1_000
+        let remaining = max(0, Int(durationSeconds - currentSeconds))
+        return String(format: "-%d:%02d", remaining / 60, remaining % 60)
+    }
+
     var body: some View {
-        ZStack {
-            ColorfulArtworkBackground(palette: paletteLoader.palette, image: paletteLoader.image)
-            VStack(spacing: 28) {
-                ColorfulAlbumArt(
-                    title: track.title,
-                    accent: track.accent,
-                    artworkURL: track.artwork?.url,
-                    size: 280
-                )
-                VStack(spacing: 6) {
-                    Text(track.title)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(ColorfulTheme.ink)
-                    Text("\(track.compactArtistLabel) · \(track.albumLabel)")
-                        .font(.subheadline)
-                        .foregroundStyle(ColorfulTheme.mutedInk)
-                }
-                Slider(
-                    value: $scrubPosition,
-                    in: 0...durationSeconds,
-                    onEditingChanged: { editing in
-                        isScrubbing = editing
-                        if !editing {
-                            onSeek(UInt64(scrubPosition * 1_000))
+        GeometryReader { proxy in
+            ZStack {
+                ColorfulArtworkBackground(palette: paletteLoader.palette, image: paletteLoader.image)
+                ScrollView {
+                    VStack(spacing: 22) {
+                        ColorfulAlbumArt(
+                            title: track.title,
+                            accent: track.accent,
+                            artworkURL: track.artwork?.url,
+                            size: artworkSize(in: proxy.size)
+                        )
+                        .padding(.top, 8)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(track.title)
+                                .font(.title2.weight(.bold))
+                                .foregroundStyle(ColorfulTheme.ink)
+                                .lineLimit(2)
+                            Text(track.compactArtistLabel)
+                                .font(.body)
+                                .foregroundStyle(ColorfulTheme.ink.opacity(0.78))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            if track.albumLabel != "Single" {
+                                Text(track.albumLabel)
+                                    .font(.caption)
+                                    .foregroundStyle(ColorfulTheme.mutedInk)
+                                    .lineLimit(1)
+                            }
                         }
-                    }
-                )
-                .tint(ColorfulTheme.accent)
-                .onAppear {
-                    scrubPosition = min(Double(positionMs) / 1_000, durationSeconds)
-                }
-                .onChange(of: positionMs) { _, newPosition in
-                    guard !isScrubbing else { return }
-                    scrubPosition = min(Double(newPosition) / 1_000, durationSeconds)
-                }
-                HStack {
-                    Text(elapsedLabel)
-                    Spacer()
-                    Text(track.durationLabel)
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(ColorfulTheme.mutedInk)
-                HStack(spacing: 28) {
-                    Button(action: onShuffle) {
-                        Image(systemName: shuffleEnabled ? "shuffle.circle.fill" : "shuffle")
-                    }
-                    .accessibilityLabel(shuffleEnabled ? "Disable shuffle" : "Enable shuffle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Button { isShowingQueue = true } label: {
-                        Image(systemName: "list.bullet")
-                    }
-                    .accessibilityLabel("Open queue")
+                        VStack(spacing: 2) {
+                            Slider(
+                                value: $scrubPosition,
+                                in: 0...durationSeconds,
+                                onEditingChanged: { editing in
+                                    isScrubbing = editing
+                                    if !editing {
+                                        onSeek(UInt64(scrubPosition * 1_000))
+                                    }
+                                }
+                            )
+                            .tint(paletteLoader.palette.primaryColor)
+                            HStack {
+                                Text(elapsedLabel)
+                                Spacer()
+                                Text(remainingLabel)
+                            }
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(ColorfulTheme.ink.opacity(0.62))
+                        }
+                        .onAppear {
+                            scrubPosition = min(Double(positionMs) / 1_000, durationSeconds)
+                        }
+                        .onChange(of: positionMs) { _, newPosition in
+                            guard !isScrubbing else { return }
+                            scrubPosition = min(Double(newPosition) / 1_000, durationSeconds)
+                        }
 
-                    Button(action: onRepeat) {
-                        Image(systemName: repeatMode.symbol)
+                        HStack {
+                            transportButton(
+                                symbol: "backward.fill",
+                                label: "Previous",
+                                enabled: canSkipPrevious,
+                                action: onPrevious
+                            )
+                            Spacer()
+                            Button(action: onPlayPause) {
+                                ZStack {
+                                    Circle().fill(ColorfulTheme.ink)
+                                    if isBuffering {
+                                        ProgressView().tint(.black)
+                                    } else {
+                                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                            .font(.system(size: 25, weight: .bold))
+                                            .foregroundStyle(.black)
+                                            .offset(x: isPlaying ? 0 : 1)
+                                    }
+                                }
+                                .frame(width: 66, height: 66)
+                            }
+                            .accessibilityLabel(isBuffering ? "Buffering, pause playback" : (isPlaying ? "Pause" : "Play"))
+                            Spacer()
+                            transportButton(
+                                symbol: "forward.fill",
+                                label: "Next",
+                                enabled: canSkipNext,
+                                action: onNext
+                            )
+                        }
+                        .padding(.horizontal, 22)
+
+                        if let playbackError {
+                            HStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                Text(playbackError)
+                                    .font(.footnote)
+                                    .lineLimit(2)
+                                Spacer(minLength: 4)
+                                Button("Retry", action: onRetry)
+                                    .font(.footnote.weight(.semibold))
+                            }
+                            .foregroundStyle(ColorfulTheme.ink)
+                            .padding(12)
+                            .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10))
+                        }
+
+                        HStack {
+                            utilityButton(
+                                symbol: shuffleEnabled ? "shuffle.circle.fill" : "shuffle",
+                                label: shuffleEnabled ? "Disable shuffle" : "Enable shuffle",
+                                active: shuffleEnabled,
+                                action: onShuffle
+                            )
+                            Spacer()
+                            IOSRoutePicker()
+                                .frame(width: 48, height: 48)
+                            Spacer()
+                            utilityButton(
+                                symbol: "list.bullet",
+                                label: "Open queue",
+                                action: { isShowingQueue = true }
+                            )
+                            Spacer()
+                            utilityButton(
+                                symbol: repeatMode.symbol,
+                                label: repeatMode.label,
+                                active: repeatMode != .off,
+                                action: onRepeat
+                            )
+                        }
+                        .padding(.horizontal, 8)
                     }
-                    .accessibilityLabel(repeatMode.label)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
+                    .frame(minHeight: proxy.size.height)
                 }
-                .font(.title3)
-                .foregroundStyle(ColorfulTheme.mutedInk)
-                HStack(spacing: 34) {
-                    Button(action: onPrevious) { Image(systemName: "backward.fill") }
-                    Button(action: onPlayPause) {
-                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 58))
-                    }
-                    Button(action: onNext) { Image(systemName: "forward.fill") }
-                }
-                .foregroundStyle(ColorfulTheme.ink)
+                .scrollIndicators(.hidden)
             }
-            .padding(24)
         }
         .task(id: track.artwork?.url) {
             paletteLoader.load(for: track.artwork?.url)
@@ -814,6 +945,55 @@ private struct FullPlayer: View {
                 .presentationBackground(ColorfulTheme.background)
         }
     }
+
+    private func artworkSize(in size: CGSize) -> CGFloat {
+        min(max(190, size.height * 0.37), min(340, size.width - 64))
+    }
+
+    private func transportButton(
+        symbol: String,
+        label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 30, weight: .semibold))
+                .frame(width: 56, height: 56)
+        }
+        .foregroundStyle(ColorfulTheme.ink)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.32)
+        .accessibilityLabel(label)
+    }
+
+    private func utilityButton(
+        symbol: String,
+        label: String,
+        active: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .frame(width: 48, height: 48)
+        }
+        .foregroundStyle(active ? paletteLoader.palette.primaryColor : ColorfulTheme.ink.opacity(0.72))
+        .accessibilityLabel(label)
+    }
+}
+
+private struct IOSRoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.tintColor = .white
+        picker.activeTintColor = UIColor(ColorfulTheme.accent)
+        picker.prioritizesVideoDevices = false
+        picker.accessibilityLabel = "Choose audio output"
+        return picker
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 
 private struct QueueView: View {
@@ -850,7 +1030,7 @@ private struct QueueView: View {
                             .foregroundStyle(ColorfulTheme.mutedInk)
                         }
 
-                        Section("Tracks") {
+                        Section {
                             ForEach(store.queueItems) { item in
                                 Button {
                                     store.selectQueueEntry(item.entry.id)
@@ -878,9 +1058,15 @@ private struct QueueView: View {
                                 let target = destination > source ? destination - 1 : destination
                                 store.moveQueueEntry(store.queueItems[source].entry.id, to: target)
                             }
+                        } header: {
+                            Text("Queue order")
+                        } footer: {
+                            if store.isShuffleEnabled {
+                                Text("Reordering changes the saved queue order. The current shuffled play order stays active until shuffle is turned off.")
+                            }
                         }
                     }
-                    .listStyle(.insetGrouped)
+                    .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                 }
             }

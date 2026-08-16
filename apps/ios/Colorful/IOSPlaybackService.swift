@@ -6,6 +6,7 @@ import UIKit
 @MainActor
 final class IOSPlaybackService: NSObject, ObservableObject {
     @Published private(set) var errorMessage: String?
+    @Published private(set) var isBuffering = false
 
     private let store: PlaybackStore
     private let account: TidalAccountStore
@@ -15,9 +16,11 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var timeObserver: Any?
     private var sourceTask: Task<Void, Never>?
     private var activeTrackID: CoreMediaID?
+    private var activeQueueEntryID: UInt64?
     private var lastCheckpointMs: UInt64 = 0
     private var artworkTask: Task<Void, Never>?
     private var loadedArtworkURL: String?
+    private var wasPlayingBeforeInterruption = false
     private var hasStarted = false
 
     init(store: PlaybackStore, account: TidalAccountStore) {
@@ -29,7 +32,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
-        configureAudioSession()
+        configureAudioSession(activate: false)
         installRemoteCommands()
         installNotifications()
 
@@ -38,6 +41,13 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             .store(in: &cancellables)
         store.$isPlaying
             .sink { [weak self] _ in self?.applyPlaybackState() }
+            .store(in: &cancellables)
+        player.publisher(for: \.timeControlStatus)
+            .sink { [weak self] status in
+                guard let self else { return }
+                self.isBuffering = status == .waitingToPlayAtSpecifiedRate
+                self.updateNowPlaying(for: self.store.currentTrack)
+            }
             .store(in: &cancellables)
 
         synchronize()
@@ -62,8 +72,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     }
 
     func reconcileAfterActivation() async {
-        configureAudioSession()
         await store.refreshFromCore()
+        configureAudioSession(activate: store.effectiveIsPlaying)
         synchronize()
     }
 
@@ -83,6 +93,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             store.pause()
         } else {
             if player.currentItem != nil {
+                configureAudioSession(activate: true)
                 player.play()
             }
             store.resume()
@@ -91,10 +102,18 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     }
 
     func skipNext() {
+        if nextQueueEntryID() == store.currentQueueEntryID {
+            player.seek(to: .zero)
+            store.updatePositionFromPlayer(0)
+        }
         store.skipNext()
     }
 
     func skipPrevious() {
+        if store.positionMs > 3_000 {
+            player.seek(to: .zero)
+            store.updatePositionFromPlayer(0)
+        }
         store.skipPrevious()
     }
 
@@ -107,30 +126,48 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         updateNowPlaying(for: store.currentTrack)
     }
 
+    func retryCurrentTrack() {
+        guard store.currentTrack != nil else { return }
+        sourceTask?.cancel()
+        activeTrackID = nil
+        errorMessage = nil
+        player.replaceCurrentItem(with: nil)
+        store.resume()
+        synchronize()
+    }
+
     private func synchronize() {
         guard let track = store.currentTrack else {
             sourceTask?.cancel()
             player.pause()
             player.replaceCurrentItem(with: nil)
+            isBuffering = false
             activeTrackID = nil
+            activeQueueEntryID = nil
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             return
         }
 
         guard track.id.provider.lowercased() == "tidal" else {
             player.pause()
+            isBuffering = false
             errorMessage = "This iOS playback slice only supports TIDAL tracks."
             return
         }
 
-        if activeTrackID == track.id, player.currentItem != nil {
+        let queueEntryID = store.currentQueueEntryID
+        if activeTrackID == track.id,
+           activeQueueEntryID == queueEntryID,
+           player.currentItem != nil {
             applyPlaybackState()
             return
         }
 
         activeTrackID = track.id
+        activeQueueEntryID = queueEntryID
         sourceTask?.cancel()
         player.pause()
+        isBuffering = store.effectiveIsPlaying
         errorMessage = nil
         sourceTask = Task { [weak self] in
             guard let self else { return }
@@ -138,20 +175,23 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 let resolution = try await account.playbackSource(for: track)
                 guard !Task.isCancelled,
                       store.currentTrack?.id == track.id,
+                      store.currentQueueEntryID == queueEntryID,
                       let url = URL(string: resolution.source.uri) else { return }
-                install(source: url, track: track)
+                install(source: url, track: track, queueEntryID: queueEntryID)
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
+                isBuffering = false
                 errorMessage = error.localizedDescription
                 store.pause()
             }
         }
     }
 
-    private func install(source url: URL, track: CoreTrack) {
-        guard store.currentTrack?.id == track.id else { return }
+    private func install(source url: URL, track: CoreTrack, queueEntryID: UInt64?) {
+        guard store.currentTrack?.id == track.id,
+              store.currentQueueEntryID == queueEntryID else { return }
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         if store.positionMs > 0 {
@@ -164,6 +204,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private func applyPlaybackState() {
         guard player.currentItem != nil else { return }
         if store.effectiveIsPlaying {
+            configureAudioSession(activate: true)
             player.play()
         } else {
             player.pause()
@@ -171,11 +212,13 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         updateNowPlaying(for: store.currentTrack)
     }
 
-    private func configureAudioSession() {
+    private func configureAudioSession(activate: Bool) {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothA2DP])
-            try session.setActive(true)
+            if activate {
+                try session.setActive(true)
+            }
         } catch {
             errorMessage = "Could not activate the iOS audio session: \(error.localizedDescription)"
         }
@@ -188,9 +231,13 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 forName: AVPlayerItem.didPlayToEndTimeNotification,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
+            ) { [weak self] notification in
                 Task { @MainActor [weak self] in
-                    self?.store.skipNext()
+                    guard let self,
+                          let endedItem = notification.object as? AVPlayerItem,
+                          let currentItem = self.player.currentItem,
+                          endedItem === currentItem else { return }
+                    self.skipNext()
                 }
             }
         )
@@ -210,10 +257,49 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 forName: AVAudioSession.routeChangeNotification,
                 object: AVAudioSession.sharedInstance(),
                 queue: .main
-            ) { [weak self] _ in
+            ) { [weak self] notification in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    if let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                       AVAudioSession.RouteChangeReason(rawValue: rawReason) == .oldDeviceUnavailable,
+                       self.store.effectiveIsPlaying {
+                        self.player.pause()
+                        self.store.pause()
+                    }
                     self.updateNowPlaying(for: self.store.currentTrack)
+                }
+            }
+        )
+        notificationTokens.append(
+            center.addObserver(
+                forName: AVPlayerItem.failedToPlayToEndTimeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          let failedItem = notification.object as? AVPlayerItem,
+                          let currentItem = self.player.currentItem,
+                          failedItem === currentItem else { return }
+                    self.isBuffering = false
+                    self.errorMessage = "Playback stopped unexpectedly."
+                    self.player.pause()
+                    self.store.pause()
+                }
+            }
+        )
+        notificationTokens.append(
+            center.addObserver(
+                forName: AVPlayerItem.playbackStalledNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          let stalledItem = notification.object as? AVPlayerItem,
+                          let currentItem = self.player.currentItem,
+                          stalledItem === currentItem else { return }
+                    self.isBuffering = true
                 }
             }
         )
@@ -233,11 +319,20 @@ final class IOSPlaybackService: NSObject, ObservableObject {
               let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
         switch type {
         case .began:
+            wasPlayingBeforeInterruption = store.effectiveIsPlaying
             player.pause()
+            updateNowPlaying(for: store.currentTrack)
         case .ended:
-            guard let rawOptions = values[AVAudioSessionInterruptionOptionKey] as? UInt,
-                  AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume) else { return }
-            applyPlaybackState()
+            let rawOptions = values[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+                .contains(.shouldResume)
+            if wasPlayingBeforeInterruption, shouldResume {
+                configureAudioSession(activate: true)
+                applyPlaybackState()
+            } else if wasPlayingBeforeInterruption {
+                store.pause()
+            }
+            wasPlayingBeforeInterruption = false
         @unknown default:
             break
         }
@@ -267,7 +362,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         info[MPMediaItemPropertyArtist] = track.artistLabel
         info[MPMediaItemPropertyAlbumTitle] = track.albumLabel
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(store.positionMs) / 1_000
-        info[MPNowPlayingInfoPropertyPlaybackRate] = store.effectiveIsPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyPlaybackRate] = player.timeControlStatus == .playing ? 1.0 : 0.0
         if let snapshot = store.coreSnapshot,
            let currentEntry = snapshot.queue.current,
            let queueIndex = snapshot.queue.playOrder.firstIndex(of: currentEntry) {
@@ -280,6 +375,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             info[MPMediaItemPropertyPlaybackDuration] = Double(durationMs) / 1_000
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        updateRemoteCommandAvailability()
 
         let artworkURL = track.artwork?.url
         let artworkLink = artworkURL.flatMap { URL(string: $0)?.absoluteString }
@@ -338,5 +434,26 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             }
             return .success
         }
+        updateRemoteCommandAvailability()
+    }
+
+    private func updateRemoteCommandAvailability() {
+        let center = MPRemoteCommandCenter.shared()
+        center.nextTrackCommand.isEnabled = store.canSkipNext
+        center.previousTrackCommand.isEnabled = store.canSkipPrevious
+        center.changePlaybackPositionCommand.isEnabled = store.currentTrack != nil
+    }
+
+    private func nextQueueEntryID() -> UInt64? {
+        guard let snapshot = store.coreSnapshot,
+              let current = snapshot.queue.current else { return nil }
+        if store.repeatMode == .one {
+            return current
+        }
+        guard let index = snapshot.queue.playOrder.firstIndex(of: current) else { return nil }
+        if snapshot.queue.playOrder.indices.contains(index + 1) {
+            return snapshot.queue.playOrder[index + 1]
+        }
+        return store.repeatMode == .all ? snapshot.queue.playOrder.first : nil
     }
 }

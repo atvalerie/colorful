@@ -69,6 +69,27 @@ final class PlaybackStore: ObservableObject {
         coreSnapshot?.playback.shuffle ?? false
     }
 
+    var canSkipNext: Bool {
+        guard let snapshot = coreSnapshot,
+              let current = snapshot.queue.current,
+              let index = snapshot.queue.playOrder.firstIndex(of: current) else {
+            return false
+        }
+        return index < snapshot.queue.playOrder.count - 1 || repeatMode != .off
+    }
+
+    var canSkipPrevious: Bool {
+        if positionMs > 3_000 {
+            return true
+        }
+        guard let snapshot = coreSnapshot,
+              let current = snapshot.queue.current,
+              let index = snapshot.queue.playOrder.firstIndex(of: current) else {
+            return false
+        }
+        return index > 0 || repeatMode == .all
+    }
+
     var homeTracks: [CoreTrack] {
         let queued = queueTracks
         if !queued.isEmpty {
@@ -121,6 +142,10 @@ final class PlaybackStore: ObservableObject {
 
     func enqueue(_ track: CoreTrack) {
         dispatch(CoreEnqueueCommand(track: track))
+    }
+
+    func playNext(_ track: CoreTrack) {
+        dispatch(CorePlayNextCommand(track: track))
     }
 
     func selectQueueEntry(_ entryID: UInt64) {

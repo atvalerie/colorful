@@ -2,8 +2,9 @@
 
 **Status:** Initial implementation contract; shell, TIDAL account/search,
 core snapshot wiring, and the first native TIDAL playback service are
-implemented. Interruption, route, artwork-cache, and physical-device hardening
-remain before playback is considered complete.
+implemented. Interruption, route, artwork-cache, and lifecycle hardening are
+underway; physical-device validation, audible-time history, and prepared-next
+playback remain before playback is considered complete.
 
 The iOS target is a native SwiftUI shell around the existing portable Rust
 engine. The shell owns Apple platform behavior; it must not create a second

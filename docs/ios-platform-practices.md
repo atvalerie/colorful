@@ -112,20 +112,24 @@ Implemented in the current iOS slice:
 - audio background mode, Now Playing text metadata, remote transport commands;
 - lifecycle reconciliation, periodic position checkpointing, and remote artwork
   loading for Now Playing;
-- native album collection context, mini-player artwork, and full-player entry.
+- native album collection context, mini-player artwork, artwork-derived player
+  and album palettes, full-player queue editing, and Play Next;
+- native buffering indication, retry feedback, occurrence-aware duplicate queue
+  transitions, and reason-aware interruption/route handling foundations.
 
 Next P0 hardening before calling playback reliable:
 
-1. Track actual `AVPlayer` time-control/buffering state and surface it without
-   confusing “requested playing” with “audibly playing.”
-2. Make interruption and route handling reason-aware, including headset
-   removal and audio-session reactivation.
-3. Add artwork caching and Now Playing queue metadata.
+1. Verify the new buffering, retry, interruption, and headset-removal behavior
+   on physical hardware and add source-expiry retry policy.
+2. Track qualified audible time and write listening-history events without
+   counting buffering, pauses, or seeks.
+3. Prepare the next item for lower-latency transitions where provider sources
+   permit it.
 4. Test lock/unlock, Control Center, AirPods connect/disconnect, phone calls,
    Siri, rapid pause/play, rapid next/previous, seek during buffering, and
    process restoration on a physical iPhone.
-5. Add the Linux parity details in the iOS UI: queue editing, repeat/shuffle,
-   downloads, lyrics, history, toasts, and provider/account edge states.
+5. Add the remaining Linux parity details in the iOS UI: autoplay, downloads,
+   lyrics, history, action feedback, and provider/account edge states.
 
 ActivityKit Live Activities are a later layer, not a replacement for Now
 Playing. They should be introduced only after the native player has a stable

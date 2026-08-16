@@ -6,7 +6,10 @@ album collection pages, and native TIDAL playback are connected. Device
 authorization persists across the Safari handoff, pauses safely in the
 background, and resumes when the app is active. Native audio output, Now
 Playing metadata, remote controls, lifecycle reconciliation, and artwork
-loading are present; physical-device hardening is still in progress.
+loading are present. The full player now includes adaptive layout, output
+routing, honest buffering/error feedback, artwork-derived color, nested queue
+editing, repeat/shuffle, and occurrence-safe duplicate handling. Physical-device
+hardening is still in progress.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

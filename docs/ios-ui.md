@@ -68,10 +68,11 @@ Rules:
 - Respect a user-selected fixed accent mode. Album mode is the default, matching
   the Linux client's existing `appearance/accentMode` contract.
 
-The current Swift model still exposes a provider-based fallback accent on
-`CoreTrack`; replacing that fallback with a shared artwork palette is a
-follow-up implementation task before the iOS visual pass is considered
-complete.
+The iOS client now caches decoded artwork and derived palettes for the full
+player and album surfaces. `CoreTrack.accent` remains the deterministic
+provider fallback when artwork is missing or unavailable. Fixed-accent and
+low-data user preferences still need to be wired to the shared settings
+contract.
 
 ## Navigation model
 

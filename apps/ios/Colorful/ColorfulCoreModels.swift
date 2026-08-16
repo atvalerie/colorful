@@ -62,8 +62,8 @@ struct CoreTrack: Codable, Identifiable, Hashable, Sendable {
     var compactArtistLabel: String {
         let names = artists.map { $0.name }.filter { !$0.isEmpty }
         guard !names.isEmpty else { return "Unknown artist" }
-        guard names.count > 2 else { return names.joined(separator: ", ") }
-        return "\(names[0]), \(names[1]) + \(names.count - 2) more"
+        guard names.count > 1 else { return names[0] }
+        return "\(names[0]) + \(names.count - 1) more"
     }
 
     var albumLabel: String {
@@ -161,6 +161,11 @@ struct CorePlayTracksCommand: Encodable, Sendable {
 
 struct CoreEnqueueCommand: Encodable, Sendable {
     let command = "enqueue"
+    let track: CoreTrack
+}
+
+struct CorePlayNextCommand: Encodable, Sendable {
+    let command = "play_next"
     let track: CoreTrack
 }
 
