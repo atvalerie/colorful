@@ -687,6 +687,7 @@ private struct LibraryView: View {
                         }
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                         .swipeActions(edge: .trailing) {
                             Button("Remove", systemImage: "heart.slash", role: .destructive) {
                                 store.toggleSaved(track)
@@ -801,6 +802,7 @@ private struct LocalPlaylistView: View {
                                 }
                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                                 .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                             }
                             .onDelete { offsets in
                                 for position in offsets.sorted(by: >) {
