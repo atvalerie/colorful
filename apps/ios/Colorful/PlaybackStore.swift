@@ -42,15 +42,31 @@ final class PlaybackStore: ObservableObject {
         coreSnapshot?.library ?? []
     }
 
-    var queueTracks: [CoreTrack] {
+    var queueItems: [CoreQueueItem] {
         guard let snapshot = coreSnapshot,
               snapshot.queue.entries.count == snapshot.queueTracks.count else {
             return []
         }
 
-        return zip(snapshot.queue.entries, snapshot.queueTracks).compactMap { pair in
-            pair.0.mediaID == pair.1.id ? pair.1 : nil
+        return zip(snapshot.queue.entries, snapshot.queueTracks).compactMap { entry, track in
+            entry.mediaID == track.id ? CoreQueueItem(entry: entry, track: track) : nil
         }
+    }
+
+    var queueTracks: [CoreTrack] {
+        queueItems.map(\.track)
+    }
+
+    var currentQueueEntryID: UInt64? {
+        coreSnapshot?.queue.current
+    }
+
+    var repeatMode: CoreRepeatMode {
+        CoreRepeatMode(rawValue: coreSnapshot?.playback.repeatMode ?? "") ?? .off
+    }
+
+    var isShuffleEnabled: Bool {
+        coreSnapshot?.playback.shuffle ?? false
     }
 
     var homeTracks: [CoreTrack] {
@@ -105,6 +121,33 @@ final class PlaybackStore: ObservableObject {
 
     func enqueue(_ track: CoreTrack) {
         dispatch(CoreEnqueueCommand(track: track))
+    }
+
+    func selectQueueEntry(_ entryID: UInt64) {
+        dispatch(CoreQueueEntryCommand(command: "select", entryID: entryID))
+    }
+
+    func removeQueueEntry(_ entryID: UInt64) {
+        dispatch(CoreQueueEntryCommand(command: "remove", entryID: entryID))
+    }
+
+    func moveQueueEntry(_ entryID: UInt64, to targetIndex: Int) {
+        dispatch(CoreMoveQueueEntryCommand(entryID: entryID, targetIndex: targetIndex))
+    }
+
+    func cycleRepeat() {
+        let next: CoreRepeatMode
+        switch repeatMode {
+        case .off: next = .all
+        case .all: next = .one
+        case .one: next = .off
+        }
+        dispatch(CoreSetRepeatCommand(repeatMode: next))
+    }
+
+    func toggleShuffle() {
+        let seed = coreSnapshot?.queue.shuffleSeed ?? UInt64.random(in: 1...UInt64.max)
+        dispatch(CoreSetShuffleCommand(enabled: !isShuffleEnabled, seed: seed))
     }
 
     func pause() {

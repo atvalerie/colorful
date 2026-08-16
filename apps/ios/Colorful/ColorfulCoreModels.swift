@@ -89,6 +89,13 @@ struct CoreQueueEntry: Codable, Hashable, Sendable {
     }
 }
 
+struct CoreQueueItem: Identifiable, Hashable, Sendable {
+    let entry: CoreQueueEntry
+    let track: CoreTrack
+
+    var id: UInt64 { entry.id }
+}
+
 struct CoreQueueSnapshot: Codable, Sendable {
     let entries: [CoreQueueEntry]
     let playOrder: [UInt64]
@@ -148,4 +155,63 @@ struct CorePlayTracksCommand: Encodable, Sendable {
 struct CoreEnqueueCommand: Encodable, Sendable {
     let command = "enqueue"
     let track: CoreTrack
+}
+
+enum CoreRepeatMode: String, CaseIterable, Encodable, Sendable {
+    case off
+    case all
+    case one
+
+    var label: String {
+        switch self {
+        case .off: return "Repeat off"
+        case .all: return "Repeat queue"
+        case .one: return "Repeat track"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .off, .all: return "repeat"
+        case .one: return "repeat.1"
+        }
+    }
+}
+
+struct CoreQueueEntryCommand: Encodable, Sendable {
+    let command: String
+    let entryID: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case entryID = "entryId"
+    }
+}
+
+struct CoreMoveQueueEntryCommand: Encodable, Sendable {
+    let command = "move"
+    let entryID: UInt64
+    let targetIndex: Int
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case entryID = "entryId"
+        case targetIndex
+    }
+}
+
+struct CoreSetRepeatCommand: Encodable, Sendable {
+    let command = "set_repeat"
+    let repeatMode: CoreRepeatMode
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case repeatMode = "repeat"
+    }
+}
+
+struct CoreSetShuffleCommand: Encodable, Sendable {
+    let command = "set_shuffle"
+    let enabled: Bool
+    let seed: UInt64
 }

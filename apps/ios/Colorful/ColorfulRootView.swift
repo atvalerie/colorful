@@ -6,6 +6,7 @@ struct ColorfulRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var playbackService: IOSPlaybackService
     @State private var isShowingPlayer = false
+    @State private var isShowingQueue = false
 
     init(store: PlaybackStore, account: TidalAccountStore) {
         self.store = store
@@ -78,14 +79,24 @@ struct ColorfulRootView: View {
                     track: track,
                     isPlaying: store.effectiveIsPlaying,
                     positionMs: store.positionMs,
+                    shuffleEnabled: store.isShuffleEnabled,
+                    repeatMode: store.repeatMode,
                     onSeek: { playbackService.seek(to: $0) },
                     onPrevious: { playbackService.skipPrevious() },
                     onPlayPause: { playbackService.togglePlayback() },
-                    onNext: { playbackService.skipNext() }
+                    onNext: { playbackService.skipNext() },
+                    onShuffle: { store.toggleShuffle() },
+                    onRepeat: { store.cycleRepeat() },
+                    onQueue: { isShowingQueue = true }
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
+        }
+        .sheet(isPresented: $isShowingQueue) {
+            QueueView(store: store)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -674,12 +685,47 @@ private struct FullPlayer: View {
     let track: CoreTrack
     let isPlaying: Bool
     let positionMs: UInt64
+    let shuffleEnabled: Bool
+    let repeatMode: CoreRepeatMode
     let onSeek: (UInt64) -> Void
     let onPrevious: () -> Void
     let onPlayPause: () -> Void
     let onNext: () -> Void
+    let onShuffle: () -> Void
+    let onRepeat: () -> Void
+    let onQueue: () -> Void
+    @StateObject private var paletteLoader: ColorfulArtworkPaletteLoader
     @State private var scrubPosition = 0.0
     @State private var isScrubbing = false
+
+    init(
+        track: CoreTrack,
+        isPlaying: Bool,
+        positionMs: UInt64,
+        shuffleEnabled: Bool,
+        repeatMode: CoreRepeatMode,
+        onSeek: @escaping (UInt64) -> Void,
+        onPrevious: @escaping () -> Void,
+        onPlayPause: @escaping () -> Void,
+        onNext: @escaping () -> Void,
+        onShuffle: @escaping () -> Void,
+        onRepeat: @escaping () -> Void,
+        onQueue: @escaping () -> Void
+    ) {
+        self.track = track
+        self.isPlaying = isPlaying
+        self.positionMs = positionMs
+        self.shuffleEnabled = shuffleEnabled
+        self.repeatMode = repeatMode
+        self.onSeek = onSeek
+        self.onPrevious = onPrevious
+        self.onPlayPause = onPlayPause
+        self.onNext = onNext
+        self.onShuffle = onShuffle
+        self.onRepeat = onRepeat
+        self.onQueue = onQueue
+        _paletteLoader = StateObject(wrappedValue: ColorfulArtworkPaletteLoader())
+    }
 
     private var durationSeconds: Double {
         max(Double(track.durationMs ?? 1_000) / 1_000, 1)
@@ -692,7 +738,7 @@ private struct FullPlayer: View {
 
     var body: some View {
         ZStack {
-            ColorfulTheme.background.ignoresSafeArea()
+            ColorfulArtworkBackground(palette: paletteLoader.palette)
             VStack(spacing: 28) {
                 ColorfulAlbumArt(
                     title: track.title,
@@ -734,6 +780,24 @@ private struct FullPlayer: View {
                 }
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(ColorfulTheme.mutedInk)
+                HStack(spacing: 28) {
+                    Button(action: onShuffle) {
+                        Image(systemName: shuffleEnabled ? "shuffle.circle.fill" : "shuffle")
+                    }
+                    .accessibilityLabel(shuffleEnabled ? "Disable shuffle" : "Enable shuffle")
+
+                    Button(action: onQueue) {
+                        Image(systemName: "list.bullet")
+                    }
+                    .accessibilityLabel("Open queue")
+
+                    Button(action: onRepeat) {
+                        Image(systemName: repeatMode.symbol)
+                    }
+                    .accessibilityLabel(repeatMode.label)
+                }
+                .font(.title3)
+                .foregroundStyle(ColorfulTheme.mutedInk)
                 HStack(spacing: 34) {
                     Button(action: onPrevious) { Image(systemName: "backward.fill") }
                     Button(action: onPlayPause) {
@@ -745,6 +809,94 @@ private struct FullPlayer: View {
                 .foregroundStyle(ColorfulTheme.ink)
             }
             .padding(24)
+        }
+        .task(id: track.artwork?.url) {
+            paletteLoader.load(for: track.artwork?.url)
+        }
+    }
+}
+
+private struct QueueView: View {
+    @ObservedObject var store: PlaybackStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if store.queueItems.isEmpty {
+                    ContentUnavailableView {
+                        Label("Queue is empty", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    } description: {
+                        Text("Play a track or add one to the queue to see it here.")
+                    }
+                } else {
+                    List {
+                        Section {
+                            HStack {
+                                Label(
+                                    store.isShuffleEnabled ? "Shuffle on" : "Shuffle off",
+                                    systemImage: store.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle"
+                                )
+                                Spacer()
+                                Button(action: store.toggleShuffle) {
+                                    Text(store.isShuffleEnabled ? "Turn off" : "Turn on")
+                                }
+                            }
+                            .foregroundStyle(store.isShuffleEnabled ? ColorfulTheme.accent : ColorfulTheme.mutedInk)
+
+                            Button(action: store.cycleRepeat) {
+                                Label(store.repeatMode.label, systemImage: store.repeatMode.symbol)
+                            }
+                            .foregroundStyle(ColorfulTheme.mutedInk)
+                        }
+
+                        Section("Tracks") {
+                            ForEach(store.queueItems) { item in
+                                Button {
+                                    store.selectQueueEntry(item.entry.id)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        TrackRowContent(track: item.track)
+                                        if store.currentQueueEntryID == item.entry.id {
+                                            Image(systemName: store.effectiveIsPlaying ? "speaker.wave.2.fill" : "pause.fill")
+                                                .foregroundStyle(ColorfulTheme.accent)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        store.removeQueueEntry(item.entry.id)
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                            }
+                            .onMove { offsets, destination in
+                                guard let source = offsets.first,
+                                      store.queueItems.indices.contains(source) else { return }
+                                let target = destination > source ? destination - 1 : destination
+                                store.moveQueueEntry(store.queueItems[source].entry.id, to: target)
+                            }
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .background(ColorfulTheme.background.ignoresSafeArea())
+            .navigationTitle("Queue")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+                if !store.queueItems.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        EditButton()
+                    }
+                }
+            }
         }
     }
 }
