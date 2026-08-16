@@ -90,6 +90,14 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         updateNowPlaying(for: store.currentTrack)
     }
 
+    func skipNext() {
+        store.skipNext()
+    }
+
+    func skipPrevious() {
+        store.skipPrevious()
+    }
+
     private func synchronize() {
         guard let track = store.currentTrack else {
             sourceTask?.cancel()
@@ -251,6 +259,12 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         info[MPMediaItemPropertyAlbumTitle] = track.albumLabel
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(store.positionMs) / 1_000
         info[MPNowPlayingInfoPropertyPlaybackRate] = store.effectiveIsPlaying ? 1.0 : 0.0
+        if let snapshot = store.coreSnapshot,
+           let currentEntry = snapshot.queue.current,
+           let queueIndex = snapshot.queue.playOrder.firstIndex(of: currentEntry) {
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queueIndex
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = snapshot.queue.playOrder.count
+        }
         if let duration = player.currentItem?.asset.duration.seconds, duration.isFinite {
             info[MPMediaItemPropertyPlaybackDuration] = duration
         } else if let durationMs = track.durationMs {
@@ -287,6 +301,11 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     private func installRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
+        center.playCommand.isEnabled = true
+        center.pauseCommand.isEnabled = true
+        center.nextTrackCommand.isEnabled = true
+        center.previousTrackCommand.isEnabled = true
+        center.changePlaybackPositionCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in self?.store.resume() }
             return .success
@@ -296,11 +315,11 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.store.skipNext() }
+            Task { @MainActor in self?.skipNext() }
             return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.store.skipPrevious() }
+            Task { @MainActor in self?.skipPrevious() }
             return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in

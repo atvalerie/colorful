@@ -74,9 +74,15 @@ struct ColorfulRootView: View {
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
         .sheet(isPresented: $isShowingPlayer) {
             if let track = store.currentTrack {
-                FullPlayer(track: track, isPlaying: store.effectiveIsPlaying) {
-                    playbackService.togglePlayback()
-                }
+                FullPlayer(
+                    track: track,
+                    isPlaying: store.effectiveIsPlaying,
+                    positionMs: store.positionMs,
+                    onSeek: { playbackService.seek(to: $0) },
+                    onPrevious: { playbackService.skipPrevious() },
+                    onPlayPause: { playbackService.togglePlayback() },
+                    onNext: { playbackService.skipNext() }
+                )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
@@ -667,7 +673,22 @@ private struct MiniPlayer: View {
 private struct FullPlayer: View {
     let track: CoreTrack
     let isPlaying: Bool
+    let positionMs: UInt64
+    let onSeek: (UInt64) -> Void
+    let onPrevious: () -> Void
     let onPlayPause: () -> Void
+    let onNext: () -> Void
+    @State private var scrubPosition = 0.0
+    @State private var isScrubbing = false
+
+    private var durationSeconds: Double {
+        max(Double(track.durationMs ?? 1_000) / 1_000, 1)
+    }
+
+    private var elapsedLabel: String {
+        let totalSeconds = Int(positionMs / 1_000)
+        return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+    }
 
     var body: some View {
         ZStack {
@@ -688,15 +709,38 @@ private struct FullPlayer: View {
                         .font(.subheadline)
                         .foregroundStyle(ColorfulTheme.mutedInk)
                 }
-                ProgressView(value: 0.34)
-                    .tint(ColorfulTheme.accent)
+                Slider(
+                    value: $scrubPosition,
+                    in: 0...durationSeconds,
+                    onEditingChanged: { editing in
+                        isScrubbing = editing
+                        if !editing {
+                            onSeek(UInt64(scrubPosition * 1_000))
+                        }
+                    }
+                )
+                .tint(ColorfulTheme.accent)
+                .onAppear {
+                    scrubPosition = min(Double(positionMs) / 1_000, durationSeconds)
+                }
+                .onChange(of: positionMs) { _, newPosition in
+                    guard !isScrubbing else { return }
+                    scrubPosition = min(Double(newPosition) / 1_000, durationSeconds)
+                }
+                HStack {
+                    Text(elapsedLabel)
+                    Spacer()
+                    Text(track.durationLabel)
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(ColorfulTheme.mutedInk)
                 HStack(spacing: 34) {
-                    Button(action: {}) { Image(systemName: "backward.fill") }
+                    Button(action: onPrevious) { Image(systemName: "backward.fill") }
                     Button(action: onPlayPause) {
                         Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                             .font(.system(size: 58))
                     }
-                    Button(action: {}) { Image(systemName: "forward.fill") }
+                    Button(action: onNext) { Image(systemName: "forward.fill") }
                 }
                 .foregroundStyle(ColorfulTheme.ink)
             }
