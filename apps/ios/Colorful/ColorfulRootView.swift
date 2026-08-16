@@ -410,9 +410,10 @@ private struct SearchView: View {
     let onPlay: (CoreTrack) -> Void
 
     @State private var query = ""
-    @State private var results: [CoreTrack] = []
+    @State private var results: TidalCatalogSearchResults?
     @State private var isSearching = false
     @State private var errorMessage: String?
+    @State private var searchID = UUID()
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
@@ -428,8 +429,10 @@ private struct SearchView: View {
                         .onSubmit(search)
                     if !query.isEmpty {
                         Button("Clear", systemImage: "xmark.circle.fill") {
+                            searchID = UUID()
                             query = ""
-                            results = []
+                            results = nil
+                            isSearching = false
                             errorMessage = nil
                         }
                         .labelStyle(.iconOnly)
@@ -450,19 +453,114 @@ private struct SearchView: View {
                     } description: {
                         Text(errorMessage)
                     }
-                } else if results.isEmpty {
+                } else if results == nil {
                     ContentUnavailableView {
                         Label("Search TIDAL", systemImage: "music.magnifyingglass")
                     } description: {
                         Text("Search for a track, artist, or album.")
                     }
+                } else if results?.isEmpty == true {
+                    ContentUnavailableView {
+                        Label("No results", systemImage: "music.magnifyingglass")
+                    } description: {
+                        Text("Try a different artist, album, or track name.")
+                    }
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(results) { track in
-                                SearchResultRow(track: track, account: account, store: store, onPlay: onPlay)
+                        LazyVStack(alignment: .leading, spacing: 24) {
+                            if let artists = results?.artists, !artists.isEmpty {
+                                searchSectionHeader("Artists", count: artists.count)
+                                ScrollView(.horizontal) {
+                                    LazyHStack(alignment: .top, spacing: 14) {
+                                        ForEach(artists) { artist in
+                                            NavigationLink {
+                                                ArtistCollectionView(
+                                                    artist: CoreArtistCredit(
+                                                        id: CoreMediaID(provider: "tidal", providerID: artist.id),
+                                                        name: artist.name
+                                                    ),
+                                                    account: account,
+                                                    store: store,
+                                                    showsDismissButton: false
+                                                )
+                                            } label: {
+                                                VStack(spacing: 7) {
+                                                    ColorfulAlbumArt(
+                                                        title: artist.name,
+                                                        accent: 0xFF5C9A,
+                                                        artworkURL: artist.artworkURL,
+                                                        size: 92
+                                                    )
+                                                    .clipShape(Circle())
+                                                    Text(artist.name)
+                                                        .font(.subheadline.weight(.semibold))
+                                                        .foregroundStyle(ColorfulTheme.ink)
+                                                        .lineLimit(2)
+                                                        .multilineTextAlignment(.center)
+                                                }
+                                                .frame(width: 104)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                                .scrollIndicators(.hidden)
+                            }
+
+                            if let albums = results?.albums, !albums.isEmpty {
+                                searchSectionHeader("Albums", count: albums.count)
+                                ScrollView(.horizontal) {
+                                    LazyHStack(alignment: .top, spacing: 14) {
+                                        ForEach(albums) { album in
+                                            NavigationLink {
+                                                AlbumCollectionView(
+                                                    albumID: album.id,
+                                                    account: account,
+                                                    store: store
+                                                )
+                                            } label: {
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    ColorfulAlbumArt(
+                                                        title: album.title,
+                                                        accent: 0xFF5C9A,
+                                                        artworkURL: album.artworkURL,
+                                                        size: 138
+                                                    )
+                                                    Text(album.title)
+                                                        .font(.subheadline.weight(.semibold))
+                                                        .foregroundStyle(ColorfulTheme.ink)
+                                                        .lineLimit(2)
+                                                    Text(album.artistLabel)
+                                                        .font(.caption)
+                                                        .foregroundStyle(ColorfulTheme.mutedInk)
+                                                        .lineLimit(1)
+                                                }
+                                                .frame(width: 138, alignment: .leading)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                                .scrollIndicators(.hidden)
+                            }
+
+                            if let tracks = results?.tracks, !tracks.isEmpty {
+                                searchSectionHeader("Tracks", count: tracks.count)
+                                LazyVStack(spacing: 8) {
+                                    ForEach(tracks) { track in
+                                        SearchResultRow(
+                                            track: track,
+                                            account: account,
+                                            store: store,
+                                            onPlay: onPlay
+                                        )
+                                    }
+                                }
                             }
                         }
+                        .padding(.bottom, 16)
                     }
                 }
                 Spacer(minLength: 0)
@@ -487,17 +585,37 @@ private struct SearchView: View {
     private func search() {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, !isSearching else { return }
+        let requestID = UUID()
+        searchID = requestID
         isSearching = true
         errorMessage = nil
         Task {
             do {
-                results = try await account.searchTracks(query: value, core: store.core)
+                let response = try await account.searchCatalog(query: value, core: store.core)
+                guard searchID == requestID else { return }
+                results = response
             } catch {
-                results = []
+                guard searchID == requestID else { return }
+                results = nil
                 errorMessage = error.localizedDescription
             }
+            guard searchID == requestID else { return }
             isSearching = false
         }
+    }
+
+    private func searchSectionHeader(_ title: String, count: Int) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.title3.bold())
+                .foregroundStyle(ColorfulTheme.ink)
+            Spacer()
+            Text("\(count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(ColorfulTheme.mutedInk)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -1363,11 +1481,24 @@ private struct ArtistCollectionView: View {
     let artist: CoreArtistCredit
     @ObservedObject var account: TidalAccountStore
     @ObservedObject var store: PlaybackStore
+    let showsDismissButton: Bool
     @Environment(\.dismiss) private var dismiss
     @StateObject private var paletteLoader = ColorfulArtworkPaletteLoader()
     @State private var collection: TidalArtistCollection?
     @State private var isLoading = true
     @State private var errorMessage: String?
+
+    init(
+        artist: CoreArtistCredit,
+        account: TidalAccountStore,
+        store: PlaybackStore,
+        showsDismissButton: Bool = true
+    ) {
+        self.artist = artist
+        _account = ObservedObject(wrappedValue: account)
+        _store = ObservedObject(wrappedValue: store)
+        self.showsDismissButton = showsDismissButton
+    }
 
     var body: some View {
         ZStack {
@@ -1485,8 +1616,10 @@ private struct ArtistCollectionView: View {
         .navigationTitle(collection?.name ?? artist.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Done") { dismiss() }
+            if showsDismissButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
         .task { await load(force: false) }

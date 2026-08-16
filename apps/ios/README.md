@@ -14,6 +14,9 @@ player, including an artist chooser for collaborations and native TIDAL artist
 pages with top tracks and album shelves. The Library now exposes the Rust-backed
 saved-track collection and Colorful playlists, with native create, rename,
 delete, reorder, removal, and track-action flows.
+TIDAL search is grouped into relevance-ordered track, album, and artist
+sections, and collection results navigate into the native album and artist
+surfaces.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

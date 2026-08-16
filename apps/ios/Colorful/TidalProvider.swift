@@ -184,6 +184,28 @@ struct TidalAlbumSummary: Identifiable, Hashable, Sendable {
     let artworkURL: String?
 }
 
+struct TidalArtistSummary: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let artworkURL: String?
+}
+
+struct TidalCatalogSearchResults: Sendable {
+    let tracks: [CoreTrack]
+    let albums: [TidalAlbumSummary]
+    let artists: [TidalArtistSummary]
+
+    var isEmpty: Bool {
+        tracks.isEmpty && albums.isEmpty && artists.isEmpty
+    }
+}
+
+struct TidalCatalogSearchPage: Sendable {
+    let tracksDocument: String
+    let albums: [TidalAlbumSummary]
+    let artists: [TidalArtistSummary]
+}
+
 struct TidalPlaybackSource: Sendable {
     let uri: String
     let manifestType: String
@@ -327,17 +349,19 @@ actor TidalClient {
         userToken = nil
     }
 
-    func searchTracks(query: String, countryCode: String) async throws -> String {
+    func searchCatalog(query: String, countryCode: String) async throws -> TidalCatalogSearchPage {
         let cleaned = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return "{\"data\":[]}" }
+        guard !cleaned.isEmpty else {
+            return TidalCatalogSearchPage(tracksDocument: "{\"data\":[]}", albums: [], artists: [])
+        }
 
         do {
             let token = try await browseAccessToken(force: false)
-            return try await searchDocument(query: cleaned, countryCode: countryCode, token: token)
+            return try await searchCatalogPage(query: cleaned, countryCode: countryCode, token: token)
         } catch let error as TidalClientError {
             if case .http(let status, _) = error, status == 401 {
                 let token = try await browseAccessToken(force: true)
-                return try await searchDocument(query: cleaned, countryCode: countryCode, token: token)
+                return try await searchCatalogPage(query: cleaned, countryCode: countryCode, token: token)
             }
             throw error
         }
@@ -431,7 +455,11 @@ actor TidalClient {
         return token
     }
 
-    private func searchDocument(query: String, countryCode: String, token: String) async throws -> String {
+    private func searchCatalogPage(
+        query: String,
+        countryCode: String,
+        token: String
+    ) async throws -> TidalCatalogSearchPage {
         let country = countryCode.uppercased().range(of: "^[A-Z]{2}$", options: .regularExpression) != nil
             ? countryCode.uppercased() : configuration.countryCode
         let searchURL = try makeURL(
@@ -463,14 +491,43 @@ actor TidalClient {
                 URLQueryItem(name: "countryCode", value: country),
             ]
         )
-        let tracks = try await request(tracksURL, headers: [
+        let albumsURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "searchResults/\(searchID)/relationships/albums",
+            query: [
+                URLQueryItem(name: "include", value: "albums,albums.coverArt,albums.artists"),
+                URLQueryItem(name: "page[limit]", value: "20"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let artistsURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "searchResults/\(searchID)/relationships/artists",
+            query: [
+                URLQueryItem(name: "include", value: "artists,artists.profileArt"),
+                URLQueryItem(name: "page[limit]", value: "20"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let headers = [
             "Authorization": "Bearer \(token)",
             "Accept": "application/vnd.api+json",
-        ])
-        guard let document = String(data: tracks, encoding: .utf8) else {
-            throw TidalClientError.invalidResponse("TIDAL returned non-UTF-8 catalog data.")
+        ]
+        async let tracksData = optionalRequest(tracksURL, headers: headers)
+        async let albumsData = optionalRequest(albumsURL, headers: headers)
+        async let artistsData = optionalRequest(artistsURL, headers: headers)
+        let responses = await (tracksData, albumsData, artistsData)
+        guard responses.0 != nil || responses.1 != nil || responses.2 != nil else {
+            throw TidalClientError.invalidResponse("TIDAL search did not return any catalog section.")
         }
-        return document
+        let tracksDocument = responses.0.flatMap { String(data: $0, encoding: .utf8) } ?? "{\"data\":[]}"
+        let albums = responses.1.flatMap { try? albumSummaries(from: $0) } ?? []
+        let artists = responses.2.flatMap { try? artistSummaries(from: $0) } ?? []
+        return TidalCatalogSearchPage(
+            tracksDocument: tracksDocument,
+            albums: albums,
+            artists: artists
+        )
     }
 
     private func fetchAlbumPage(albumID: String, countryCode: String, token: String) async throws -> TidalAlbumPage {
@@ -637,6 +694,37 @@ actor TidalClient {
         }
     }
 
+    private func artistSummaries(from data: Data) throws -> [TidalArtistSummary] {
+        let document = try object(from: data)
+        let primary = document["data"] as? [[String: Any]] ?? []
+        let included = document["included"] as? [[String: Any]] ?? []
+        var resources = [String: [String: Any]]()
+        for resource in primary + included {
+            guard let type = resource["type"] as? String,
+                  let id = resource["id"] as? String else { continue }
+            resources["\(type):\(id)"] = resource
+        }
+
+        var seen = Set<String>()
+        return primary.compactMap { reference in
+            guard let id = reference["id"] as? String,
+                  seen.insert(id).inserted else { return nil }
+            let artist = (reference["attributes"] as? [String: Any]) == nil
+                ? resources["artists:\(id)"]
+                : reference
+            guard let artist,
+                  let attributes = artist["attributes"] as? [String: Any] else { return nil }
+            let profileArt = relationshipIDs(artist, name: "profileArt").compactMap { artworkID in
+                resources["artworks:\(artworkID)"]
+            }.compactMap(artworkURL).first ?? imageLinkURL(attributes)
+            return TidalArtistSummary(
+                id: id,
+                name: string(attributes, key: "name").ifBlank { "Unknown artist" },
+                artworkURL: profileArt
+            )
+        }
+    }
+
     private func fetchPlaybackSource(
         trackID: String,
         countryCode: String,
@@ -737,6 +825,10 @@ actor TidalClient {
     ) async throws -> Data {
         let (_, data) = try await perform(url, method: method, headers: headers, body: body, requireSuccess: true)
         return data
+    }
+
+    private func optionalRequest(_ url: URL, headers: [String: String]) async -> Data? {
+        try? await request(url, headers: headers)
     }
 
     private func perform(
@@ -932,9 +1024,14 @@ final class TidalAccountStore: ObservableObject {
         message = "TIDAL disconnected from this device."
     }
 
-    func searchTracks(query: String, core: ColorfulCoreBridge) async throws -> [CoreTrack] {
-        let document = try await client.searchTracks(query: query, countryCode: countryCode)
-        return try await core.mapTidalTracks(documentJSON: document)
+    func searchCatalog(query: String, core: ColorfulCoreBridge) async throws -> TidalCatalogSearchResults {
+        let page = try await client.searchCatalog(query: query, countryCode: countryCode)
+        let tracks = try await core.mapTidalTracks(documentJSON: page.tracksDocument)
+        return TidalCatalogSearchResults(
+            tracks: tracks,
+            albums: page.albums,
+            artists: page.artists
+        )
     }
 
     func loadAlbum(albumID: String, core: ColorfulCoreBridge) async throws -> TidalAlbumCollection {
