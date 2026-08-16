@@ -43,6 +43,36 @@ capsule, and use tint only to communicate prominence or state. Group related
 glass controls so their transitions remain coherent. Older deployment targets
 must receive an opaque/translucent fallback with the same geometry and spacing.
 
+## Artwork-driven color
+
+Album artwork is part of the product's visual state, not decoration. The
+currently playing album should influence the full-player background, player
+accent, progress tint, active-track treatment, and relevant collection hero
+surfaces.
+
+Rules:
+
+- Derive a small palette from decoded artwork pixels, then score colors for
+  saturation, luminance, and contrast instead of choosing the brightest pixel.
+- Use a darkened/blurred artwork gradient behind the full player, with a
+  contrast-safe foreground layer for text and controls. Native glass controls
+  sit above this layer rather than being recolored until they become unreadable.
+- Keep Home, Library, Offline, and Settings mostly stable and dark. Dynamic
+  color should create context around the active album, not make every screen
+  flash between unrelated colors.
+- Animate palette changes briefly when the track changes. Respect Reduce Motion
+  by switching without the transition.
+- Cache the result by the stable artwork/media key. Artwork loading or palette
+  extraction failure falls back to the provider accent and must never delay
+  playback.
+- Respect a user-selected fixed accent mode. Album mode is the default, matching
+  the Linux client's existing `appearance/accentMode` contract.
+
+The current Swift model still exposes a provider-based fallback accent on
+`CoreTrack`; replacing that fallback with a shared artwork palette is a
+follow-up implementation task before the iOS visual pass is considered
+complete.
+
 ## Navigation model
 
 The initial phone structure is:
