@@ -73,6 +73,13 @@ generated `.a` files.
 matching simulator app and an `aarch64-apple-ios` device archive, and uploads
 both the unsigned simulator `.app` and `colorful-ios-unsigned.ipa`.
 
+Pushes to `dev` also update the `colorful nightly` GitHub prerelease. The IPA
+has a stable direct URL for import-based testing:
+
+`https://github.com/atvalerie/colorful/releases/download/dev-nightly/colorful-ios-unsigned.ipa`
+
+Pull requests build the IPA but do not publish or modify the nightly release.
+
 An installable device IPA still needs signing. With a free Personal Team, the
 usual Apple seven-day provisioning window remains a platform constraint. A
 GitHub workflow can sign only when you provide your own signing material as

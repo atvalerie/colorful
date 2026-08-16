@@ -89,6 +89,8 @@ jobs:
 
   device-ipa:
     name: Build unsigned iPhone IPA
+    permissions:
+      contents: write
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -144,3 +146,22 @@ jobs:
           path: build/colorful-ios-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish nightly prerelease IPA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="dev-nightly"
+          title="colorful nightly"
+          notes="Unsigned iPhone IPA from dev commit ${GITHUB_SHA}."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" build/colorful-ios-unsigned.ipa --clobber
+            gh release edit "$tag" --title "$title" --notes "$notes" --prerelease
+          else
+            gh release create "$tag" build/colorful-ios-unsigned.ipa \
+              --prerelease \
+              --title "$title" \
+              --notes "$notes"
+          fi
