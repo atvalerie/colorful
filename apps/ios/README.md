@@ -1,12 +1,12 @@
 # iOS shell
 
 **Status:** The SwiftUI shell, Rust-backed snapshot, queue/library projection,
-TIDAL device authorization, Keychain refresh-token storage, and TIDAL search
-projection are connected, including account metadata, remote artwork, and
-album collection pages. Device authorization persists across the Safari
-handoff, pauses safely in the background, and resumes when the app is active.
-Native audio output and Now Playing integration are the next slice; catalog
-tracks can be queued, but they are not audible yet.
+TIDAL device authorization, Keychain refresh-token storage, TIDAL search and
+album collection pages, and native TIDAL playback are connected. Device
+authorization persists across the Safari handoff, pauses safely in the
+background, and resumes when the app is active. Native audio output, Now
+Playing metadata, remote controls, lifecycle reconciliation, and artwork
+loading are present; physical-device hardening is still in progress.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

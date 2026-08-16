@@ -1,7 +1,9 @@
 # iOS native architecture
 
-**Status:** Initial implementation contract; shell, TIDAL account/search, and
-core snapshot wiring are implemented. Native playback remains the next slice.
+**Status:** Initial implementation contract; shell, TIDAL account/search,
+core snapshot wiring, and the first native TIDAL playback service are
+implemented. Interruption, route, artwork-cache, and physical-device hardening
+remain before playback is considered complete.
 
 The iOS target is a native SwiftUI shell around the existing portable Rust
 engine. The shell owns Apple platform behavior; it must not create a second
@@ -63,8 +65,8 @@ back to the engine.
 
 ## Playback
 
-The first playback owner should be an iOS-native service/actor that remains
-independent of the SwiftUI view lifecycle. It must cover:
+The playback owner is an iOS-native service that remains independent of the
+SwiftUI view lifecycle. It must cover:
 
 - audio-session configuration for music playback;
 - provider-source resolution off the main thread;

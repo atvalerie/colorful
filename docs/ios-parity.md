@@ -15,7 +15,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Queue | Rust/SQLite queue with duplicates, reorder, shuffle, repeat, autoplay | Same core state with iOS sheet UI | P0 |
 | Library/playlists | Rust/SQLite library and Colorful-owned ordered playlists | Same core state and native editing flows | P0 |
 | Listening history | Globally identified local events and provider aggregates | Record events from native playback | P0 |
-| Playback | libmpv, prepared-next, gapless, EQ/normalization | AVFoundation/AVAudioEngine native playback | P0 |
+| Playback | libmpv, prepared-next, gapless, EQ/normalization | AVFoundation native playback foundation; harden buffering, transitions, and physical-device behavior | P0 |
 | System media controls | Linux MPRIS; Windows SMTC | Now Playing + Remote Command Center | P0 |
 | Offline downloads | Resumable desktop transfers and standalone `.mka` files | Background-capable resumable transfers | P1 |
 | Lyrics | Provider-first, synced, cached, LRCLIB fallback | Cached provider-first lyrics | P1 |
