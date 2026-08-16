@@ -122,7 +122,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .music, options: [.allowAirPlay, .allowBluetoothA2DP])
+            try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothA2DP])
             try session.setActive(true)
         } catch {
             errorMessage = "Could not activate the iOS audio session: \(error.localizedDescription)"
@@ -137,7 +137,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.store.skipNext()
                 }
             }
@@ -148,7 +148,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 object: AVAudioSession.sharedInstance(),
                 queue: .main
             ) { [weak self] notification in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.handleInterruption(notification)
                 }
             }
@@ -159,8 +159,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 object: AVAudioSession.sharedInstance(),
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.updateNowPlaying(for: self?.store.currentTrack)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.updateNowPlaying(for: self.store.currentTrack)
                 }
             }
         )
@@ -168,7 +169,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             forInterval: CMTime(seconds: 1, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.updatePosition(time)
             }
         }
