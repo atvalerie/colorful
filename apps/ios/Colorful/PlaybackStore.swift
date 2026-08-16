@@ -46,6 +46,10 @@ final class PlaybackStore: ObservableObject {
         coreSnapshot?.playlists ?? []
     }
 
+    var listenStats: CoreListenStats? {
+        coreSnapshot?.listenStats
+    }
+
     func isSaved(_ track: CoreTrack) -> Bool {
         libraryTracks.contains { $0.id == track.id }
     }
@@ -275,6 +279,10 @@ final class PlaybackStore: ObservableObject {
 
     func stop() {
         dispatch(CoreSimpleCommand(command: "stop"))
+    }
+
+    func recordListen(track: CoreTrack, event: CoreListenEvent) {
+        dispatch(CoreRecordListenCommand(track: track, event: event))
     }
 
     private func dispatch<T: Encodable>(_ command: T) {

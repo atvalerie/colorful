@@ -14,7 +14,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Combined search | Provider-prioritized desktop search | Native search with provider grouping/order | P1 |
 | Queue | Rust/SQLite queue with duplicates, reorder, shuffle, repeat, autoplay | Same core state with iOS sheet UI | P0 |
 | Library/playlists | Rust/SQLite library and Colorful-owned ordered playlists | Same core state and native editing flows | P0 |
-| Listening history | Globally identified local events and provider aggregates | Record events from native playback | P0 |
+| Listening history | Globally identified local events and provider aggregates | Implemented from qualified native audible time; physical-device lifecycle verification remains | P0 |
 | Playback | libmpv, prepared-next, gapless, EQ/normalization | AVFoundation native playback foundation; harden buffering, transitions, and physical-device behavior | P0 |
 | System media controls | Linux MPRIS; Windows SMTC | Now Playing + Remote Command Center | P0 |
 | Offline downloads | Resumable desktop transfers and standalone `.mka` files | Background-capable resumable transfers | P1 |

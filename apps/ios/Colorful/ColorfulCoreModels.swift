@@ -144,6 +144,72 @@ struct ColorfulCoreSnapshot: Codable, Sendable {
     let playback: CorePlaybackState
     let library: [CoreTrack]
     let playlists: [CoreLocalPlaylist]
+    let listenStats: CoreListenStats
+}
+
+struct CoreTopTrack: Codable, Identifiable, Hashable, Sendable {
+    let track: CoreTrack
+    let listenedMs: UInt64
+    let playCount: UInt64
+
+    var id: CoreMediaID { track.id }
+}
+
+struct CoreTopArtist: Codable, Identifiable, Hashable, Sendable {
+    let id: CoreMediaID?
+    let name: String
+    let listenedMs: UInt64
+    let playCount: UInt64
+
+    var stableID: String {
+        id.map { "\($0.provider):\($0.providerID)" } ?? "name:\(name)"
+    }
+
+    var accent: UInt32 {
+        providerAccent(id?.provider)
+    }
+}
+
+struct CoreTopAlbum: Codable, Identifiable, Hashable, Sendable {
+    let id: CoreMediaID
+    let title: String
+    let artists: [CoreArtistCredit]
+    let artwork: CoreArtwork?
+    let listenedMs: UInt64
+    let playCount: UInt64
+
+    var artistLabel: String {
+        let names = artists.map(\.name).filter { !$0.isEmpty }
+        return names.isEmpty ? "Unknown artist" : names.joined(separator: ", ")
+    }
+
+    var accent: UInt32 {
+        providerAccent(id.provider)
+    }
+}
+
+private func providerAccent(_ provider: String?) -> UInt32 {
+    switch provider?.lowercased() {
+    case "tidal": return 0xFF5C9A
+    case "soundcloud": return 0xFFC857
+    case "youtube": return 0xA18CFF
+    default: return 0x7DE2D1
+    }
+}
+
+struct CoreProviderListenStats: Codable, Hashable, Sendable {
+    let provider: String
+    let listenedMs: UInt64
+    let playCount: UInt64
+}
+
+struct CoreListenStats: Codable, Hashable, Sendable {
+    let totalListenedMs: UInt64
+    let playCount: UInt64
+    let providerStats: [CoreProviderListenStats]
+    let topTracks: [CoreTopTrack]
+    let topArtists: [CoreTopArtist]
+    let topAlbums: [CoreTopAlbum]
 }
 
 struct CoreLocalPlaylist: Codable, Identifiable, Hashable, Sendable {
@@ -281,4 +347,30 @@ struct CoreSetShuffleCommand: Encodable, Sendable {
     let command = "set_shuffle"
     let enabled: Bool
     let seed: UInt64
+}
+
+struct CoreListenEvent: Encodable, Sendable {
+    let eventID: String
+    let deviceID: String
+    let mediaID: CoreMediaID
+    let startedAtMs: Int64
+    let endedAtMs: Int64
+    let listenedMs: UInt64
+    let trackDurationMs: UInt64?
+
+    enum CodingKeys: String, CodingKey {
+        case eventID = "eventId"
+        case deviceID = "deviceId"
+        case mediaID = "mediaId"
+        case startedAtMs
+        case endedAtMs
+        case listenedMs
+        case trackDurationMs
+    }
+}
+
+struct CoreRecordListenCommand: Encodable, Sendable {
+    let command = "record_listen"
+    let track: CoreTrack
+    let event: CoreListenEvent
 }

@@ -129,42 +129,95 @@ private struct HomeView: View {
     let onPresentPlayer: () -> Void
     @State private var isShowingSearch = false
     @State private var presentsPlayerAfterSearch = false
+    @State private var pendingHomePlaybackID: CoreMediaID?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                ColorfulSurface(fill: ColorfulTheme.surfaceRaised) {
-                    HStack(spacing: 14) {
-                        Image(systemName: "bolt.fill")
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(ColorfulTheme.accent)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(store.core.availability.label)
-                                .font(.headline)
-                                .foregroundStyle(ColorfulTheme.ink)
-                            Text(statusText)
-                                .font(.caption)
-                                .foregroundStyle(ColorfulTheme.mutedInk)
-                        }
-                        Spacer(minLength: 0)
-                        Circle()
-                            .fill(store.core.isReady && store.coreError == nil ? ColorfulTheme.accentSecondary : ColorfulTheme.warning)
-                            .frame(width: 10, height: 10)
+                if let coreError = store.coreError {
+                    ColorfulSurface(fill: ColorfulTheme.surfaceRaised) {
+                        Label(coreError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(ColorfulTheme.warning)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
                     }
-                    .padding(16)
                 }
 
-                Text(store.queueTracks.isEmpty ? "Library" : "Queue")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(ColorfulTheme.ink)
+                if let stats = store.listenStats, stats.playCount > 0 {
+                    if !stats.topAlbums.isEmpty {
+                        HomeSectionHeader(title: "Heavy rotation", subtitle: "Your most-played albums")
+                        ScrollView(.horizontal) {
+                            LazyHStack(alignment: .top, spacing: 14) {
+                                ForEach(stats.topAlbums) { album in
+                                    if album.id.provider.lowercased() == "tidal" {
+                                        NavigationLink {
+                                            AlbumCollectionView(
+                                                albumID: album.id.providerID,
+                                                account: account,
+                                                store: store,
+                                                onPlayCollection: requestPlayback
+                                            )
+                                        } label: {
+                                            HomeAlbumCard(album: album)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        HomeAlbumCard(album: album)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .scrollIndicators(.hidden)
+                    }
 
-                if store.homeTracks.isEmpty {
+                    if !stats.topArtists.isEmpty {
+                        HomeSectionHeader(title: "Top artists", subtitle: "Based on audible listening time")
+                        ScrollView(.horizontal) {
+                            LazyHStack(alignment: .top, spacing: 14) {
+                                ForEach(stats.topArtists, id: \.stableID) { artist in
+                                    let credit = CoreArtistCredit(id: artist.id, name: artist.name)
+                                    if artist.id?.provider.lowercased() == "tidal" {
+                                        NavigationLink {
+                                            ArtistCollectionView(
+                                                artist: credit,
+                                                account: account,
+                                                store: store,
+                                                showsDismissButton: false,
+                                                onPlayCollection: requestPlayback
+                                            )
+                                        } label: {
+                                            HomeArtistCard(artist: artist)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        HomeArtistCard(artist: artist)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .scrollIndicators(.hidden)
+                    }
+
+                    if !stats.topTracks.isEmpty {
+                        HomeSectionHeader(title: "Top tracks", subtitle: listeningSummary(stats))
+                        LazyVStack(spacing: 10) {
+                            ForEach(stats.topTracks) { item in
+                                TrackRow(track: item.track, store: store) {
+                                    requestPlayback([item.track])
+                                }
+                            }
+                        }
+                    }
+                } else if store.homeTracks.isEmpty {
                     ColorfulSurface {
                         VStack(alignment: .leading, spacing: 8) {
-                            Label("No tracks yet", systemImage: "music.note.list")
+                            Label("Your listening starts here", systemImage: "music.note.list")
                                 .font(.headline)
                                 .foregroundStyle(ColorfulTheme.ink)
-                            Text("Connect a provider to start building your library.")
+                            Text("Play music and Colorful will build your personal rotation on this device.")
                                 .font(.subheadline)
                                 .foregroundStyle(ColorfulTheme.mutedInk)
                         }
@@ -172,10 +225,11 @@ private struct HomeView: View {
                         .padding(16)
                     }
                 } else {
+                    HomeSectionHeader(title: "Jump back in", subtitle: "Play something to begin your rotation")
                     LazyVStack(spacing: 10) {
                         ForEach(Array(store.homeTracks.enumerated()), id: \.offset) { item in
                             TrackRow(track: item.element, store: store) {
-                                store.play(item.element)
+                                requestPlayback([item.element])
                             }
                         }
                     }
@@ -207,6 +261,11 @@ private struct HomeView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .onChange(of: store.currentTrack?.id) { _, currentID in
+            guard let pendingHomePlaybackID, currentID == pendingHomePlaybackID else { return }
+            self.pendingHomePlaybackID = nil
+            onPresentPlayer()
+        }
     }
 
     private var greeting: String {
@@ -217,14 +276,95 @@ private struct HomeView: View {
         }
     }
 
-    private var statusText: String {
-        if let coreError = store.coreError {
-            return coreError
+    private func requestPlayback(_ tracks: [CoreTrack]) {
+        guard let first = tracks.first else { return }
+        if store.currentTrack?.id == first.id {
+            store.playTracks(tracks)
+            onPresentPlayer()
+        } else {
+            pendingHomePlaybackID = first.id
+            store.playTracks(tracks)
         }
-        guard store.coreSnapshot != nil else {
-            return "Waiting for snapshot"
+    }
+
+    private func listeningSummary(_ stats: CoreListenStats) -> String {
+        let minutes = max(1, stats.totalListenedMs / 60_000)
+        return "\(stats.playCount) qualified plays · \(minutes) min listened"
+    }
+}
+
+private struct HomeSectionHeader: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.title2.bold())
+                .foregroundStyle(ColorfulTheme.ink)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(ColorfulTheme.mutedInk)
         }
-        return "\(store.libraryTracks.count) saved · \(store.queueTracks.count) queued"
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct HomeAlbumCard: View {
+    let album: CoreTopAlbum
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ColorfulAlbumArt(
+                title: album.title,
+                accent: album.accent,
+                artworkURL: album.artwork?.url,
+                size: 154
+            )
+            Text(album.title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ColorfulTheme.ink)
+                .lineLimit(1)
+            Text(album.artistLabel)
+                .font(.caption)
+                .foregroundStyle(ColorfulTheme.mutedInk)
+                .lineLimit(1)
+        }
+        .frame(width: 154, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(album.title), \(album.artistLabel), \(album.playCount) plays")
+    }
+}
+
+private struct HomeArtistCard: View {
+    let artist: CoreTopArtist
+
+    var body: some View {
+        VStack(spacing: 7) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(hex: artist.accent), Color(hex: artist.accent).opacity(0.42)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                Text(String(artist.name.prefix(1)).uppercased())
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 104, height: 104)
+            Text(artist.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ColorfulTheme.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .frame(width: 112)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(artist.name), \(artist.playCount) plays")
     }
 }
 

@@ -116,13 +116,15 @@ Implemented in the current iOS slice:
   and album palettes, full-player queue editing, and Play Next;
 - native buffering indication, retry feedback, occurrence-aware duplicate queue
   transitions, and reason-aware interruption/route handling foundations.
+- qualified audible-time accounting backed by idempotent core history events,
+  plus a provider-aware Home rotation derived from core listening statistics.
 
 Next P0 hardening before calling playback reliable:
 
 1. Verify the new buffering, retry, interruption, and headset-removal behavior
    on physical hardware and add source-expiry retry policy.
-2. Track qualified audible time and write listening-history events without
-   counting buffering, pauses, or seeks.
+2. Verify qualified audible-time history on a physical device across buffering,
+   pauses, seeks, interruptions, background playback, and queue transitions.
 3. Prepare the next item for lower-latency transitions where provider sources
    permit it.
 4. Test lock/unlock, Control Center, AirPods connect/disconnect, phone calls,

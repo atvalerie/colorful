@@ -22,10 +22,24 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var loadedArtworkURL: String?
     private var wasPlayingBeforeInterruption = false
     private var hasStarted = false
+    private var listeningTrack: CoreTrack?
+    private var listeningQueueEntryID: UInt64?
+    private var listeningStartedAtMs: Int64 = 0
+    private var accumulatedListenedMs: UInt64 = 0
+    private var audibleClockStartedAt: TimeInterval?
+    private let historyDeviceID: String
 
     init(store: PlaybackStore, account: TidalAccountStore) {
         self.store = store
         self.account = account
+        let defaults = UserDefaults.standard
+        if let stored = defaults.string(forKey: "identity.deviceId"), !stored.isEmpty {
+            historyDeviceID = stored
+        } else {
+            let generated = UUID().uuidString.lowercased()
+            defaults.set(generated, forKey: "identity.deviceId")
+            historyDeviceID = generated
+        }
         super.init()
     }
 
@@ -54,6 +68,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             .sink { [weak self] status in
                 guard let self else { return }
                 self.isBuffering = status == .waitingToPlayAtSpecifiedRate
+                self.reconcileAudibleClock(for: status)
                 self.updateNowPlaying(for: self.store.currentTrack)
             }
             .store(in: &cancellables)
@@ -62,6 +77,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     }
 
     func stop() {
+        finishListeningSession()
         sourceTask?.cancel()
         sourceTask = nil
         artworkTask?.cancel()
@@ -86,6 +102,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     }
 
     func appBecameInactive() {
+        checkpointAudibleTime()
         store.checkpointPosition()
         updateNowPlaying(for: store.currentTrack)
     }
@@ -147,6 +164,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     private func synchronize() {
         guard let track = store.currentTrack else {
+            finishListeningSession()
             sourceTask?.cancel()
             player.pause()
             player.replaceCurrentItem(with: nil)
@@ -165,6 +183,10 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         }
 
         let queueEntryID = store.currentQueueEntryID
+        if listeningTrack?.id != track.id || listeningQueueEntryID != queueEntryID {
+            finishListeningSession()
+            beginListeningSession(track: track, queueEntryID: queueEntryID)
+        }
         if activeTrackID == track.id,
            activeQueueEntryID == queueEntryID,
            player.currentItem != nil {
@@ -351,6 +373,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     private func updatePosition(_ time: CMTime) {
         guard time.isNumeric else { return }
+        checkpointAudibleTime()
+        resumeAudibleClockIfNeeded()
         let milliseconds = max(0, UInt64(time.seconds * 1_000))
         store.updatePositionFromPlayer(milliseconds)
         if milliseconds >= lastCheckpointMs + 10_000 || milliseconds < lastCheckpointMs {
@@ -358,6 +382,66 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             store.checkpointPosition()
         }
         updateNowPlaying(for: store.currentTrack)
+    }
+
+    private func beginListeningSession(track: CoreTrack, queueEntryID: UInt64?) {
+        listeningTrack = track
+        listeningQueueEntryID = queueEntryID
+        listeningStartedAtMs = Int64(Date().timeIntervalSince1970 * 1_000)
+        accumulatedListenedMs = 0
+        audibleClockStartedAt = nil
+        resumeAudibleClockIfNeeded()
+    }
+
+    private func reconcileAudibleClock(for status: AVPlayer.TimeControlStatus) {
+        if status == .playing {
+            resumeAudibleClockIfNeeded()
+        } else {
+            checkpointAudibleTime()
+        }
+    }
+
+    private func resumeAudibleClockIfNeeded() {
+        guard listeningTrack != nil,
+              player.timeControlStatus == .playing,
+              audibleClockStartedAt == nil else { return }
+        audibleClockStartedAt = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func checkpointAudibleTime() {
+        guard let startedAt = audibleClockStartedAt else { return }
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - startedAt)
+        let boundedMilliseconds = min(UInt64(elapsed * 1_000), 15_000)
+        accumulatedListenedMs += boundedMilliseconds
+        audibleClockStartedAt = nil
+    }
+
+    private func finishListeningSession() {
+        checkpointAudibleTime()
+        defer {
+            listeningTrack = nil
+            listeningQueueEntryID = nil
+            listeningStartedAtMs = 0
+            accumulatedListenedMs = 0
+            audibleClockStartedAt = nil
+        }
+
+        guard let track = listeningTrack else { return }
+        let thresholdMs = min(track.durationMs.map { $0 / 2 } ?? 240_000, 240_000)
+        guard thresholdMs > 0, accumulatedListenedMs >= thresholdMs else { return }
+        let endedAtMs = Int64(Date().timeIntervalSince1970 * 1_000)
+        store.recordListen(
+            track: track,
+            event: CoreListenEvent(
+                eventID: UUID().uuidString.lowercased(),
+                deviceID: historyDeviceID,
+                mediaID: track.id,
+                startedAtMs: listeningStartedAtMs,
+                endedAtMs: max(listeningStartedAtMs, endedAtMs),
+                listenedMs: accumulatedListenedMs,
+                trackDurationMs: track.durationMs
+            )
+        )
     }
 
     private func updateNowPlaying(for track: CoreTrack?) {
