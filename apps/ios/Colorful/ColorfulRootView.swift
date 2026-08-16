@@ -1170,7 +1170,26 @@ private struct QueueView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    queueControl(
+                        title: store.isShuffleEnabled ? "Shuffle on" : "Shuffle off",
+                        symbol: store.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle",
+                        active: store.isShuffleEnabled,
+                        action: store.toggleShuffle
+                    )
+                    queueControl(
+                        title: store.repeatMode.label,
+                        symbol: store.repeatMode.symbol,
+                        active: store.repeatMode != .off,
+                        action: store.cycleRepeat
+                    )
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                Divider().overlay(ColorfulTheme.border)
+
                 if store.queueItems.isEmpty {
                     ContentUnavailableView {
                         Label("Queue is empty", systemImage: "text.line.first.and.arrowtriangle.forward")
@@ -1178,64 +1197,81 @@ private struct QueueView: View {
                         Text("Play a track or add one to the queue to see it here.")
                     }
                 } else {
-                    List {
-                        Section {
-                            HStack {
-                                Label(
-                                    store.isShuffleEnabled ? "Shuffle on" : "Shuffle off",
-                                    systemImage: store.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle"
-                                )
-                                Spacer()
-                                Button(action: store.toggleShuffle) {
-                                    Text(store.isShuffleEnabled ? "Turn off" : "Turn on")
-                                }
-                            }
-                            .foregroundStyle(store.isShuffleEnabled ? ColorfulTheme.accent : ColorfulTheme.mutedInk)
-
-                            Button(action: store.cycleRepeat) {
-                                Label(store.repeatMode.label, systemImage: store.repeatMode.symbol)
-                            }
+                    HStack {
+                        Text("Queue order")
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(ColorfulTheme.mutedInk)
-                        }
+                        Spacer()
+                        Text("\(store.queueItems.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(ColorfulTheme.mutedInk)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
 
-                        Section {
-                            ForEach(store.queueItems) { item in
-                                Button {
-                                    store.selectQueueEntry(item.entry.id)
+                    List {
+                        ForEach(store.queueItems) { item in
+                            Button {
+                                store.selectQueueEntry(item.entry.id)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    ColorfulAlbumArt(
+                                        title: item.track.title,
+                                        accent: item.track.accent,
+                                        artworkURL: item.track.artwork?.url,
+                                        size: 48
+                                    )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.track.title)
+                                            .font(.body.weight(.semibold))
+                                            .foregroundStyle(ColorfulTheme.ink)
+                                            .lineLimit(1)
+                                        Text("\(item.track.compactArtistLabel) · \(item.track.albumLabel)")
+                                            .font(.caption)
+                                            .foregroundStyle(ColorfulTheme.mutedInk)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer(minLength: 6)
+                                    Text(item.track.durationLabel)
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(ColorfulTheme.mutedInk)
+                                    if store.currentQueueEntryID == item.entry.id {
+                                        Image(systemName: store.effectiveIsPlaying ? "speaker.wave.2.fill" : "pause.fill")
+                                            .foregroundStyle(ColorfulTheme.accent)
+                                            .frame(width: 22)
+                                    }
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(
+                                    store.currentQueueEntryID == item.entry.id
+                                        ? ColorfulTheme.accent.opacity(0.12)
+                                        : ColorfulTheme.surface,
+                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    store.removeQueueEntry(item.entry.id)
                                 } label: {
-                                    HStack(spacing: 10) {
-                                        TrackRowContent(track: item.track)
-                                        if store.currentQueueEntryID == item.entry.id {
-                                            Image(systemName: store.effectiveIsPlaying ? "speaker.wave.2.fill" : "pause.fill")
-                                                .foregroundStyle(ColorfulTheme.accent)
-                                        }
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        store.removeQueueEntry(item.entry.id)
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
+                                    Label("Remove", systemImage: "trash")
                                 }
                             }
-                            .onMove { offsets, destination in
-                                guard let source = offsets.first,
-                                      store.queueItems.indices.contains(source) else { return }
-                                let target = destination > source ? destination - 1 : destination
-                                store.moveQueueEntry(store.queueItems[source].entry.id, to: target)
-                            }
-                        } header: {
-                            Text("Queue order")
-                        } footer: {
-                            if store.isShuffleEnabled {
-                                Text("Reordering changes the saved queue order. The current shuffled play order stays active until shuffle is turned off.")
-                            }
+                        }
+                        .onMove { offsets, destination in
+                            guard let source = offsets.first,
+                                  store.queueItems.indices.contains(source) else { return }
+                            let target = destination > source ? destination - 1 : destination
+                            store.moveQueueEntry(store.queueItems[source].entry.id, to: target)
                         }
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
+                    .environment(\.defaultMinListRowHeight, 0)
                 }
             }
             .background(ColorfulTheme.background.ignoresSafeArea())
@@ -1252,5 +1288,24 @@ private struct QueueView: View {
                 }
             }
         }
+    }
+
+    private func queueControl(
+        title: String,
+        symbol: String,
+        active: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(active ? ColorfulTheme.accent : ColorfulTheme.ink.opacity(0.78))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(ColorfulTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }

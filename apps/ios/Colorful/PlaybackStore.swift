@@ -102,9 +102,10 @@ final class PlaybackStore: ObservableObject {
         core = ColorfulCoreBridge()
     }
 
-    func refreshFromCore() async {
+    func refreshFromCore(adoptPosition: Bool = false) async {
         do {
             let snapshot = try await core.loadSnapshot()
+            let previousEntryID = coreSnapshot?.queue.current
             coreSnapshot = snapshot
             coreError = nil
 
@@ -125,7 +126,9 @@ final class PlaybackStore: ObservableObject {
             } else {
                 isPlaying = coreIsPlaying
             }
-            positionMs = snapshot.playback.positionMs
+            if adoptPosition || previousEntryID != snapshot.queue.current {
+                positionMs = snapshot.playback.positionMs
+            }
         } catch {
             coreError = error.localizedDescription
         }

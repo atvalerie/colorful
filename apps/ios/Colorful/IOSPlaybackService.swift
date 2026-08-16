@@ -72,7 +72,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     }
 
     func reconcileAfterActivation() async {
-        await store.refreshFromCore()
+        await store.refreshFromCore(adoptPosition: player.currentItem == nil)
         configureAudioSession(activate: store.effectiveIsPlaying)
         synchronize()
     }
@@ -122,6 +122,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         if player.currentItem != nil {
             player.seek(to: position)
         }
+        store.updatePositionFromPlayer(positionMs)
         store.seek(to: positionMs)
         updateNowPlaying(for: store.currentTrack)
     }
