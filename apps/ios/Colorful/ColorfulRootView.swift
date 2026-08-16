@@ -794,16 +794,15 @@ private struct FullPlayer: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                ColorfulArtworkBackground(palette: paletteLoader.palette, image: paletteLoader.image)
-                ScrollView {
-                    VStack(spacing: 22) {
+        ZStack {
+            ColorfulArtworkBackground(palette: paletteLoader.palette, image: paletteLoader.image)
+            ScrollView {
+                VStack(spacing: 22) {
                         ColorfulAlbumArt(
                             title: track.title,
                             accent: track.accent,
                             artworkURL: track.artwork?.url,
-                            size: artworkSize(in: proxy.size)
+                            size: 280
                         )
                         .padding(.top, 8)
 
@@ -929,14 +928,12 @@ private struct FullPlayer: View {
                             )
                         }
                         .padding(.horizontal, 8)
-                    }
-                    .frame(width: max(0, proxy.size.width - 48))
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
-                    .frame(minHeight: proxy.size.height)
                 }
-                .scrollIndicators(.hidden)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .containerRelativeFrame(.horizontal)
             }
+            .scrollIndicators(.hidden)
         }
         .task(id: track.artwork?.url) {
             paletteLoader.load(for: track.artwork?.url)
@@ -947,10 +944,6 @@ private struct FullPlayer: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(ColorfulTheme.background)
         }
-    }
-
-    private func artworkSize(in size: CGSize) -> CGFloat {
-        min(max(190, size.height * 0.37), min(340, size.width - 64))
     }
 
     private func transportButton(
