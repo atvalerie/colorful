@@ -32,17 +32,46 @@ xcodebuild \
   build
 ```
 
-For a physical iPhone, build the Rust library with
-`aarch64-apple-ios`, select a connected device in Xcode, and let Xcode sign the
-app with the Apple account available on that Mac. The repository does not
-commit signing certificates, provisioning profiles, or generated `.a` files.
+For a physical iPhone IPA container, use the device Rust target and package the
+unsigned archive:
+
+```sh
+bash scripts/build-ios-core.sh aarch64-apple-ios
+xcodebuild archive \
+  -project apps/ios/Colorful.xcodeproj \
+  -scheme Colorful \
+  -sdk iphoneos \
+  -destination 'generic/platform=iOS' \
+  -configuration Debug \
+  -archivePath build/Colorful.xcarchive \
+  ARCHS=arm64 \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO \
+  COLORFUL_CORE_SWIFT_CONDITION=COLORFUL_CORE_ENABLED \
+  COLORFUL_CORE_LIBRARY_SEARCH_PATH="$PWD/target/aarch64-apple-ios/release" \
+  COLORFUL_CORE_LDFLAGS="-lcolorful_core -framework Security" \
+  SKIP_INSTALL=NO
+mkdir -p build/Payload
+cp -R build/Colorful.xcarchive/Products/Applications/Colorful.app build/Payload/Colorful.app
+cd build
+zip -qry colorful-ios-unsigned.ipa Payload
+```
+
+The GitHub workflow performs this device archive automatically and uploads
+`colorful-ios-unsigned.ipa`. This is a real device IPA container, but it is not
+signed for SpringBoard installation. It is useful for testing import-based
+containers such as LiveContainer or as the input to a local signing step.
+
+For a directly installable iPhone IPA, select a connected device in Xcode and
+let Xcode sign the app with the Apple account available on that Mac. The
+repository does not commit signing certificates, provisioning profiles, or
+generated `.a` files.
 
 ## GitHub Actions
 
-`.github/workflows/ios-build.yml` uses a hosted macOS runner, chooses the
-correct simulator Rust target from the runner architecture, builds the static
-library, and uploads an unsigned simulator `.app`. This validates the project
-and bridge in a clean Apple environment; it is not an installable iPhone IPA.
+`.github/workflows/ios-build.yml` uses a hosted macOS runner, builds both the
+matching simulator app and an `aarch64-apple-ios` device archive, and uploads
+both the unsigned simulator `.app` and `colorful-ios-unsigned.ipa`.
 
 An installable device IPA still needs signing. With a free Personal Team, the
 usual Apple seven-day provisioning window remains a platform constraint. A

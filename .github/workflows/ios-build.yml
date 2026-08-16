@@ -86,3 +86,61 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  device-ipa:
+    name: Build unsigned iPhone IPA
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ios-rust-device-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ios-rust-device-
+
+      - name: Build the Rust device library
+        shell: bash
+        run: |
+          rust_target="aarch64-apple-ios"
+          echo "rust_target=$rust_target" >> "$GITHUB_ENV"
+          bash scripts/build-ios-core.sh "$rust_target"
+
+      - name: Archive the unsigned device app
+        shell: bash
+        run: |
+          xcodebuild archive \
+            -project apps/ios/Colorful.xcodeproj \
+            -scheme Colorful \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -configuration Debug \
+            -archivePath build/Colorful.xcarchive \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            COLORFUL_CORE_SWIFT_CONDITION=COLORFUL_CORE_ENABLED \
+            COLORFUL_CORE_LIBRARY_SEARCH_PATH="$GITHUB_WORKSPACE/target/$rust_target/release" \
+            COLORFUL_CORE_LDFLAGS="-lcolorful_core -framework Security" \
+            SKIP_INSTALL=NO
+
+      - name: Package the IPA container
+        shell: bash
+        run: |
+          mkdir -p build/Payload
+          cp -R build/Colorful.xcarchive/Products/Applications/Colorful.app build/Payload/Colorful.app
+          cd build
+          zip -qry colorful-ios-unsigned.ipa Payload
+
+      - name: Upload unsigned device IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: colorful-ios-unsigned-ipa-${{ github.run_number }}
+          path: build/colorful-ios-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
