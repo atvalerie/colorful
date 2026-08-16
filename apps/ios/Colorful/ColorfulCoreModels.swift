@@ -143,6 +143,15 @@ struct ColorfulCoreSnapshot: Codable, Sendable {
     let queueTracks: [CoreTrack]
     let playback: CorePlaybackState
     let library: [CoreTrack]
+    let playlists: [CoreLocalPlaylist]
+}
+
+struct CoreLocalPlaylist: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let createdAtMs: Int64
+    let updatedAtMs: Int64
+    let tracks: [CoreTrack]
 }
 
 struct CoreSimpleCommand: Encodable, Sendable {
@@ -167,6 +176,52 @@ struct CoreEnqueueCommand: Encodable, Sendable {
 struct CorePlayNextCommand: Encodable, Sendable {
     let command = "play_next"
     let track: CoreTrack
+}
+
+struct CoreAddToLibraryCommand: Encodable, Sendable {
+    let command = "add_to_library"
+    let track: CoreTrack
+}
+
+struct CoreRemoveFromLibraryCommand: Encodable, Sendable {
+    let command = "remove_from_library"
+    let id: CoreMediaID
+}
+
+struct CoreCreatePlaylistCommand: Encodable, Sendable {
+    let command = "create_playlist"
+    let name: String
+    let tracks: [CoreTrack]
+}
+
+struct CorePlaylistCommand: Encodable, Sendable {
+    let command: String
+    let id: String
+}
+
+struct CoreRenamePlaylistCommand: Encodable, Sendable {
+    let command = "rename_playlist"
+    let id: String
+    let name: String
+}
+
+struct CoreAddPlaylistTrackCommand: Encodable, Sendable {
+    let command = "add_playlist_track"
+    let id: String
+    let track: CoreTrack
+}
+
+struct CorePlaylistItemCommand: Encodable, Sendable {
+    let command: String
+    let id: String
+    let position: Int
+}
+
+struct CoreMovePlaylistItemCommand: Encodable, Sendable {
+    let command = "move_playlist_item"
+    let id: String
+    let position: Int
+    let target: Int
 }
 
 enum CoreRepeatMode: String, CaseIterable, Encodable, Sendable {

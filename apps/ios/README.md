@@ -11,7 +11,9 @@ routing, honest buffering/error feedback, artwork-derived color, nested queue
 editing, repeat/shuffle, and occurrence-safe duplicate handling. Physical-device
 hardening is still in progress. Credited artists are navigable from the full
 player, including an artist chooser for collaborations and native TIDAL artist
-pages with top tracks.
+pages with top tracks and album shelves. The Library now exposes the Rust-backed
+saved-track collection and Colorful playlists, with native create, rename,
+delete, reorder, removal, and track-action flows.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

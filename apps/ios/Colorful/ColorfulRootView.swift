@@ -170,12 +170,8 @@ private struct HomeView: View {
                 } else {
                     LazyVStack(spacing: 10) {
                         ForEach(Array(store.homeTracks.enumerated()), id: \.offset) { item in
-                            TrackRow(track: item.element) {
+                            TrackRow(track: item.element, store: store) {
                                 store.play(item.element)
-                            } enqueue: {
-                                store.enqueue(item.element)
-                            } playNext: {
-                                store.playNext(item.element)
                             }
                         }
                     }
@@ -266,19 +262,59 @@ private struct HomeHeader: View {
 
 private struct TrackRow: View {
     let track: CoreTrack
+    @ObservedObject var store: PlaybackStore
     let play: () -> Void
-    let enqueue: () -> Void
-    let playNext: () -> Void
 
     var body: some View {
-        Button(action: play) {
-            TrackRowContent(track: track)
+        HStack(spacing: 0) {
+            Button(action: play) {
+                TrackRowContent(track: track)
+            }
+            .buttonStyle(.plain)
+            Menu {
+                TrackActionMenuItems(track: track, store: store, play: play)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(ColorfulTheme.mutedInk)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Actions for \(track.title)")
         }
-        .buttonStyle(.plain)
         .contextMenu {
-            Button("Play", systemImage: "play.fill") { play() }
-            Button("Play next", systemImage: "text.insert") { playNext() }
-            Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue() }
+            TrackActionMenuItems(track: track, store: store, play: play)
+        }
+    }
+}
+
+private struct TrackActionMenuItems: View {
+    let track: CoreTrack
+    @ObservedObject var store: PlaybackStore
+    let play: () -> Void
+
+    var body: some View {
+        Button("Play", systemImage: "play.fill", action: play)
+        Button("Play next", systemImage: "text.insert") {
+            store.playNext(track)
+        }
+        Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") {
+            store.enqueue(track)
+        }
+        Divider()
+        Button(
+            store.isSaved(track) ? "Remove from library" : "Save to library",
+            systemImage: store.isSaved(track) ? "heart.slash" : "heart"
+        ) {
+            store.toggleSaved(track)
+        }
+        if !store.playlists.isEmpty {
+            Menu("Add to playlist", systemImage: "text.badge.plus") {
+                ForEach(store.playlists) { playlist in
+                    Button(playlist.name) {
+                        store.add(track, toPlaylist: playlist.id)
+                    }
+                }
+            }
         }
     }
 }
@@ -418,28 +454,33 @@ private struct SearchResultRow: View {
 
     var body: some View {
         if let albumID = track.albumID?.providerID {
-            NavigationLink {
-                AlbumCollectionView(albumID: albumID, account: account, store: store)
-            } label: {
-                TrackRowContent(track: track)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                Button("Play", systemImage: "play.fill") { onPlay(track) }
-                Button("Play next", systemImage: "text.insert") {
-                    store.playNext(track)
+            HStack(spacing: 0) {
+                NavigationLink {
+                    AlbumCollectionView(albumID: albumID, account: account, store: store)
+                } label: {
+                    TrackRowContent(track: track)
                 }
-                Button("Add to queue", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                    store.enqueue(track)
+                .buttonStyle(.plain)
+                Menu {
+                    TrackActionMenuItems(track: track, store: store) {
+                        onPlay(track)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ColorfulTheme.mutedInk)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Actions for \(track.title)")
+            }
+            .contextMenu {
+                TrackActionMenuItems(track: track, store: store) {
+                    onPlay(track)
                 }
             }
         } else {
-            TrackRow(track: track) {
+            TrackRow(track: track, store: store) {
                 onPlay(track)
-            } enqueue: {
-                store.enqueue(track)
-            } playNext: {
-                store.playNext(track)
             }
         }
     }
@@ -504,12 +545,8 @@ private struct AlbumCollectionView: View {
 
                             LazyVStack(spacing: 10) {
                                 ForEach(collection.tracks) { track in
-                                    TrackRow(track: track) {
+                                    TrackRow(track: track, store: store) {
                                         store.play(track)
-                                    } enqueue: {
-                                        store.enqueue(track)
-                                    } playNext: {
-                                        store.playNext(track)
                                     }
                                 }
                             }
@@ -544,20 +581,61 @@ private struct AlbumCollectionView: View {
 
 private struct LibraryView: View {
     @ObservedObject var store: PlaybackStore
+    @State private var isCreatingPlaylist = false
+    @State private var playlistName = ""
 
     var body: some View {
         List {
+            Section("Playlists") {
+                if store.playlists.isEmpty {
+                    Button {
+                        isCreatingPlaylist = true
+                    } label: {
+                        Label("Create your first playlist", systemImage: "plus.circle")
+                    }
+                    .foregroundStyle(ColorfulTheme.ink)
+                    .listRowBackground(ColorfulTheme.surface)
+                } else {
+                    ForEach(store.playlists) { playlist in
+                        NavigationLink {
+                            LocalPlaylistView(playlistID: playlist.id, store: store)
+                        } label: {
+                            HStack(spacing: 12) {
+                                playlistArtwork(playlist)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(playlist.name)
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(ColorfulTheme.ink)
+                                        .lineLimit(1)
+                                    Text("\(playlist.tracks.count) \(playlist.tracks.count == 1 ? "track" : "tracks")")
+                                        .font(.caption)
+                                        .foregroundStyle(ColorfulTheme.mutedInk)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .listRowBackground(ColorfulTheme.surface)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                store.deletePlaylist(playlist.id)
+                            }
+                        }
+                    }
+                }
+            }
+
             if !store.libraryTracks.isEmpty {
                 Section("Saved tracks") {
                     ForEach(store.libraryTracks) { track in
-                        TrackRow(track: track) {
+                        TrackRow(track: track, store: store) {
                             store.play(track)
-                        } enqueue: {
-                            store.enqueue(track)
-                        } playNext: {
-                            store.playNext(track)
                         }
                         .listRowBackground(ColorfulTheme.surface)
+                        .swipeActions(edge: .trailing) {
+                            Button("Remove", systemImage: "heart.slash", role: .destructive) {
+                                store.toggleSaved(track)
+                            }
+                        }
                     }
                 }
             } else {
@@ -565,21 +643,6 @@ private struct LibraryView: View {
                     Label("No saved tracks yet", systemImage: "music.note.list")
                         .foregroundStyle(ColorfulTheme.mutedInk)
                         .listRowBackground(ColorfulTheme.surface)
-                }
-            }
-
-            if !store.queueTracks.isEmpty {
-                Section("Queue") {
-                    ForEach(Array(store.queueTracks.enumerated()), id: \.offset) { item in
-                        TrackRow(track: item.element) {
-                            store.play(item.element)
-                        } enqueue: {
-                            store.enqueue(item.element)
-                        } playNext: {
-                            store.playNext(item.element)
-                        }
-                        .listRowBackground(ColorfulTheme.surface)
-                    }
                 }
             }
 
@@ -594,6 +657,148 @@ private struct LibraryView: View {
         .scrollContentBackground(.hidden)
         .background(ColorfulTheme.background.ignoresSafeArea())
         .navigationTitle("Library")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("New playlist", systemImage: "plus") {
+                    playlistName = ""
+                    isCreatingPlaylist = true
+                }
+            }
+        }
+        .alert("New playlist", isPresented: $isCreatingPlaylist) {
+            TextField("Playlist name", text: $playlistName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                store.createPlaylist(named: playlistName)
+            }
+            .disabled(playlistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Playlists are stored locally by the Colorful core.")
+        }
+    }
+
+    @ViewBuilder
+    private func playlistArtwork(_ playlist: CoreLocalPlaylist) -> some View {
+        if let track = playlist.tracks.first {
+            ColorfulAlbumArt(
+                title: playlist.name,
+                accent: track.accent,
+                artworkURL: track.artwork?.url,
+                size: 52
+            )
+        } else {
+            ZStack {
+                ColorfulTheme.surfaceRaised
+                Image(systemName: "music.note.list")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(ColorfulTheme.mutedInk)
+            }
+            .frame(width: 52, height: 52)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+    }
+}
+
+private struct LocalPlaylistView: View {
+    let playlistID: String
+    @ObservedObject var store: PlaybackStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var isRenaming = false
+    @State private var renamedPlaylist = ""
+    @State private var isConfirmingDeletion = false
+
+    private var playlist: CoreLocalPlaylist? {
+        store.playlists.first { $0.id == playlistID }
+    }
+
+    var body: some View {
+        Group {
+            if let playlist {
+                List {
+                    Section {
+                        Button {
+                            store.playTracks(playlist.tracks)
+                        } label: {
+                            Label("Play playlist", systemImage: "play.fill")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(playlist.tracks.isEmpty)
+                        .listRowBackground(ColorfulTheme.surface)
+                    }
+
+                    Section("Tracks") {
+                        if playlist.tracks.isEmpty {
+                            Label("Add tracks from any track menu", systemImage: "text.badge.plus")
+                                .foregroundStyle(ColorfulTheme.mutedInk)
+                                .listRowBackground(ColorfulTheme.surface)
+                        } else {
+                            ForEach(Array(playlist.tracks.enumerated()), id: \.offset) { item in
+                                TrackRow(track: item.element, store: store) {
+                                    store.playTracks(Array(playlist.tracks.dropFirst(item.offset)))
+                                }
+                                .listRowBackground(ColorfulTheme.surface)
+                            }
+                            .onDelete { offsets in
+                                for position in offsets.sorted(by: >) {
+                                    store.removePlaylistItem(from: playlist.id, at: position)
+                                }
+                            }
+                            .onMove { offsets, destination in
+                                guard offsets.count == 1, let source = offsets.first else { return }
+                                let target = destination > source ? destination - 1 : destination
+                                store.movePlaylistItem(in: playlist.id, from: source, to: target)
+                            }
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            } else {
+                ContentUnavailableView("Playlist unavailable", systemImage: "music.note.list")
+            }
+        }
+        .background(ColorfulTheme.background.ignoresSafeArea())
+        .navigationTitle(playlist?.name ?? "Playlist")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if playlist?.tracks.isEmpty == false {
+                    EditButton()
+                }
+                if let playlist {
+                    Menu("Playlist actions", systemImage: "ellipsis.circle") {
+                        Button("Rename", systemImage: "pencil") {
+                            renamedPlaylist = playlist.name
+                            isRenaming = true
+                        }
+                        Button("Delete playlist", systemImage: "trash", role: .destructive) {
+                            isConfirmingDeletion = true
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                }
+            }
+        }
+        .alert("Rename playlist", isPresented: $isRenaming) {
+            TextField("Playlist name", text: $renamedPlaylist)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                store.renamePlaylist(playlistID, to: renamedPlaylist)
+            }
+            .disabled(renamedPlaylist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .confirmationDialog(
+            "Delete this playlist?",
+            isPresented: $isConfirmingDeletion,
+            titleVisibility: .visible
+        ) {
+            Button("Delete playlist", role: .destructive) {
+                store.deletePlaylist(playlistID)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The playlist will be removed from this device. Its tracks stay in your library and queue.")
+        }
     }
 }
 
@@ -1200,12 +1405,8 @@ private struct ArtistCollectionView: View {
                                     .foregroundStyle(ColorfulTheme.ink)
                                 LazyVStack(spacing: 10) {
                                     ForEach(collection.topTracks) { track in
-                                        TrackRow(track: track) {
+                                        TrackRow(track: track, store: store) {
                                             store.play(track)
-                                        } enqueue: {
-                                            store.enqueue(track)
-                                        } playNext: {
-                                            store.playNext(track)
                                         }
                                     }
                                 }

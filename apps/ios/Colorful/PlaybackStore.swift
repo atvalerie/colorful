@@ -42,6 +42,14 @@ final class PlaybackStore: ObservableObject {
         coreSnapshot?.library ?? []
     }
 
+    var playlists: [CoreLocalPlaylist] {
+        coreSnapshot?.playlists ?? []
+    }
+
+    func isSaved(_ track: CoreTrack) -> Bool {
+        libraryTracks.contains { $0.id == track.id }
+    }
+
     var queueItems: [CoreQueueItem] {
         guard let snapshot = coreSnapshot,
               snapshot.queue.entries.count == snapshot.queueTracks.count else {
@@ -149,6 +157,46 @@ final class PlaybackStore: ObservableObject {
 
     func playNext(_ track: CoreTrack) {
         dispatch(CorePlayNextCommand(track: track))
+    }
+
+    func toggleSaved(_ track: CoreTrack) {
+        if isSaved(track) {
+            dispatch(CoreRemoveFromLibraryCommand(id: track.id))
+        } else {
+            dispatch(CoreAddToLibraryCommand(track: track))
+        }
+    }
+
+    func createPlaylist(named name: String, tracks: [CoreTrack] = []) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        dispatch(CoreCreatePlaylistCommand(name: trimmed, tracks: tracks))
+    }
+
+    func renamePlaylist(_ id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, !trimmed.isEmpty else { return }
+        dispatch(CoreRenamePlaylistCommand(id: id, name: trimmed))
+    }
+
+    func deletePlaylist(_ id: String) {
+        guard !id.isEmpty else { return }
+        dispatch(CorePlaylistCommand(command: "delete_playlist", id: id))
+    }
+
+    func add(_ track: CoreTrack, toPlaylist id: String) {
+        guard !id.isEmpty else { return }
+        dispatch(CoreAddPlaylistTrackCommand(id: id, track: track))
+    }
+
+    func removePlaylistItem(from id: String, at position: Int) {
+        guard !id.isEmpty, position >= 0 else { return }
+        dispatch(CorePlaylistItemCommand(command: "remove_playlist_item", id: id, position: position))
+    }
+
+    func movePlaylistItem(in id: String, from position: Int, to target: Int) {
+        guard !id.isEmpty, position >= 0, target >= 0, position != target else { return }
+        dispatch(CoreMovePlaylistItemCommand(id: id, position: position, target: target))
     }
 
     func selectQueueEntry(_ entryID: UInt64) {
