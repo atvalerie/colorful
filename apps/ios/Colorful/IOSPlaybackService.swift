@@ -98,6 +98,15 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         store.skipPrevious()
     }
 
+    func seek(to positionMs: UInt64) {
+        let position = CMTime(value: Int64(positionMs), timescale: 1_000)
+        if player.currentItem != nil {
+            player.seek(to: position)
+        }
+        store.seek(to: positionMs)
+        updateNowPlaying(for: store.currentTrack)
+    }
+
     private func synchronize() {
         guard let track = store.currentTrack else {
             sourceTask?.cancel()
@@ -325,7 +334,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             Task { @MainActor in
-                self?.store.seek(to: max(0, UInt64(event.positionTime * 1_000)))
+                self?.seek(to: max(0, UInt64(event.positionTime * 1_000)))
             }
             return .success
         }
