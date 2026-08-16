@@ -12,15 +12,38 @@ struct ColorfulPalette: Equatable, Sendable {
         background: 0x160D14
     )
 
+    static let neutral = ColorfulPalette(
+        primary: 0xECECF2,
+        secondary: 0xA5A5AF,
+        background: 0x0B0B0D
+    )
+
     var primaryColor: Color { Color(hex: primary) }
     var secondaryColor: Color { Color(hex: secondary) }
     var backgroundColor: Color { Color(hex: background) }
+    var primaryForegroundColor: Color {
+        relativeLuminance(primary) > 0.54 ? Color.black.opacity(0.88) : .white
+    }
+
+    private func relativeLuminance(_ value: UInt32) -> Double {
+        let red = Double((value >> 16) & 0xFF) / 255
+        let green = Double((value >> 8) & 0xFF) / 255
+        let blue = Double(value & 0xFF) / 255
+        func linear(_ component: Double) -> Double {
+            component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
 }
 
 @MainActor
 final class ColorfulArtworkPaletteLoader: ObservableObject {
     @Published private(set) var image: UIImage?
-    @Published private(set) var palette = ColorfulPalette.fallback
+    @Published private(set) var palette = ColorfulPalette.neutral
+    @Published private(set) var isLoading = false
+    @Published private(set) var didFail = false
 
     private static let imageCache = NSCache<NSURL, UIImage>()
     private static var paletteCache = [NSURL: ColorfulPalette]()
@@ -37,7 +60,9 @@ final class ColorfulArtworkPaletteLoader: ObservableObject {
               let url = URL(string: artworkURL) else {
             loadedURL = nil
             image = nil
-            palette = .fallback
+            palette = .neutral
+            isLoading = false
+            didFail = false
             return
         }
 
@@ -45,30 +70,44 @@ final class ColorfulArtworkPaletteLoader: ObservableObject {
             return
         }
         loadedURL = url
+        image = nil
+        palette = .neutral
+        isLoading = true
+        didFail = false
 
         if let cachedImage = Self.imageCache.object(forKey: url as NSURL) {
             image = cachedImage
             palette = Self.paletteCache[url as NSURL] ?? Self.palette(for: cachedImage)
             Self.paletteCache[url as NSURL] = palette
+            isLoading = false
             return
         }
 
         task = Task { @MainActor [weak self, url] in
             do {
                 let (data, response) = try await URLSession.shared.data(from: url)
-                guard !Task.isCancelled,
-                      (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) ?? true,
-                      let image = UIImage(data: data),
-                      let self,
-                      self.loadedURL == url else { return }
+                guard !Task.isCancelled else { return }
+                guard (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) ?? true,
+                      let image = UIImage(data: data) else {
+                    guard let self, self.loadedURL == url else { return }
+                    self.isLoading = false
+                    self.didFail = true
+                    self.palette = .fallback
+                    return
+                }
+                guard let self, self.loadedURL == url else { return }
 
                 Self.imageCache.setObject(image, forKey: url as NSURL)
                 let palette = Self.paletteCache[url as NSURL] ?? Self.palette(for: image)
                 Self.paletteCache[url as NSURL] = palette
                 self.image = image
                 self.palette = palette
+                self.isLoading = false
             } catch {
-                // Artwork is optional and must never block playback or navigation.
+                guard let self, self.loadedURL == url else { return }
+                self.isLoading = false
+                self.didFail = true
+                self.palette = .fallback
             }
         }
     }
@@ -195,6 +234,7 @@ struct ColorfulAlbumArt: View {
     var artworkURL: String? = nil
     var size: CGFloat = 56
     @StateObject private var paletteLoader: ColorfulArtworkPaletteLoader
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(title: String, accent: UInt32, artworkURL: String? = nil, size: CGFloat = 56) {
         self.title = title
@@ -206,14 +246,17 @@ struct ColorfulAlbumArt: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            fallbackArtwork(accent: paletteLoader.palette.primary)
-
             if let image = paletteLoader.image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                .frame(width: size, height: size)
-                .clipped()
+                    .frame(width: size, height: size)
+                    .clipped()
+                    .transition(.opacity)
+            } else if artworkURL != nil && !paletteLoader.didFail {
+                loadingArtwork
+            } else {
+                fallbackArtwork(accent: accent)
             }
         }
         .frame(width: size, height: size)
@@ -221,6 +264,16 @@ struct ColorfulAlbumArt: View {
         .accessibilityLabel("Artwork for \(title)")
         .task(id: artworkURL) {
             paletteLoader.load(for: artworkURL)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: paletteLoader.image != nil)
+    }
+
+    private var loadingArtwork: some View {
+        ZStack {
+            ColorfulTheme.surfaceRaised
+            ProgressView()
+                .controlSize(size < 80 ? .small : .regular)
+                .tint(ColorfulTheme.mutedInk)
         }
     }
 
@@ -242,6 +295,7 @@ struct ColorfulAlbumArt: View {
 struct ColorfulArtworkBackground: View {
     let palette: ColorfulPalette
     let image: UIImage?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(palette: ColorfulPalette, image: UIImage? = nil) {
         self.palette = palette
@@ -275,11 +329,13 @@ struct ColorfulArtworkBackground: View {
             )
         }
         .ignoresSafeArea()
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: palette)
     }
 }
 
 struct ColorfulCollectionBackground: View {
     let palette: ColorfulPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -291,6 +347,7 @@ struct ColorfulCollectionBackground: View {
             )
         }
         .ignoresSafeArea()
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: palette)
     }
 }
 

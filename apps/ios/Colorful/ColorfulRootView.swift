@@ -483,11 +483,20 @@ private struct AlbumCollectionView: View {
                                     .font(.subheadline)
                                     .foregroundStyle(ColorfulTheme.mutedInk)
                                     .lineLimit(2)
-                                Button("Play album", systemImage: "play.fill") {
+                                Button {
                                     store.playTracks(collection.tracks)
+                                } label: {
+                                    Label("Play album", systemImage: "play.fill")
+                                        .font(.headline)
+                                        .foregroundStyle(paletteLoader.palette.primaryForegroundColor)
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, 11)
+                                        .background(
+                                            paletteLoader.palette.primaryColor,
+                                            in: Capsule(style: .continuous)
+                                        )
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .tint(paletteLoader.palette.primaryColor)
+                                .buttonStyle(.plain)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -740,7 +749,6 @@ private struct FullPlayer: View {
     @State private var scrubPosition = 0.0
     @State private var isScrubbing = false
     @State private var isShowingQueue = false
-    @State private var isChoosingArtist = false
     @State private var artistDestination: ArtistDestination?
 
     init(
@@ -946,14 +954,6 @@ private struct FullPlayer: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(ColorfulTheme.background)
         }
-        .confirmationDialog("Choose an artist", isPresented: $isChoosingArtist, titleVisibility: .visible) {
-            ForEach(Array(navigableArtists.enumerated()), id: \.offset) { item in
-                Button(item.element.name) {
-                    artistDestination = ArtistDestination(artist: item.element)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
         .sheet(item: $artistDestination) { destination in
             NavigationStack {
                 ArtistCollectionView(artist: destination.artist, account: account, store: store)
@@ -971,22 +971,39 @@ private struct FullPlayer: View {
                 .font(.body)
                 .foregroundStyle(ColorfulTheme.ink.opacity(0.78))
                 .lineLimit(1)
-        } else {
+        } else if navigableArtists.count == 1, let artist = navigableArtists.first {
             Button(action: openArtist) {
                 HStack(spacing: 6) {
                     Text(track.compactArtistLabel)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Image(systemName: navigableArtists.count > 1 ? "chevron.down.circle.fill" : "chevron.right")
+                    Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
                 }
                 .font(.body)
                 .foregroundStyle(ColorfulTheme.ink.opacity(0.82))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(navigableArtists.count > 1
-                ? "Choose an artist from \(track.compactArtistLabel)"
-                : "Open artist \(navigableArtists[0].name)")
+            .accessibilityLabel("Open artist \(artist.name)")
+        } else {
+            Menu {
+                ForEach(Array(navigableArtists.enumerated()), id: \.offset) { item in
+                    Button(item.element.name) {
+                        artistDestination = ArtistDestination(artist: item.element)
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(track.compactArtistLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Image(systemName: "chevron.down.circle.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .font(.body)
+                .foregroundStyle(ColorfulTheme.ink.opacity(0.82))
+            }
+            .accessibilityLabel("Choose an artist from \(track.compactArtistLabel)")
         }
     }
 
@@ -997,10 +1014,8 @@ private struct FullPlayer: View {
     }
 
     private func openArtist() {
-        if navigableArtists.count == 1, let artist = navigableArtists.first {
+        if let artist = navigableArtists.first {
             artistDestination = ArtistDestination(artist: artist)
-        } else if !navigableArtists.isEmpty {
-            isChoosingArtist = true
         }
     }
 
@@ -1083,14 +1098,63 @@ private struct ArtistCollectionView: View {
                                     .multilineTextAlignment(.center)
                                     .lineLimit(2)
                                 if !collection.topTracks.isEmpty {
-                                    Button("Play top tracks", systemImage: "play.fill") {
+                                    Button {
                                         store.playTracks(collection.topTracks)
+                                    } label: {
+                                        Label("Play top tracks", systemImage: "play.fill")
+                                            .font(.headline)
+                                            .foregroundStyle(paletteLoader.palette.primaryForegroundColor)
+                                            .padding(.horizontal, 22)
+                                            .padding(.vertical, 12)
+                                            .background(
+                                                paletteLoader.palette.primaryColor,
+                                                in: Capsule(style: .continuous)
+                                            )
                                     }
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(paletteLoader.palette.primaryColor)
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .frame(maxWidth: .infinity)
+
+                            if !collection.albums.isEmpty {
+                                Text("Albums")
+                                    .font(.title2.bold())
+                                    .foregroundStyle(ColorfulTheme.ink)
+                                ScrollView(.horizontal) {
+                                    LazyHStack(alignment: .top, spacing: 14) {
+                                        ForEach(collection.albums) { album in
+                                            NavigationLink {
+                                                AlbumCollectionView(
+                                                    albumID: album.id,
+                                                    account: account,
+                                                    store: store
+                                                )
+                                            } label: {
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    ColorfulAlbumArt(
+                                                        title: album.title,
+                                                        accent: 0xFF5C9A,
+                                                        artworkURL: album.artworkURL,
+                                                        size: 148
+                                                    )
+                                                    Text(album.title)
+                                                        .font(.subheadline.weight(.semibold))
+                                                        .foregroundStyle(ColorfulTheme.ink)
+                                                        .lineLimit(2)
+                                                    Text(album.artistLabel)
+                                                        .font(.caption)
+                                                        .foregroundStyle(ColorfulTheme.mutedInk)
+                                                        .lineLimit(1)
+                                                }
+                                                .frame(width: 148, alignment: .leading)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                                .scrollIndicators(.hidden)
+                            }
 
                             if collection.topTracks.isEmpty {
                                 ContentUnavailableView(

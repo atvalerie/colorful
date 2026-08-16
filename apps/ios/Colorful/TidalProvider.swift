@@ -166,6 +166,7 @@ struct TidalArtistPage: Sendable {
     let name: String
     let artworkURL: String?
     let tracksDocument: String
+    let albums: [TidalAlbumSummary]
 }
 
 struct TidalArtistCollection: Sendable {
@@ -173,6 +174,14 @@ struct TidalArtistCollection: Sendable {
     let name: String
     let artworkURL: String?
     let topTracks: [CoreTrack]
+    let albums: [TidalAlbumSummary]
+}
+
+struct TidalAlbumSummary: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let artistLabel: String
+    let artworkURL: String?
 }
 
 struct TidalPlaybackSource: Sendable {
@@ -550,8 +559,23 @@ actor TidalClient {
                 URLQueryItem(name: "countryCode", value: country),
             ]
         )
+        let albumsURL = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "artists/\(encodedID)/relationships/albums",
+            query: [
+                URLQueryItem(name: "include", value: "albums,albums.coverArt,albums.artists"),
+                URLQueryItem(name: "page[limit]", value: "20"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
         let artistValue = try object(from: await request(artistURL, headers: headers))
         let tracksData = try await request(tracksURL, headers: headers)
+        let albums: [TidalAlbumSummary]
+        do {
+            albums = try albumSummaries(from: await request(albumsURL, headers: headers))
+        } catch {
+            albums = []
+        }
         guard let artist = artistValue["data"] as? [String: Any],
               let returnedID = artist["id"] as? String,
               let attributes = artist["attributes"] as? [String: Any] else {
@@ -573,8 +597,44 @@ actor TidalClient {
             id: returnedID,
             name: string(attributes, key: "name").ifBlank { "Unknown artist" },
             artworkURL: artwork,
-            tracksDocument: document
+            tracksDocument: document,
+            albums: albums
         )
+    }
+
+    private func albumSummaries(from data: Data) throws -> [TidalAlbumSummary] {
+        let document = try object(from: data)
+        let primary = document["data"] as? [[String: Any]] ?? []
+        let included = document["included"] as? [[String: Any]] ?? []
+        var resources = [String: [String: Any]]()
+        for resource in primary + included {
+            guard let type = resource["type"] as? String,
+                  let id = resource["id"] as? String else { continue }
+            resources["\(type):\(id)"] = resource
+        }
+
+        var seen = Set<String>()
+        return primary.compactMap { reference in
+            guard let id = reference["id"] as? String,
+                  seen.insert(id).inserted else { return nil }
+            let album = (reference["attributes"] as? [String: Any]) == nil
+                ? resources["albums:\(id)"]
+                : reference
+            guard let album,
+                  let attributes = album["attributes"] as? [String: Any] else { return nil }
+            let artistNames = relationshipIDs(album, name: "artists").compactMap { artistID in
+                resources["artists:\(artistID)"]?["attributes"] as? [String: Any]
+            }.map { string($0, key: "name") }.filter { !$0.isEmpty }
+            let cover = relationshipIDs(album, name: "coverArt").compactMap { artworkID in
+                resources["artworks:\(artworkID)"]
+            }.compactMap(artworkURL).first ?? imageLinkURL(attributes)
+            return TidalAlbumSummary(
+                id: id,
+                title: string(attributes, key: "title").ifBlank { "Unknown album" },
+                artistLabel: artistNames.isEmpty ? "Unknown artist" : artistNames.joined(separator: ", "),
+                artworkURL: cover
+            )
+        }
     }
 
     private func fetchPlaybackSource(
@@ -914,7 +974,8 @@ final class TidalAccountStore: ObservableObject {
             id: page.id,
             name: page.name,
             artworkURL: page.artworkURL,
-            topTracks: tracks
+            topTracks: tracks,
+            albums: page.albums
         )
     }
 
