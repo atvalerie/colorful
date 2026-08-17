@@ -257,13 +257,13 @@ struct TidalPlaybackResolution: Sendable {
     let refreshToken: String
 }
 
-struct TidalLyricLine: Identifiable, Hashable, Sendable {
+struct TidalLyricLine: Identifiable, Hashable, Codable, Sendable {
     let id: Int
     let startMs: UInt64?
     let text: String
 }
 
-struct TidalLyricsDocument: Sendable {
+struct TidalLyricsDocument: Codable, Sendable {
     let sourceLabel: String
     let synced: Bool
     let lines: [TidalLyricLine]
@@ -1368,6 +1368,7 @@ final class TidalAccountStore: ObservableObject {
     @Published private(set) var message: String?
 
     let client: TidalClient
+    private let core: ColorfulCoreBridge
     private let keychain = ColorfulKeychain()
     private let defaults = UserDefaults.standard
     private var authorizationTask: Task<Void, Never>?
@@ -1376,8 +1377,9 @@ final class TidalAccountStore: ObservableObject {
     private var pollingID: UUID?
     private var isAppActive = true
 
-    init(client: TidalClient = TidalClient()) {
+    init(client: TidalClient = TidalClient(), core: ColorfulCoreBridge = ColorfulCoreBridge()) {
         self.client = client
+        self.core = core
         isLinked = (try? keychain.readString(forKey: Self.refreshTokenKey)) != nil
         countryCode = defaults.string(forKey: Self.countryCodeKey) ?? TidalConfiguration.bundled.countryCode
         email = defaults.string(forKey: Self.emailKey)
@@ -1563,8 +1565,14 @@ final class TidalAccountStore: ObservableObject {
         )
     }
 
-    func loadLyrics(for track: CoreTrack) async throws -> TidalLyricsDocument? {
+    func loadLyrics(for track: CoreTrack, forceRefresh: Bool = false) async throws -> TidalLyricsDocument? {
         guard track.id.provider.lowercased() == "tidal" else { return nil }
+        if !forceRefresh, let cached = try? await core.setting(
+            lyricsCacheKey(for: track),
+            as: TidalLyricsDocument.self
+        ) {
+            return cached
+        }
         guard let refreshToken = try? keychain.readString(forKey: Self.refreshTokenKey) else {
             throw TidalClientError.invalidResponse("Connect TIDAL to load lyrics.")
         }
@@ -1579,6 +1587,7 @@ final class TidalAccountStore: ObservableObject {
                 try keychain.writeString(resolution.refreshToken, forKey: Self.refreshTokenKey)
             }
             if let lyrics = resolution.value {
+                await cacheLyrics(lyrics, for: track)
                 return lyrics
             }
         } catch is CancellationError {
@@ -1587,10 +1596,29 @@ final class TidalAccountStore: ObservableObject {
             nativeError = error
         }
         if let fallback = await client.lrclibLyrics(for: track) {
+            await cacheLyrics(fallback, for: track)
             return fallback
         }
         if let nativeError { throw nativeError }
         return nil
+    }
+
+    func prefetchLyrics(for track: CoreTrack) async {
+        _ = try? await loadLyrics(for: track)
+    }
+
+    private func cacheLyrics(_ lyrics: TidalLyricsDocument, for track: CoreTrack) async {
+        guard let valueData = try? JSONEncoder().encode(lyrics),
+              let valueJSON = String(data: valueData, encoding: .utf8),
+              let commandData = try? JSONEncoder().encode(
+                CoreSetSettingCommand(key: lyricsCacheKey(for: track), valueJSON: valueJSON)
+              ),
+              let commandJSON = String(data: commandData, encoding: .utf8) else { return }
+        _ = await core.dispatch(commandJSON: commandJSON)
+    }
+
+    private func lyricsCacheKey(for track: CoreTrack) -> String {
+        "lyrics/v1/\(track.id.provider.lowercased())/\(track.id.providerID)"
     }
 
     func playbackSource(for track: CoreTrack) async throws -> TidalPlaybackResolution {

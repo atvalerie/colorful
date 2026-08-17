@@ -134,6 +134,25 @@ actor ColorfulCoreBridge {
 #endif
     }
 
+    func setting<T: Decodable & Sendable>(_ key: String, as type: T.Type) throws -> T? {
+#if COLORFUL_CORE_ENABLED
+        guard handle != 0,
+              let data = key.withCString({ colorful_engine_setting(handle, $0).flatMap(Self.consume) }) else {
+            throw ColorfulCoreBridgeError.unavailable
+        }
+        let response = try JSONDecoder().decode(ColorfulCoreResponse<T>.self, from: data)
+        guard response.abiVersion == 1 else {
+            throw ColorfulCoreBridgeError.abiMismatch(response.abiVersion)
+        }
+        guard response.ok else {
+            throw ColorfulCoreBridgeError.core(response.error ?? "The Rust core rejected the setting request.")
+        }
+        return response.value
+#else
+        return nil
+#endif
+    }
+
     @discardableResult
     func dispatch(commandJSON: String) -> Bool {
 #if COLORFUL_CORE_ENABLED

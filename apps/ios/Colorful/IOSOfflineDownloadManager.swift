@@ -596,6 +596,9 @@ extension IOSOfflineDownloadManager: AVAssetDownloadDelegate {
             persist(track: track, state: .complete, localURL: location, size: size)
             progressByTrack[id] = 1
             message = "\(track.title) is ready offline."
+            Task { [weak account] in
+                await account?.prefetchLyrics(for: track)
+            }
         }
     }
 

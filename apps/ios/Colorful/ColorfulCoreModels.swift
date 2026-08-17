@@ -427,3 +427,15 @@ struct CoreRemoveDownloadCommand: Encodable, Sendable {
     let command = "remove_download"
     let id: CoreMediaID
 }
+
+struct CoreSetSettingCommand: Encodable, Sendable {
+    let command = "set_setting"
+    let key: String
+    let valueJSON: String
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case key
+        case valueJSON = "value_json"
+    }
+}

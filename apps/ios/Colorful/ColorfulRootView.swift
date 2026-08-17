@@ -2116,7 +2116,7 @@ private struct FullPlayer: View {
         lyricsLoading = true
         lyricsError = nil
         do {
-            let loaded = try await account.loadLyrics(for: track)
+            let loaded = try await account.loadLyrics(for: track, forceRefresh: force)
             guard !Task.isCancelled else { return }
             lyrics = loaded
             if loaded == nil {
