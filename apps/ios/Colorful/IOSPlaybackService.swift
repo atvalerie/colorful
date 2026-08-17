@@ -18,6 +18,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var activeTrackID: CoreMediaID?
     private var activeQueueEntryID: UInt64?
     private var lastCheckpointMs: UInt64 = 0
+    private var lastNowPlayingPositionMs: UInt64 = 0
     private var artworkTask: Task<Void, Never>?
     private var loadedArtworkURL: String?
     private var wasPlayingBeforeInterruption = false
@@ -337,7 +338,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             }
         )
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 1, preferredTimescale: 600),
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
             Task { @MainActor [weak self] in
@@ -381,7 +382,10 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             lastCheckpointMs = milliseconds
             store.checkpointPosition()
         }
-        updateNowPlaying(for: store.currentTrack)
+        if milliseconds >= lastNowPlayingPositionMs + 1_000 || milliseconds < lastNowPlayingPositionMs {
+            lastNowPlayingPositionMs = milliseconds
+            updateNowPlaying(for: store.currentTrack)
+        }
     }
 
     private func beginListeningSession(track: CoreTrack, queueEntryID: UInt64?) {

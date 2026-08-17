@@ -1971,6 +1971,7 @@ private struct LyricsSurface: View {
                                                 ? ColorfulTheme.ink.opacity(line.id == activeLineID ? 1 : 0.72)
                                                 : ColorfulTheme.ink.opacity(0.9)
                                         )
+                                        .animation(.easeOut(duration: 0.12), value: activeLineID)
                                         .visualEffect { content, proxy in
                                             let midpoint = proxy.frame(in: .scrollView(axis: .vertical)).midY
                                             let distanceFromCenter = abs(midpoint - 205)
@@ -1998,7 +1999,7 @@ private struct LyricsSurface: View {
                         )
                         .onChange(of: activeLineID) { _, lineID in
                             guard followsPlayback, let lineID else { return }
-                            withAnimation(.easeInOut(duration: 0.34)) {
+                            withAnimation(.easeOut(duration: 0.18)) {
                                 proxy.scrollTo(lineID, anchor: .center)
                             }
                         }
