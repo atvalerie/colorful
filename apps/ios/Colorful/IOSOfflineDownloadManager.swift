@@ -274,7 +274,12 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
                     let normalized = format.uppercased()
                     return normalized == "FLAC" || normalized == "FLAC_HIRES"
                 }
-                let lossless = advertisedLossless || (try await isLossless(asset: asset))
+                let lossless: Bool
+                if advertisedLossless {
+                    lossless = true
+                } else {
+                    lossless = try await isLossless(asset: asset)
+                }
                 let destination = exportURL(for: track, extension: lossless ? "flac" : "m4a")
                 try FileManager.default.createDirectory(
                     at: destination.deletingLastPathComponent(),
