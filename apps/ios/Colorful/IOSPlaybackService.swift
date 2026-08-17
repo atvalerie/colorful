@@ -2,7 +2,6 @@ import AVFoundation
 import Combine
 import MediaPlayer
 import UIKit
-import UniformTypeIdentifiers
 
 @MainActor
 final class IOSPlaybackService: NSObject, ObservableObject {
@@ -260,14 +259,16 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     sourceURL = try await SoundCloudClient.shared.playbackURL(for: track)
                 } else if provider == "youtube" {
                     let source = try await YouTubeMusicClient.shared.playbackSource(for: track)
-                    if source.mimeType.lowercased().contains("mpegurl") {
-                        sourceURL = source.url
-                    } else {
-                        sourceURL = try await YouTubePlaybackCache.shared.localURL(
-                            for: source,
-                            videoID: track.id.providerID
-                        )
-                    }
+                    guard !Task.isCancelled,
+                          store.currentTrack?.id == track.id,
+                          store.currentQueueEntryID == queueEntryID else { return }
+                    install(
+                        source: source,
+                        track: track,
+                        queueEntryID: queueEntryID,
+                        initialPositionMs: initialPositionMs
+                    )
+                    return
                 } else {
                     let resolution = try await account.playbackSource(for: track)
                     guard let resolvedURL = URL(string: resolution.source.uri) else {
@@ -303,9 +304,55 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         queueEntryID: UInt64?,
         initialPositionMs: UInt64
     ) {
+        install(
+            item: AVPlayerItem(url: url),
+            track: track,
+            queueEntryID: queueEntryID,
+            initialPositionMs: initialPositionMs
+        )
+    }
+
+    private func install(
+        source: YouTubeMusicPlaybackSource,
+        track: CoreTrack,
+        queueEntryID: UInt64?,
+        initialPositionMs: UInt64
+    ) {
+        var options = [String: Any]()
+        if let userAgent = source.httpHeaders["User-Agent"], !userAgent.isEmpty {
+            options[AVURLAssetHTTPUserAgentKey] = userAgent
+        }
+        options[AVURLAssetOverrideMIMETypeKey] = source.mimeType
+        // Provider-supplied cookies (e.g. from the WebView HLS resolver) must
+        // reach AVPlayer's segment requests via the shared cookie store.
+        if let cookieHeader = source.httpHeaders["Cookie"] {
+            let cookies = HTTPCookie.cookies(withResponseHeaderFields: [
+                "Set-Cookie": cookieHeader.replacingOccurrences(of: "; ", with: "\r\nSet-Cookie: "),
+            ], for: source.url)
+            let store = HTTPCookieStorage.shared
+            for cookie in cookies { store.setCookie(cookie) }
+        }
+        let asset = AVURLAsset(url: source.url, options: options)
+        let item = AVPlayerItem(asset: asset)
+        if source.mimeType.lowercased().contains("mpegurl") {
+            item.preferredForwardBufferDuration = 12
+        }
+        install(
+            item: item,
+            track: track,
+            queueEntryID: queueEntryID,
+            initialPositionMs: initialPositionMs
+        )
+    }
+
+    private func install(
+        item: AVPlayerItem,
+        track: CoreTrack,
+        queueEntryID: UInt64?,
+        initialPositionMs: UInt64
+    ) {
         guard store.currentTrack?.id == track.id,
               store.currentQueueEntryID == queueEntryID else { return }
-        let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         installedTrackID = track.id
         installedQueueEntryID = queueEntryID
@@ -722,229 +769,5 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             return snapshot.queue.playOrder[index + 1]
         }
         return store.repeatMode == .all ? snapshot.queue.playOrder.first : nil
-    }
-}
-
-private final class YouTubeMediaResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate {
-    final class LoadingContext {
-        let request: AVAssetResourceLoadingRequest
-        let requestedRange: String
-        var remainingBytes: Int64
-
-        init(request: AVAssetResourceLoadingRequest, requestedRange: String, remainingBytes: Int64) {
-            self.request = request
-            self.requestedRange = requestedRange
-            self.remainingBytes = remainingBytes
-        }
-    }
-
-    let delegateQueue = DispatchQueue(label: "sh.valerie.colorful.youtube-media-loader")
-
-    private let upstreamURL: URL
-    private let httpHeaders: [String: String]
-    private let mimeType: String
-    private let contentLength: Int64
-    private var contexts = [Int: LoadingContext]()
-    private lazy var session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 60
-        let operationQueue = OperationQueue()
-        operationQueue.maxConcurrentOperationCount = 1
-        operationQueue.underlyingQueue = delegateQueue
-        return URLSession(configuration: configuration, delegate: self, delegateQueue: operationQueue)
-    }()
-
-    init(upstreamURL: URL, httpHeaders: [String: String], mimeType: String, contentLength: Int64) {
-        self.upstreamURL = upstreamURL
-        self.httpHeaders = httpHeaders
-        self.mimeType = mimeType
-        self.contentLength = contentLength
-        super.init()
-    }
-
-    func invalidate() {
-        delegateQueue.async { [self] in
-            let cancellation = URLError(.cancelled)
-            for context in contexts.values where !context.request.isFinished {
-                context.request.finishLoading(with: cancellation)
-            }
-            contexts.removeAll()
-            session.invalidateAndCancel()
-        }
-    }
-
-    func resourceLoader(
-        _ resourceLoader: AVAssetResourceLoader,
-        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
-    ) -> Bool {
-        guard loadingRequest.request.url?.scheme == "colorful-youtube" else { return false }
-
-        let dataRequest = loadingRequest.dataRequest
-        let requestedOffset = dataRequest.map {
-            $0.currentOffset > 0 ? $0.currentOffset : $0.requestedOffset
-        } ?? 0
-        guard requestedOffset < contentLength else {
-            loadingRequest.finishLoading()
-            return true
-        }
-
-        let requestedLength: Int64
-        if let dataRequest {
-            requestedLength = dataRequest.requestsAllDataToEndOfResource
-                ? contentLength - requestedOffset
-                : min(Int64(dataRequest.requestedLength), contentLength - requestedOffset)
-        } else {
-            // AVFoundation can ask only for content information. A tiny GET
-            // obtains valid response metadata without relying on HEAD, which
-            // Google Video rejects for otherwise playable signed URLs.
-            requestedLength = 2
-        }
-
-        var request = URLRequest(url: upstreamURL, timeoutInterval: 20)
-        let requestedRange = "bytes=\(requestedOffset)-\(requestedOffset + max(1, requestedLength) - 1)"
-        request.setValue(requestedRange, forHTTPHeaderField: "Range")
-        for (name, value) in httpHeaders { request.setValue(value, forHTTPHeaderField: name) }
-        let task = session.dataTask(with: request)
-        contexts[task.taskIdentifier] = LoadingContext(
-            request: loadingRequest,
-            requestedRange: requestedRange,
-            remainingBytes: dataRequest == nil ? 0 : requestedLength
-        )
-        task.resume()
-        return true
-    }
-
-    func resourceLoader(
-        _ resourceLoader: AVAssetResourceLoader,
-        didCancel loadingRequest: AVAssetResourceLoadingRequest
-    ) {
-        guard let entry = contexts.first(where: { $0.value.request === loadingRequest }) else { return }
-        contexts.removeValue(forKey: entry.key)
-        session.getAllTasks { tasks in
-            tasks.first(where: { $0.taskIdentifier == entry.key })?.cancel()
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive response: URLResponse,
-        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-    ) {
-        guard let context = contexts[dataTask.taskIdentifier] else {
-            completionHandler(.cancel)
-            return
-        }
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 || http.statusCode == 206 else {
-            contexts.removeValue(forKey: dataTask.taskIdentifier)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            context.request.finishLoading(with: NSError(
-                domain: "YouTubeMediaResourceLoader",
-                code: status,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "YouTube media returned HTTP \(status) for \(context.requestedRange)."]
-            ))
-            completionHandler(.cancel)
-            return
-        }
-
-        context.request.response = response
-        if let information = context.request.contentInformationRequest {
-            information.contentType = UTType(mimeType: mimeType)?.identifier ?? AVFileType.m4a.rawValue
-            information.contentLength = contentLength
-            information.isByteRangeAccessSupported = true
-        }
-        if context.request.dataRequest == nil {
-            contexts.removeValue(forKey: dataTask.taskIdentifier)
-            context.request.finishLoading()
-            completionHandler(.cancel)
-            return
-        }
-        completionHandler(.allow)
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard let context = contexts[dataTask.taskIdentifier],
-              let dataRequest = context.request.dataRequest else { return }
-        let amount = min(Int64(data.count), context.remainingBytes)
-        guard amount > 0 else { return }
-        dataRequest.respond(with: Data(data.prefix(Int(amount))))
-        context.remainingBytes -= amount
-        if context.remainingBytes == 0 {
-            contexts.removeValue(forKey: dataTask.taskIdentifier)
-            context.request.finishLoading()
-            dataTask.cancel()
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didCompleteWithError error: Error?
-    ) {
-        guard let context = contexts.removeValue(forKey: task.taskIdentifier) else { return }
-        if let error {
-            context.request.finishLoading(with: error)
-        } else if context.remainingBytes == 0 {
-            context.request.finishLoading()
-        } else {
-            context.request.finishLoading(with: URLError(.networkConnectionLost))
-        }
-    }
-}
-
-private actor YouTubePlaybackCache {
-    static let shared = YouTubePlaybackCache()
-
-    private let fileManager = FileManager.default
-
-    func localURL(for source: YouTubeMusicPlaybackSource, videoID: String) async throws -> URL {
-        let directory = try cacheDirectory()
-        let destination = directory.appending(path: "\(videoID).m4a")
-        if fileManager.fileExists(atPath: destination.path) { return destination }
-
-        var request = URLRequest(url: source.url, timeoutInterval: 30)
-        request.setValue("audio/mp4,audio/aac,audio/mpeg,*/*", forHTTPHeaderField: "Accept")
-        if let contentLength = source.contentLength, contentLength > 0 {
-            request.setValue("bytes=0-\(contentLength - 1)", forHTTPHeaderField: "Range")
-        }
-        for (name, value) in source.httpHeaders { request.setValue(value, forHTTPHeaderField: name) }
-        let (temporaryURL, response) = try await URLSession.shared.download(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw NSError(
-                domain: "YouTubePlaybackCache",
-                code: status,
-                userInfo: [NSLocalizedDescriptionKey: "YouTube media download returned HTTP \(status)."]
-            )
-        }
-        try Task.checkCancellation()
-        try fileManager.moveItem(at: temporaryURL, to: destination)
-        try? prune(directory: directory, keeping: 24)
-        return destination
-    }
-
-    private func cacheDirectory() throws -> URL {
-        let directory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appending(path: "YouTubePlayback", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
-    }
-
-    private func prune(directory: URL, keeping limit: Int) throws {
-        let files = try fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        )
-        guard files.count > limit else { return }
-        let ordered = files.sorted {
-            let left = try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-            let right = try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-            return (left ?? .distantPast) < (right ?? .distantPast)
-        }
-        for file in ordered.prefix(files.count - limit) { try? fileManager.removeItem(at: file) }
     }
 }

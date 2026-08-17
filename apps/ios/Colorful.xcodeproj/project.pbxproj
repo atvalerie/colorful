@@ -18,6 +18,7 @@
 		A10000000000000000000009 /* IOSOfflineDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* IOSOfflineDownloadManager.swift */; };
 		A10000000000000000000010 /* SoundCloudProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* SoundCloudProvider.swift */; };
 		A10000000000000000000011 /* YouTubeMusicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000015 /* YouTubeMusicProvider.swift */; };
+		A10000000000000000000012 /* YouTubeHLSWebViewResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000016 /* YouTubeHLSWebViewResolver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +37,7 @@
 		B10000000000000000000013 /* IOSOfflineDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSOfflineDownloadManager.swift; sourceTree = "<group>"; };
 		B10000000000000000000014 /* SoundCloudProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundCloudProvider.swift; sourceTree = "<group>"; };
 		B10000000000000000000015 /* YouTubeMusicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeMusicProvider.swift; sourceTree = "<group>"; };
+		B10000000000000000000016 /* YouTubeHLSWebViewResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeHLSWebViewResolver.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,6 +73,7 @@
 				B10000000000000000000013 /* IOSOfflineDownloadManager.swift */,
 				B10000000000000000000014 /* SoundCloudProvider.swift */,
 				B10000000000000000000015 /* YouTubeMusicProvider.swift */,
+				B10000000000000000000016 /* YouTubeHLSWebViewResolver.swift */,
 				B10000000000000000000006 /* Colorful-Bridging-Header.h */,
 				B10000000000000000000007 /* Info.plist */,
 			);
@@ -166,6 +169,7 @@
 				A10000000000000000000009 /* IOSOfflineDownloadManager.swift in Sources */,
 				A10000000000000000000010 /* SoundCloudProvider.swift in Sources */,
 				A10000000000000000000011 /* YouTubeMusicProvider.swift in Sources */,
+				A10000000000000000000012 /* YouTubeHLSWebViewResolver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
