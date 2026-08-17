@@ -26,7 +26,9 @@ completed local packages during playback, and exposes pause/resume, deletion,
 storage totals, album batching, and one-action export/share. Lossless assets
 are decoded and finalized through AudioToolbox as standalone FLAC files; AAC
 assets are finalized as tagged M4A files. The UI never exposes Apple's internal
-HLS package as though it were a song file.
+HLS package as though it were a song file. Media paths are stored relative to
+the application container and legacy absolute paths are rebased at lookup so
+sideloading-container UUID changes do not orphan otherwise valid downloads.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

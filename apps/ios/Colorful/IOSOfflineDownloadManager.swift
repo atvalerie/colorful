@@ -78,8 +78,7 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
     func localURL(for track: CoreTrack) -> URL? {
         guard let job = job(for: track), job.state == .complete,
               let path = job.localPath, !path.isEmpty else { return nil }
-        let url = URL(fileURLWithPath: path)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        return resolvedLocalURL(forStoredPath: path)
     }
 
     func download(_ track: CoreTrack) {
@@ -116,8 +115,9 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         resolutionTasks.removeValue(forKey: track.id)?.cancel()
         tasksByTrack.removeValue(forKey: track.id)?.cancel()
         progressByTrack.removeValue(forKey: track.id)
-        if let path = job(for: track)?.localPath, !path.isEmpty {
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+        if let path = job(for: track)?.localPath,
+           let localURL = resolvedLocalURL(forStoredPath: path) {
+            try? FileManager.default.removeItem(at: localURL)
         }
         try? FileManager.default.removeItem(at: exportURL(for: track, extension: "m4a"))
         try? FileManager.default.removeItem(at: exportURL(for: track, extension: "flac"))
@@ -280,7 +280,7 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         let job = CoreDownloadJob(
             mediaID: track.id,
             state: state,
-            localPath: localURL?.path,
+            localPath: localURL.map(portableStoredPath),
             bytesDownloaded: downloaded,
             bytesTotal: total,
             sourceExpiresAtMs: nil,
@@ -292,6 +292,44 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
 
     private func taskDescription(for id: CoreMediaID) -> String {
         "\(id.provider)\n\(id.providerID)"
+    }
+
+    private func portableStoredPath(for url: URL) -> String {
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path == home || path.hasPrefix(home + "/") else { return path }
+        let relative = String(path.dropFirst(home.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return relative.isEmpty ? "~/" : "~/\(relative)"
+    }
+
+    private func resolvedLocalURL(forStoredPath path: String) -> URL? {
+        let fileManager = FileManager.default
+        let directURL = URL(fileURLWithPath: path).standardizedFileURL
+        if fileManager.fileExists(atPath: directURL.path) {
+            return directURL
+        }
+
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        if path.hasPrefix("~/") {
+            let candidate = home.appendingPathComponent(String(path.dropFirst(2))).standardizedFileURL
+            return fileManager.fileExists(atPath: candidate.path) ? candidate : nil
+        }
+
+        // App installs and sideloading containers can replace the absolute
+        // sandbox UUID while preserving Library/Documents. Rebase legacy paths
+        // onto the current home directory rather than discarding the job.
+        let components = directURL.pathComponents
+        for anchor in ["Library", "Documents", "tmp"] {
+            guard let index = components.lastIndex(of: anchor) else { continue }
+            let relativeComponents = components[index...]
+            let candidate = relativeComponents.reduce(home) { partial, component in
+                partial.appendingPathComponent(component)
+            }.standardizedFileURL
+            if fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private func mediaID(from description: String?) -> CoreMediaID? {
