@@ -253,7 +253,14 @@ actor YouTubeMusicClient {
         }
         let config = mergedBootstrap(from: html)
         let context = dictionary(config["INNERTUBE_CONTEXT"])
-        let visitor = string(dictionary(context["client"])["visitorData"])
+        var visitor = string(dictionary(context["client"])["visitorData"])
+        if visitor.isEmpty { visitor = string(config["VISITOR_DATA"]) }
+        if visitor.isEmpty {
+            visitor = firstCapture(#"\"VISITOR_DATA\"\s*:\s*\"([^\"]+)\""#, in: html)
+                ?? firstCapture(#"\"visitorData\"\s*:\s*\"([^\"]+)\""#, in: html)
+                ?? ""
+        }
+        if visitor.isEmpty { visitor = try await requestVisitorData() }
         guard !visitor.isEmpty else {
             throw YouTubeMusicClientError.invalidResponse("YouTube Music bootstrap did not contain visitor data.")
         }
@@ -270,6 +277,21 @@ actor YouTubeMusicClient {
         signatureTimestamp = timestamp
         playerScriptURL = script
         return (visitor, timestamp)
+    }
+
+    private func requestVisitorData() async throws -> String {
+        let document = try await requestJSON(
+            url: musicOrigin.appending(path: "youtubei/v1/visitor_id").appending(queryItems: [URLQueryItem(name: "prettyPrint", value: "false")]),
+            body: ["context": ["client": [
+                "clientName": "WEB", "clientVersion": webClientVersion(), "hl": "en", "gl": "US",
+            ]]],
+            headers: ["User-Agent": webUserAgent, "Origin": musicOrigin.absoluteString]
+        )
+        let visitor = string(dictionary(document["responseContext"])["visitorData"])
+        guard !visitor.isEmpty else {
+            throw YouTubeMusicClientError.invalidResponse("YouTube Music could not establish a public visitor session.")
+        }
+        return visitor
     }
 
     private func playerScript(from config: [String: Any]) throws -> URL {

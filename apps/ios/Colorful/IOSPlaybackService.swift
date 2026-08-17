@@ -20,6 +20,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var activeQueueEntryID: UInt64?
     private var installedTrackID: CoreMediaID?
     private var installedQueueEntryID: UInt64?
+    private var failedTrackID: CoreMediaID?
+    private var failedQueueEntryID: UInt64?
     private var lastCheckpointMs: UInt64 = 0
     private var lastNowPlayingPositionMs: UInt64 = 0
     private var artworkTask: Task<Void, Never>?
@@ -167,6 +169,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         player.replaceCurrentItem(with: nil)
         installedTrackID = nil
         installedQueueEntryID = nil
+        failedTrackID = nil
+        failedQueueEntryID = nil
         store.resume()
         synchronize()
     }
@@ -195,6 +199,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         }
 
         let queueEntryID = store.currentQueueEntryID
+        if failedTrackID == track.id, failedQueueEntryID == queueEntryID { return }
         if listeningTrack?.id != track.id || listeningQueueEntryID != queueEntryID {
             finishListeningSession()
             beginListeningSession(track: track, queueEntryID: queueEntryID)
@@ -219,6 +224,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         player.replaceCurrentItem(with: nil)
         installedTrackID = nil
         installedQueueEntryID = nil
+        failedTrackID = nil
+        failedQueueEntryID = nil
         isBuffering = store.effectiveIsPlaying
         errorMessage = nil
         sourceTask = Task { [weak self] in
@@ -262,6 +269,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 isBuffering = false
+                failedTrackID = track.id
+                failedQueueEntryID = queueEntryID
                 errorMessage = error.localizedDescription
                 store.pause()
             }
@@ -280,6 +289,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         player.replaceCurrentItem(with: item)
         installedTrackID = track.id
         installedQueueEntryID = queueEntryID
+        failedTrackID = nil
+        failedQueueEntryID = nil
         if initialPositionMs > 0 {
             player.seek(to: CMTime(value: Int64(initialPositionMs), timescale: 1_000))
         }
