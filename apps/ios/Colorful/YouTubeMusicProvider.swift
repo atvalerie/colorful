@@ -28,7 +28,6 @@ actor YouTubeMusicClient {
     private let videosFilter = "EgWKAQIQAWoQEAUQBBADEAoQCRAVEBAQEQ%3D%3D"
     private var visitorData: String?
     private var signatureTimestamp: Int?
-    private var playerScriptURL: URL?
 
     func search(query: String) async throws -> YouTubeMusicSearchResults {
         let cleaned = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,19 +53,19 @@ actor YouTubeMusicClient {
               videoID.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil else {
             throw YouTubeMusicClientError.invalidResponse("This is not a valid YouTube Music track.")
         }
-        let bootstrap = try await playerBootstrap()
+        let visitor = try await publicVisitorData()
         let androidUserAgent = "com.google.android.apps.youtube.vr.oculus/\(androidVersion) (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
         let androidClient: [String: Any] = [
                 "clientName": "ANDROID_VR", "clientVersion": androidVersion,
                 "deviceMake": "Oculus", "deviceModel": "Quest 3", "androidSdkVersion": 32,
                 "userAgent": androidUserAgent, "osName": "Android", "osVersion": "12L",
                 "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0,
-                "visitorData": bootstrap.visitor,
+                "visitorData": visitor,
         ]
         var firstFailure: Error?
         do {
             let document = try await playerDocument(
-                videoID: videoID, visitor: bootstrap.visitor, timestamp: bootstrap.timestamp,
+                videoID: videoID, visitor: visitor, timestamp: nil,
                 client: androidClient,
                 headers: [
                 "User-Agent": androidUserAgent,
@@ -81,16 +80,21 @@ actor YouTubeMusicClient {
             firstFailure = error
         }
 
+        // The primary Android VR client does not require player-script
+        // metadata. Resolve it only after that strategy fails, for clients
+        // whose responses can still depend on a signature timestamp.
+        let fallbackTimestamp = await resolveSignatureTimestamp()
+
         let iosVersion = "21.26.4"
         let iosUserAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)"
         do {
             let document = try await playerDocument(
-                videoID: videoID, visitor: bootstrap.visitor, timestamp: bootstrap.timestamp,
+                videoID: videoID, visitor: visitor, timestamp: fallbackTimestamp,
                 client: [
                     "clientName": "IOS", "clientVersion": iosVersion,
                     "deviceMake": "Apple", "deviceModel": "iPhone16,2",
                     "userAgent": iosUserAgent, "osName": "iPhone", "osVersion": "18.3.2.22D82",
-                    "hl": "en", "gl": "US", "visitorData": bootstrap.visitor,
+                    "hl": "en", "gl": "US", "visitorData": visitor,
                 ],
                 headers: [
                     "User-Agent": iosUserAgent,
@@ -117,10 +121,10 @@ actor YouTubeMusicClient {
         let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
         do {
             let document = try await playerDocument(
-                videoID: videoID, visitor: bootstrap.visitor, timestamp: bootstrap.timestamp,
+                videoID: videoID, visitor: visitor, timestamp: fallbackTimestamp,
                 client: [
                     "clientName": "WEB", "clientVersion": safariVersion, "userAgent": safariUserAgent,
-                    "hl": "en", "gl": "US", "visitorData": bootstrap.visitor,
+                    "hl": "en", "gl": "US", "visitorData": visitor,
                 ],
                 headers: [
                     "User-Agent": safariUserAgent,
@@ -143,10 +147,10 @@ actor YouTubeMusicClient {
         let tvUserAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
         do {
             let document = try await playerDocument(
-                videoID: videoID, visitor: bootstrap.visitor, timestamp: bootstrap.timestamp,
+                videoID: videoID, visitor: visitor, timestamp: fallbackTimestamp,
                 client: [
                     "clientName": "TVHTML5", "clientVersion": tvVersion,
-                    "hl": "en", "gl": "US", "visitorData": bootstrap.visitor,
+                    "hl": "en", "gl": "US", "visitorData": visitor,
                 ],
                 headers: [
                     "User-Agent": tvUserAgent,
@@ -165,19 +169,22 @@ actor YouTubeMusicClient {
     private func playerDocument(
         videoID: String,
         visitor: String,
-        timestamp: Int,
+        timestamp: Int?,
         client: [String: Any],
         headers: [String: String]
     ) async throws -> [String: Any] {
-        try await requestJSON(
+        var body: [String: Any] = [
+            "context": ["client": client], "videoId": videoID,
+            "contentCheckOk": true, "racyCheckOk": true,
+        ]
+        if let timestamp {
+            body["playbackContext"] = ["contentPlaybackContext": [
+                "html5Preference": "HTML5_PREF_WANTS", "signatureTimestamp": timestamp,
+            ]]
+        }
+        return try await requestJSON(
             url: playerOrigin.appending(path: "youtubei/v1/player").appending(queryItems: [URLQueryItem(name: "prettyPrint", value: "false")]),
-            body: [
-                "context": ["client": client], "videoId": videoID,
-                "playbackContext": ["contentPlaybackContext": [
-                    "html5Preference": "HTML5_PREF_WANTS", "signatureTimestamp": timestamp,
-                ]],
-                "contentCheckOk": true, "racyCheckOk": true,
-            ],
+            body: body,
             headers: headers.merging([
                 "X-Goog-Visitor-Id": visitor,
                 "Origin": playerOrigin.absoluteString,
@@ -240,8 +247,8 @@ actor YouTubeMusicClient {
         )
     }
 
-    private func playerBootstrap() async throws -> (visitor: String, timestamp: Int) {
-        if let visitorData, let signatureTimestamp { return (visitorData, signatureTimestamp) }
+    private func publicVisitorData() async throws -> String {
+        if let visitorData { return visitorData }
         var request = URLRequest(url: musicOrigin)
         request.setValue(webUserAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -264,19 +271,8 @@ actor YouTubeMusicClient {
         guard !visitor.isEmpty else {
             throw YouTubeMusicClientError.invalidResponse("YouTube Music bootstrap did not contain visitor data.")
         }
-        let script = try playerScript(from: config)
-        var scriptRequest = URLRequest(url: script)
-        scriptRequest.setValue(webUserAgent, forHTTPHeaderField: "User-Agent")
-        let (scriptData, scriptResponse) = try await URLSession.shared.data(for: scriptRequest)
-        guard let scriptHTTP = scriptResponse as? HTTPURLResponse, (200..<300).contains(scriptHTTP.statusCode),
-              let source = String(data: scriptData, encoding: .utf8),
-              let timestamp = firstCapture(#"signatureTimestamp\s*:\s*(\d{4,6})"#, in: source).flatMap(Int.init) else {
-            throw YouTubeMusicClientError.invalidResponse("YouTube Music player metadata could not be read.")
-        }
         visitorData = visitor
-        signatureTimestamp = timestamp
-        playerScriptURL = script
-        return (visitor, timestamp)
+        return visitor
     }
 
     private func requestVisitorData() async throws -> String {
@@ -294,14 +290,64 @@ actor YouTubeMusicClient {
         return visitor
     }
 
-    private func playerScript(from config: [String: Any]) throws -> URL {
-        if let playerScriptURL { return playerScriptURL }
-        let contexts = dictionary(config["WEB_PLAYER_CONTEXT_CONFIGS"])
-        for value in contexts.values {
-            let path = string(dictionary(value)["jsUrl"])
-            if !path.isEmpty, let url = URL(string: path, relativeTo: musicOrigin)?.absoluteURL { return url }
+    private func resolveSignatureTimestamp() async -> Int? {
+        if let signatureTimestamp { return signatureTimestamp }
+        do {
+            var homepageRequest = URLRequest(url: musicOrigin, timeoutInterval: 15)
+            homepageRequest.setValue(webUserAgent, forHTTPHeaderField: "User-Agent")
+            let (homepageData, homepageResponse) = try await URLSession.shared.data(for: homepageRequest)
+            guard let homepageHTTP = homepageResponse as? HTTPURLResponse,
+                  (200..<300).contains(homepageHTTP.statusCode),
+                  let html = String(data: homepageData, encoding: .utf8) else { return nil }
+
+            let config = mergedBootstrap(from: html)
+            var candidates = [URL]()
+            for value in dictionary(config["WEB_PLAYER_CONTEXT_CONFIGS"]).values {
+                let path = string(dictionary(value)["jsUrl"])
+                if let url = normalizedPlayerURL(path) { candidates.append(url) }
+            }
+            for pattern in [#"\"jsUrl\"\s*:\s*\"([^\"]+)\""#, #"\"PLAYER_JS_URL\"\s*:\s*\"([^\"]+)\""#] {
+                if let path = firstCapture(pattern, in: html), let url = normalizedPlayerURL(path) {
+                    candidates.append(url)
+                }
+            }
+
+            if candidates.isEmpty {
+                var iframeRequest = URLRequest(url: playerOrigin.appending(path: "iframe_api"), timeoutInterval: 15)
+                iframeRequest.setValue(webUserAgent, forHTTPHeaderField: "User-Agent")
+                let (iframeData, iframeResponse) = try await URLSession.shared.data(for: iframeRequest)
+                if let iframeHTTP = iframeResponse as? HTTPURLResponse,
+                   (200..<300).contains(iframeHTTP.statusCode),
+                   let iframe = String(data: iframeData, encoding: .utf8) {
+                    let normalized = iframe.replacingOccurrences(of: #"\/"#, with: "/")
+                    if let playerID = firstCapture(#"/s/player/([A-Za-z0-9_-]+)/"#, in: normalized) {
+                        candidates.append(playerOrigin.appending(path: "s/player/\(playerID)/player_ias.vflset/en_US/base.js"))
+                    }
+                }
+            }
+
+            for script in candidates {
+                var request = URLRequest(url: script, timeoutInterval: 20)
+                request.setValue(webUserAgent, forHTTPHeaderField: "User-Agent")
+                guard let (data, response) = try? await URLSession.shared.data(for: request),
+                      let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                      let source = String(data: data, encoding: .utf8),
+                      let timestamp = firstCapture(#"signatureTimestamp\s*:\s*(\d{4,6})"#, in: source).flatMap(Int.init) else { continue }
+                signatureTimestamp = timestamp
+                return timestamp
+            }
+        } catch {
+            return nil
         }
-        throw YouTubeMusicClientError.invalidResponse("YouTube Music bootstrap did not contain a player script.")
+        return nil
+    }
+
+    private func normalizedPlayerURL(_ rawValue: String) -> URL? {
+        let path = rawValue
+            .replacingOccurrences(of: #"\/"#, with: "/")
+            .replacingOccurrences(of: #"\u0026"#, with: "&")
+        guard !path.isEmpty else { return nil }
+        return URL(string: path, relativeTo: musicOrigin)?.absoluteURL
     }
 
     private func requestJSON(url: URL, body: [String: Any], headers: [String: String]) async throws -> [String: Any] {
