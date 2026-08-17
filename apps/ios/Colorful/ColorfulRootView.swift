@@ -721,6 +721,7 @@ private struct SearchView: View {
     @State private var query = ""
     @State private var results: TidalCatalogSearchResults?
     @State private var soundCloudResults: SoundCloudSearchResults?
+    @State private var youtubeResults: YouTubeMusicSearchResults?
     @State private var hasSearched = false
     @State private var providerFilter: SearchProviderFilter = .all
     @State private var isSearching = false
@@ -745,6 +746,7 @@ private struct SearchView: View {
                             query = ""
                             results = nil
                             soundCloudResults = nil
+                            youtubeResults = nil
                             hasSearched = false
                             isSearching = false
                             errorMessage = nil
@@ -764,9 +766,11 @@ private struct SearchView: View {
                             providerFilter = provider
                         } label: {
                             Text(provider.label)
-                                .font(.subheadline.weight(.semibold))
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(providerFilter == provider ? .black : ColorfulTheme.ink)
-                                .padding(.horizontal, 12)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
+                                .padding(.horizontal, 9)
                                 .frame(height: 30)
                                 .background(
                                     providerFilter == provider
@@ -795,9 +799,9 @@ private struct SearchView: View {
                     ContentUnavailableView {
                         Label("Search music", systemImage: "music.magnifyingglass")
                     } description: {
-                        Text("Search TIDAL and SoundCloud.")
+                        Text("Search TIDAL, YouTube Music, and SoundCloud.")
                     }
-                } else if (results?.isEmpty ?? true) && soundCloudIsEmpty {
+                } else if (results?.isEmpty ?? true) && soundCloudIsEmpty && youtubeIsEmpty {
                     ContentUnavailableView {
                         Label("No results", systemImage: "music.magnifyingglass")
                     } description: {
@@ -810,7 +814,7 @@ private struct SearchView: View {
                                 searchSectionHeader("Artists & profiles", count: visibleArtistCount)
                                 ScrollView(.horizontal) {
                                     LazyHStack(alignment: .top, spacing: 14) {
-                                        if providerFilter != .soundcloud {
+                                        if providerFilter == .all || providerFilter == .tidal {
                                             ForEach(results?.artists ?? []) { artist in
                                                 NavigationLink {
                                                     ArtistCollectionView(
@@ -829,7 +833,7 @@ private struct SearchView: View {
                                                 .buttonStyle(.plain)
                                             }
                                         }
-                                        if providerFilter != .tidal {
+                                        if providerFilter == .all || providerFilter == .soundcloud {
                                             ForEach(soundCloudResults?.profiles ?? []) { profile in
                                                 NavigationLink {
                                                     SoundCloudProfileView(profile: profile, store: store, onPlay: onPlay)
@@ -853,7 +857,7 @@ private struct SearchView: View {
                                 searchSectionHeader("Albums & sets", count: visibleCollectionCount)
                                 ScrollView(.horizontal) {
                                     LazyHStack(alignment: .top, spacing: 14) {
-                                        if providerFilter != .soundcloud {
+                                        if providerFilter == .all || providerFilter == .tidal {
                                             ForEach(results?.albums ?? []) { album in
                                                 NavigationLink {
                                                     AlbumCollectionView(
@@ -873,7 +877,7 @@ private struct SearchView: View {
                                                 .buttonStyle(.plain)
                                             }
                                         }
-                                        if providerFilter != .tidal {
+                                        if providerFilter == .all || providerFilter == .soundcloud {
                                             ForEach(soundCloudResults?.sets ?? []) { set in
                                                 NavigationLink {
                                                     SoundCloudSetView(set: set, store: store, onPlay: onPlay)
@@ -950,6 +954,9 @@ private struct SearchView: View {
             let soundCloudTask = Task {
                 try await SoundCloudClient.shared.search(query: value)
             }
+            let youtubeTask = Task {
+                try await YouTubeMusicClient.shared.search(query: value)
+            }
             var failures = [String]()
             do {
                 let response = try await tidalTask.value
@@ -969,9 +976,18 @@ private struct SearchView: View {
                 soundCloudResults = nil
                 failures.append("SoundCloud: \(error.localizedDescription)")
             }
+            do {
+                let response = try await youtubeTask.value
+                guard searchID == requestID else { return }
+                youtubeResults = response
+            } catch {
+                guard searchID == requestID else { return }
+                youtubeResults = nil
+                failures.append("YouTube Music: \(error.localizedDescription)")
+            }
             guard searchID == requestID else { return }
             hasSearched = true
-            if (results?.isEmpty ?? true) && soundCloudIsEmpty && !failures.isEmpty {
+            if (results?.isEmpty ?? true) && soundCloudIsEmpty && youtubeIsEmpty && !failures.isEmpty {
                 errorMessage = failures.joined(separator: "\n")
             }
             isSearching = false
@@ -993,7 +1009,7 @@ private struct SearchView: View {
     }
 
     private var visibleTracks: [CoreTrack] {
-        let tracks = (results?.tracks ?? []) + (soundCloudResults?.tracks ?? [])
+        let tracks = (results?.tracks ?? []) + (youtubeResults?.tracks ?? []) + (soundCloudResults?.tracks ?? [])
         guard providerFilter == .all else {
             return tracks.filter { $0.id.provider.lowercased() == providerFilter.rawValue }
         }
@@ -1017,14 +1033,16 @@ private struct SearchView: View {
             && soundCloudResults.profiles.isEmpty
     }
 
+    private var youtubeIsEmpty: Bool { youtubeResults?.tracks.isEmpty ?? true }
+
     private var visibleArtistCount: Int {
-        (providerFilter == .soundcloud ? 0 : results?.artists.count ?? 0)
-            + (providerFilter == .tidal ? 0 : soundCloudResults?.profiles.count ?? 0)
+        ((providerFilter == .all || providerFilter == .tidal) ? results?.artists.count ?? 0 : 0)
+            + ((providerFilter == .all || providerFilter == .soundcloud) ? soundCloudResults?.profiles.count ?? 0 : 0)
     }
 
     private var visibleCollectionCount: Int {
-        (providerFilter == .soundcloud ? 0 : results?.albums.count ?? 0)
-            + (providerFilter == .tidal ? 0 : soundCloudResults?.sets.count ?? 0)
+        ((providerFilter == .all || providerFilter == .tidal) ? results?.albums.count ?? 0 : 0)
+            + ((providerFilter == .all || providerFilter == .soundcloud) ? soundCloudResults?.sets.count ?? 0 : 0)
     }
 
     private func searchArtistCard(name: String, artworkURL: String?, accent: UInt32) -> some View {
@@ -1058,6 +1076,7 @@ private struct SearchView: View {
 private enum SearchProviderFilter: String, CaseIterable, Identifiable {
     case all
     case tidal
+    case youtube
     case soundcloud
 
     var id: String { rawValue }
@@ -1066,6 +1085,7 @@ private enum SearchProviderFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all: return "All"
         case .tidal: return "TIDAL"
+        case .youtube: return "YouTube"
         case .soundcloud: return "SoundCloud"
         }
     }

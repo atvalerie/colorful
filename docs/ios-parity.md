@@ -11,7 +11,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | TIDAL authorization | Desktop device link; Android native vertical slice | Device authorization + Keychain | P0 |
 | TIDAL search/catalog/playback | Desktop broad implementation | Search, track, album, artist, playlist, and play | P0 |
 | Home feed | Cross-provider shelves ordered by local listening time plus provider recommendations | Local rotation and native TIDAL daily/discovery/new-release shelves implemented | P1 |
-| Combined search | Provider-prioritized desktop search | Native search with provider grouping/order | P1 |
+| Combined search | Provider-prioritized desktop search | Native TIDAL, YouTube Music, and SoundCloud track search with provider filtering and listening-prioritized mixed ordering implemented | P1 |
 | Queue | Rust/SQLite queue with duplicates, reorder, shuffle, repeat, autoplay | Same core state with iOS sheet UI | P0 |
 | Library/playlists | Rust/SQLite library and Colorful-owned ordered playlists | Same core state and native editing flows | P0 |
 | Listening history | Globally identified local events and provider aggregates | Implemented from qualified native audible time; physical-device lifecycle verification remains | P0 |
@@ -22,7 +22,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Appearance | Accent mode, fixed accent, low-data mode, text scale | Dynamic Type plus Colorful accent/low-data policies | P1 |
 | Detail behavior | Linux optional actions, fallbacks, metadata, toasts, and edge-case handling | Preserve these details in native presentations; document intentional iOS divergences | P0 |
 | EQ/normalization | Desktop contract; Android incomplete | Add after stable playback unless daily use requires it | P2 |
-| YouTube Music | Desktop public/private-session catalog and playback | Later native adapter; restricted source resolution is a risk | P2 |
+| YouTube Music | Desktop public/private-session catalog and playback | Native public song/video search and multi-strategy direct/HLS playback implemented; artist/album pages, account import, authenticated deciphering, recommendations, and library remain | P1 |
 | SoundCloud | Desktop public/account catalog, playback, downloads | Native mixed public search, track playback, profile pages, and hydrated set pages implemented; account import, home/library, radio, pagination, and downloads remain | P1 |
 | Parties | Linux encrypted party client is current active social slice | Later native participant/host experience | P2 |
 | Device sync | Identity/pairing foundation; merge journal and transport planned | Later, using existing sync/security documents | P2 |

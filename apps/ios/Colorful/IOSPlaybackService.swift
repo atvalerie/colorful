@@ -239,6 +239,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 let sourceURL: URL
                 if provider == "soundcloud" {
                     sourceURL = try await SoundCloudClient.shared.playbackURL(for: track)
+                } else if provider == "youtube" {
+                    sourceURL = try await YouTubeMusicClient.shared.playbackURL(for: track)
                 } else {
                     let resolution = try await account.playbackSource(for: track)
                     guard let resolvedURL = URL(string: resolution.source.uri) else {
