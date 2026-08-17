@@ -1428,6 +1428,7 @@ private struct OfflineView: View {
     @ObservedObject var store: PlaybackStore
     @EnvironmentObject private var downloads: IOSOfflineDownloadManager
     @State private var removalCandidate: CoreTrack?
+    @State private var actionCandidate: CoreTrack?
 
     var body: some View {
         Group {
@@ -1475,6 +1476,10 @@ private struct OfflineView: View {
         }
         .background(ColorfulTheme.background.ignoresSafeArea())
         .navigationTitle("Offline")
+        .sheet(item: $actionCandidate) { track in
+            OfflineActionsSheet(track: track)
+                .environmentObject(downloads)
+        }
         .confirmationDialog(
             "Remove offline copy?",
             isPresented: Binding(
@@ -1520,17 +1525,14 @@ private struct OfflineView: View {
             }
             Spacer(minLength: 4)
             rowActions(item)
-            Menu("Offline actions", systemImage: "ellipsis") {
-                if item.job.state == .complete, let url = downloads.localURL(for: item.track) {
-                    ShareLink(item: url) {
-                        Label("Export offline package", systemImage: "square.and.arrow.up")
-                    }
-                }
-                Button("Remove download", systemImage: "trash", role: .destructive) {
-                    removalCandidate = item.track
-                }
+            Button {
+                actionCandidate = item.track
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
             }
-            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
             .accessibilityLabel("Offline actions for \(item.track.title)")
         }
         .padding(.vertical, 3)
@@ -1586,6 +1588,49 @@ private struct OfflineView: View {
 
     private func byteLabel(_ bytes: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(min(bytes, UInt64(Int64.max))), countStyle: .file)
+    }
+}
+
+private struct OfflineActionsSheet: View {
+    let track: CoreTrack
+    @EnvironmentObject private var downloads: IOSOfflineDownloadManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var isConfirmingRemoval = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let url = downloads.localURL(for: track) {
+                    ShareLink(item: url) {
+                        Label("Export offline package", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Button("Remove offline copy", systemImage: "trash", role: .destructive) {
+                    isConfirmingRemoval = true
+                }
+            }
+            .navigationTitle(track.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.height(210), .medium])
+        .confirmationDialog(
+            "Remove offline copy?",
+            isPresented: $isConfirmingRemoval,
+            titleVisibility: .visible
+        ) {
+            Button("Remove \(track.title)", role: .destructive) {
+                downloads.remove(track)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The local media package will be deleted. The track stays in your library and playlists.")
+        }
     }
 }
 
