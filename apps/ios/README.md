@@ -29,6 +29,11 @@ assets are finalized as tagged M4A files. The UI never exposes Apple's internal
 HLS package as though it were a song file. Media paths are stored relative to
 the application container and legacy absolute paths are rebased at lookup so
 sideloading-container UUID changes do not orphan otherwise valid downloads.
+LiveContainer is detected from its `Documents/Applications` bundle mapping;
+there, colorful bypasses `AVAssetDownloadURLSession` because the host can hide
+the daemon-owned media package. It instead finalizes a standalone FLAC/M4A
+inside the mapped container while the app remains open. Native installations
+retain Apple's background asset downloader.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.
