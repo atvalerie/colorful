@@ -774,11 +774,50 @@ actor TidalClient {
         guard responses.0 != nil || responses.1 != nil || responses.2 != nil else {
             throw TidalClientError.invalidResponse("TIDAL did not return personalized recommendations.")
         }
+        let daily = responses.0.flatMap { try? playlistSummaries(from: $0) } ?? []
+        let discovery = responses.1.flatMap { try? playlistSummaries(from: $0) } ?? []
+        let releases = responses.2.flatMap { try? playlistSummaries(from: $0) } ?? []
+        async let hydratedDaily = hydratePlaylists(daily, countryCode: country, headers: headers)
+        async let hydratedDiscovery = hydratePlaylists(discovery, countryCode: country, headers: headers)
+        async let hydratedReleases = hydratePlaylists(releases, countryCode: country, headers: headers)
+        let hydrated = await (hydratedDaily, hydratedDiscovery, hydratedReleases)
         return TidalRecommendationPage(
-            dailyMixes: responses.0.flatMap { try? playlistSummaries(from: $0) } ?? [],
-            discoveryMixes: responses.1.flatMap { try? playlistSummaries(from: $0) } ?? [],
-            newReleaseMixes: responses.2.flatMap { try? playlistSummaries(from: $0) } ?? []
+            dailyMixes: hydrated.0,
+            discoveryMixes: hydrated.1,
+            newReleaseMixes: hydrated.2
         )
+    }
+
+    private func hydratePlaylists(
+        _ playlists: [TidalPlaylistSummary],
+        countryCode: String,
+        headers: [String: String]
+    ) async -> [TidalPlaylistSummary] {
+        guard !playlists.isEmpty else { return [] }
+        do {
+            let url = try makeURL(
+                base: configuration.apiBaseURL,
+                path: "playlists",
+                query: [
+                    URLQueryItem(name: "filter[id]", value: playlists.prefix(20).map(\.id).joined(separator: ",")),
+                    URLQueryItem(name: "include", value: "coverArt"),
+                    URLQueryItem(name: "countryCode", value: countryCode),
+                ]
+            )
+            let hydrated = try playlistSummaries(from: await request(url, headers: headers))
+            let byID = Dictionary(uniqueKeysWithValues: hydrated.map { ($0.id, $0) })
+            return playlists.map { original in
+                guard let replacement = byID[original.id] else { return original }
+                return TidalPlaylistSummary(
+                    id: original.id,
+                    title: replacement.title,
+                    description: replacement.description ?? original.description,
+                    artworkURL: replacement.artworkURL ?? original.artworkURL
+                )
+            }
+        } catch {
+            return playlists
+        }
     }
 
     private func fetchPlaylistPage(
