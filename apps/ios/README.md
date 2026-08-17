@@ -23,8 +23,10 @@ surfaces.
 Public SoundCloud track search and native playback are also connected through
 a Swift actor that discovers the current public web client, prefers AAC 160
 HLS, refreshes rejected bootstrap credentials, and falls back across available
-transcodings. SoundCloud set/profile pages, account import, and downloads remain
-follow-up slices.
+transcodings. Mixed search opens native public profile and set pages, while
+large sets hydrate SoundCloud's compact track IDs in bounded batches before
+queueing or playback. Account import, personalized shelves, and downloads
+remain follow-up slices.
 
 The first offline slice uses Apple's background asset-download session for
 TIDAL HLS, persists every job through the Rust download state machine, prefers

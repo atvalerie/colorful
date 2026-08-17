@@ -23,7 +23,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Detail behavior | Linux optional actions, fallbacks, metadata, toasts, and edge-case handling | Preserve these details in native presentations; document intentional iOS divergences | P0 |
 | EQ/normalization | Desktop contract; Android incomplete | Add after stable playback unless daily use requires it | P2 |
 | YouTube Music | Desktop public/private-session catalog and playback | Later native adapter; restricted source resolution is a risk | P2 |
-| SoundCloud | Desktop public/account catalog, playback, downloads | Native public track search and playback implemented; set/profile pages, account import, home/library, radio, pagination, and downloads remain | P1 |
+| SoundCloud | Desktop public/account catalog, playback, downloads | Native mixed public search, track playback, profile pages, and hydrated set pages implemented; account import, home/library, radio, pagination, and downloads remain | P1 |
 | Parties | Linux encrypted party client is current active social slice | Later native participant/host experience | P2 |
 | Device sync | Identity/pairing foundation; merge journal and transport planned | Later, using existing sync/security documents | P2 |
 | Updates/builds | Desktop packaging and GitHub release workflows | Unsigned simulator/device IPA through macOS CI first | P1 |

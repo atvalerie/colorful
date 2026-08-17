@@ -14,6 +14,36 @@ enum SoundCloudClientError: LocalizedError, Sendable {
     }
 }
 
+struct SoundCloudProfileSummary: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let artworkURL: String?
+}
+
+struct SoundCloudSetSummary: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let artistName: String
+    let artworkURL: String?
+}
+
+struct SoundCloudSearchResults: Sendable {
+    let tracks: [CoreTrack]
+    let sets: [SoundCloudSetSummary]
+    let profiles: [SoundCloudProfileSummary]
+}
+
+struct SoundCloudSetCollection: Sendable {
+    let summary: SoundCloudSetSummary
+    let tracks: [CoreTrack]
+}
+
+struct SoundCloudProfileCollection: Sendable {
+    let profile: SoundCloudProfileSummary
+    let topTracks: [CoreTrack]
+    let sets: [SoundCloudSetSummary]
+}
+
 actor SoundCloudClient {
     static let shared = SoundCloudClient()
 
@@ -31,9 +61,11 @@ actor SoundCloudClient {
         .joined(separator: "-")
     private var bootstrap: Bootstrap?
 
-    func searchTracks(query: String, limit: Int = 30) async throws -> [CoreTrack] {
+    func search(query: String, limit: Int = 30) async throws -> SoundCloudSearchResults {
         let cleaned = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return [] }
+        guard !cleaned.isEmpty else {
+            return SoundCloudSearchResults(tracks: [], sets: [], profiles: [])
+        }
         let document = try await apiObject(
             path: "search",
             query: [
@@ -45,10 +77,48 @@ actor SoundCloudClient {
                 URLQueryItem(name: "user_id", value: anonymousUserID),
             ]
         )
-        return array(document["collection"]).compactMap { value in
-            guard let object = value as? [String: Any], string(object["kind"]) == "track" else { return nil }
-            return mapTrack(object)
+        let values = array(document["collection"]).compactMap { $0 as? [String: Any] }
+        return SoundCloudSearchResults(
+            tracks: values.filter { string($0["kind"]) == "track" }.compactMap(mapTrack),
+            sets: values.filter { string($0["kind"]) == "playlist" }.compactMap(mapSet),
+            profiles: values.filter { string($0["kind"]) == "user" }.compactMap(mapProfile)
+        )
+    }
+
+    func setPage(id: String) async throws -> SoundCloudSetCollection {
+        let object = try await apiObject(
+            path: id.hasPrefix("soundcloud:system-playlists:")
+                ? "system-playlists/\(id)"
+                : "playlists/\(id)",
+            query: [URLQueryItem(name: "representation", value: "full")]
+        )
+        guard let summary = mapSet(object) else {
+            throw SoundCloudClientError.invalidResponse("SoundCloud set could not be resolved.")
         }
+        return SoundCloudSetCollection(
+            summary: summary,
+            tracks: try await hydratedTracks(array(object["tracks"]))
+        )
+    }
+
+    func profilePage(id: String) async throws -> SoundCloudProfileCollection {
+        let profileObject = try await apiObject(path: "users/\(id)")
+        let tracksObject = try await apiObject(
+            path: "users/\(id)/tracks",
+            query: [URLQueryItem(name: "limit", value: "30"), URLQueryItem(name: "linked_partitioning", value: "1")]
+        )
+        let setsObject = try await apiObject(
+            path: "users/\(id)/playlists_without_albums",
+            query: [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "linked_partitioning", value: "1")]
+        )
+        guard let profile = mapProfile(profileObject) else {
+            throw SoundCloudClientError.invalidResponse("SoundCloud profile could not be resolved.")
+        }
+        return SoundCloudProfileCollection(
+            profile: profile,
+            topTracks: array(tracksObject["collection"]).compactMap { ($0 as? [String: Any]).flatMap(mapTrack) },
+            sets: array(setsObject["collection"]).compactMap { ($0 as? [String: Any]).flatMap(mapSet) }
+        )
     }
 
     func playbackURL(for track: CoreTrack) async throws -> URL {
@@ -187,6 +257,68 @@ actor SoundCloudClient {
         return object
     }
 
+    private func apiArray(
+        path: String,
+        query: [URLQueryItem],
+        retryDiscovery: Bool = true
+    ) async throws -> [[String: Any]] {
+        let bootstrap = try await discover()
+        guard var components = URLComponents(
+            url: apiOrigin.appendingPathComponent(path),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw SoundCloudClientError.invalidResponse("SoundCloud request URL is invalid.")
+        }
+        var items = query
+        items.append(URLQueryItem(name: "client_id", value: bootstrap.clientID))
+        if let appVersion = bootstrap.appVersion {
+            items.append(URLQueryItem(name: "app_version", value: appVersion))
+        }
+        items.append(URLQueryItem(name: "app_locale", value: "en"))
+        components.queryItems = items
+        guard let url = components.url else {
+            throw SoundCloudClientError.invalidResponse("SoundCloud request URL is invalid.")
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if (status == 401 || status == 403), retryDiscovery {
+            _ = try await discover(force: true)
+            return try await apiArray(path: path, query: query, retryDiscovery: false)
+        }
+        guard (200..<300).contains(status) else {
+            throw SoundCloudClientError.http(status, String(data: data.prefix(240), encoding: .utf8) ?? "")
+        }
+        guard let values = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            throw SoundCloudClientError.invalidResponse("SoundCloud returned an invalid track collection.")
+        }
+        return values
+    }
+
+    private func hydratedTracks(_ values: [Any]) async throws -> [CoreTrack] {
+        let objects = values.compactMap { $0 as? [String: Any] }
+        let ids = objects.map { identifier($0["id"]) }.filter { !$0.isEmpty }
+        var mapped = [String: CoreTrack]()
+        for object in objects {
+            if let track = mapTrack(object) {
+                mapped[track.id.providerID] = track
+            }
+        }
+        let missing = ids.filter { mapped[$0] == nil }
+        for start in stride(from: 0, to: missing.count, by: 50) {
+            let chunk = Array(missing[start..<min(start + 50, missing.count)])
+            let fetched = try await apiArray(
+                path: "tracks",
+                query: [URLQueryItem(name: "ids", value: chunk.joined(separator: ","))]
+            )
+            for object in fetched {
+                if let track = mapTrack(object) {
+                    mapped[track.id.providerID] = track
+                }
+            }
+        }
+        return ids.compactMap { mapped[$0] }
+    }
+
     private func validateManifest(_ url: URL) async throws {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -227,6 +359,34 @@ actor SoundCloudClient {
             durationMs: duration.map { UInt64(max(0, $0)) },
             isrc: string(publisher?["isrc"]).nilIfEmpty,
             explicit: publisher?["explicit"] as? Bool
+        )
+    }
+
+    private func mapProfile(_ object: [String: Any]) -> SoundCloudProfileSummary? {
+        let id = identifier(object["id"])
+        let name = string(object["username"])
+        guard !id.isEmpty, !name.isEmpty else { return nil }
+        return SoundCloudProfileSummary(
+            id: id,
+            name: name,
+            artworkURL: upgradedArtworkURL(string(object["avatar_url"]))
+        )
+    }
+
+    private func mapSet(_ object: [String: Any]) -> SoundCloudSetSummary? {
+        let id = identifier(object["id"])
+        let title = string(object["title"])
+        guard !id.isEmpty, !title.isEmpty else { return nil }
+        let user = object["user"] as? [String: Any]
+        let artistName = string(user?["username"]).isEmpty ? "SoundCloud" : string(user?["username"])
+        let rawArtwork = string(object["artwork_url"]).isEmpty
+            ? string(object["calculated_artwork_url"])
+            : string(object["artwork_url"])
+        return SoundCloudSetSummary(
+            id: id,
+            title: title,
+            artistName: artistName,
+            artworkURL: upgradedArtworkURL(rawArtwork.isEmpty ? string(user?["avatar_url"]) : rawArtwork)
         )
     }
 

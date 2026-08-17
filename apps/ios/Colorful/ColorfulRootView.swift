@@ -720,7 +720,7 @@ private struct SearchView: View {
 
     @State private var query = ""
     @State private var results: TidalCatalogSearchResults?
-    @State private var soundCloudTracks = [CoreTrack]()
+    @State private var soundCloudResults: SoundCloudSearchResults?
     @State private var hasSearched = false
     @State private var providerFilter: SearchProviderFilter = .all
     @State private var isSearching = false
@@ -744,7 +744,7 @@ private struct SearchView: View {
                             searchID = UUID()
                             query = ""
                             results = nil
-                            soundCloudTracks = []
+                            soundCloudResults = nil
                             hasSearched = false
                             isSearching = false
                             errorMessage = nil
@@ -797,7 +797,7 @@ private struct SearchView: View {
                     } description: {
                         Text("Search TIDAL and SoundCloud.")
                     }
-                } else if (results?.isEmpty ?? true) && soundCloudTracks.isEmpty {
+                } else if (results?.isEmpty ?? true) && soundCloudIsEmpty {
                     ContentUnavailableView {
                         Label("No results", systemImage: "music.magnifyingglass")
                     } description: {
@@ -806,41 +806,42 @@ private struct SearchView: View {
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 24) {
-                            if providerFilter != .soundcloud,
-                               let artists = results?.artists, !artists.isEmpty {
-                                searchSectionHeader("Artists", count: artists.count)
+                            if visibleArtistCount > 0 {
+                                searchSectionHeader("Artists & profiles", count: visibleArtistCount)
                                 ScrollView(.horizontal) {
                                     LazyHStack(alignment: .top, spacing: 14) {
-                                        ForEach(artists) { artist in
-                                            NavigationLink {
-                                                ArtistCollectionView(
-                                                    artist: CoreArtistCredit(
-                                                        id: CoreMediaID(provider: "tidal", providerID: artist.id),
-                                                        name: artist.name
-                                                    ),
-                                                    account: account,
-                                                    store: store,
-                                                    showsDismissButton: false,
-                                                    onPlayCollection: onPlay
-                                                )
-                                            } label: {
-                                                VStack(spacing: 7) {
-                                                    ColorfulAlbumArt(
-                                                        title: artist.name,
-                                                        accent: 0xFF5C9A,
-                                                        artworkURL: artist.artworkURL,
-                                                        size: 92
+                                        if providerFilter != .soundcloud {
+                                            ForEach(results?.artists ?? []) { artist in
+                                                NavigationLink {
+                                                    ArtistCollectionView(
+                                                        artist: CoreArtistCredit(
+                                                            id: CoreMediaID(provider: "tidal", providerID: artist.id),
+                                                            name: artist.name
+                                                        ),
+                                                        account: account,
+                                                        store: store,
+                                                        showsDismissButton: false,
+                                                        onPlayCollection: onPlay
                                                     )
-                                                    .clipShape(Circle())
-                                                    Text(artist.name)
-                                                        .font(.subheadline.weight(.semibold))
-                                                        .foregroundStyle(ColorfulTheme.ink)
-                                                        .lineLimit(2)
-                                                        .multilineTextAlignment(.center)
+                                                } label: {
+                                                    searchArtistCard(name: artist.name, artworkURL: artist.artworkURL, accent: 0xFF5C9A)
                                                 }
-                                                .frame(width: 104)
+                                                .buttonStyle(.plain)
                                             }
-                                            .buttonStyle(.plain)
+                                        }
+                                        if providerFilter != .tidal {
+                                            ForEach(soundCloudResults?.profiles ?? []) { profile in
+                                                NavigationLink {
+                                                    SoundCloudProfileView(profile: profile, store: store, onPlay: onPlay)
+                                                } label: {
+                                                    searchArtistCard(
+                                                        name: profile.name,
+                                                        artworkURL: profile.artworkURL,
+                                                        accent: 0xFFC857
+                                                    )
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
                                         }
                                     }
                                     .padding(.vertical, 2)
@@ -848,39 +849,44 @@ private struct SearchView: View {
                                 .scrollIndicators(.hidden)
                             }
 
-                            if providerFilter != .soundcloud,
-                               let albums = results?.albums, !albums.isEmpty {
-                                searchSectionHeader("Albums", count: albums.count)
+                            if visibleCollectionCount > 0 {
+                                searchSectionHeader("Albums & sets", count: visibleCollectionCount)
                                 ScrollView(.horizontal) {
                                     LazyHStack(alignment: .top, spacing: 14) {
-                                        ForEach(albums) { album in
-                                            NavigationLink {
-                                                AlbumCollectionView(
-                                                    albumID: album.id,
-                                                    account: account,
-                                                    store: store,
-                                                    onPlayCollection: onPlay
-                                                )
-                                            } label: {
-                                                VStack(alignment: .leading, spacing: 6) {
-                                                    ColorfulAlbumArt(
-                                                        title: album.title,
-                                                        accent: 0xFF5C9A,
-                                                        artworkURL: album.artworkURL,
-                                                        size: 138
+                                        if providerFilter != .soundcloud {
+                                            ForEach(results?.albums ?? []) { album in
+                                                NavigationLink {
+                                                    AlbumCollectionView(
+                                                        albumID: album.id,
+                                                        account: account,
+                                                        store: store,
+                                                        onPlayCollection: onPlay
                                                     )
-                                                    Text(album.title)
-                                                        .font(.subheadline.weight(.semibold))
-                                                        .foregroundStyle(ColorfulTheme.ink)
-                                                        .lineLimit(2)
-                                                    Text(album.artistLabel)
-                                                        .font(.caption)
-                                                        .foregroundStyle(ColorfulTheme.mutedInk)
-                                                        .lineLimit(1)
+                                                } label: {
+                                                    searchCollectionCard(
+                                                        title: album.title,
+                                                        subtitle: album.artistLabel,
+                                                        artworkURL: album.artworkURL,
+                                                        accent: 0xFF5C9A
+                                                    )
                                                 }
-                                                .frame(width: 138, alignment: .leading)
+                                                .buttonStyle(.plain)
                                             }
-                                            .buttonStyle(.plain)
+                                        }
+                                        if providerFilter != .tidal {
+                                            ForEach(soundCloudResults?.sets ?? []) { set in
+                                                NavigationLink {
+                                                    SoundCloudSetView(set: set, store: store, onPlay: onPlay)
+                                                } label: {
+                                                    searchCollectionCard(
+                                                        title: set.title,
+                                                        subtitle: set.artistName,
+                                                        artworkURL: set.artworkURL,
+                                                        accent: 0xFFC857
+                                                    )
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
                                         }
                                     }
                                     .padding(.vertical, 2)
@@ -942,7 +948,7 @@ private struct SearchView: View {
                 try await account.searchCatalog(query: value, core: store.core)
             }
             let soundCloudTask = Task {
-                try await SoundCloudClient.shared.searchTracks(query: value)
+                try await SoundCloudClient.shared.search(query: value)
             }
             var failures = [String]()
             do {
@@ -957,15 +963,15 @@ private struct SearchView: View {
             do {
                 let response = try await soundCloudTask.value
                 guard searchID == requestID else { return }
-                soundCloudTracks = response
+                soundCloudResults = response
             } catch {
                 guard searchID == requestID else { return }
-                soundCloudTracks = []
+                soundCloudResults = nil
                 failures.append("SoundCloud: \(error.localizedDescription)")
             }
             guard searchID == requestID else { return }
             hasSearched = true
-            if (results?.isEmpty ?? true) && soundCloudTracks.isEmpty && !failures.isEmpty {
+            if (results?.isEmpty ?? true) && soundCloudIsEmpty && !failures.isEmpty {
                 errorMessage = failures.joined(separator: "\n")
             }
             isSearching = false
@@ -987,7 +993,7 @@ private struct SearchView: View {
     }
 
     private var visibleTracks: [CoreTrack] {
-        let tracks = (results?.tracks ?? []) + soundCloudTracks
+        let tracks = (results?.tracks ?? []) + (soundCloudResults?.tracks ?? [])
         guard providerFilter == .all else {
             return tracks.filter { $0.id.provider.lowercased() == providerFilter.rawValue }
         }
@@ -1002,6 +1008,50 @@ private struct SearchView: View {
                 - rank(right.element.id.provider.lowercased())
             return difference == 0 ? left.offset < right.offset : difference < 0
         }.map(\.element)
+    }
+
+    private var soundCloudIsEmpty: Bool {
+        guard let soundCloudResults else { return true }
+        return soundCloudResults.tracks.isEmpty
+            && soundCloudResults.sets.isEmpty
+            && soundCloudResults.profiles.isEmpty
+    }
+
+    private var visibleArtistCount: Int {
+        (providerFilter == .soundcloud ? 0 : results?.artists.count ?? 0)
+            + (providerFilter == .tidal ? 0 : soundCloudResults?.profiles.count ?? 0)
+    }
+
+    private var visibleCollectionCount: Int {
+        (providerFilter == .soundcloud ? 0 : results?.albums.count ?? 0)
+            + (providerFilter == .tidal ? 0 : soundCloudResults?.sets.count ?? 0)
+    }
+
+    private func searchArtistCard(name: String, artworkURL: String?, accent: UInt32) -> some View {
+        VStack(spacing: 7) {
+            ColorfulAlbumArt(title: name, accent: accent, artworkURL: artworkURL, size: 92)
+                .clipShape(Circle())
+            Text(name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ColorfulTheme.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .frame(width: 104)
+    }
+
+    private func searchCollectionCard(
+        title: String,
+        subtitle: String,
+        artworkURL: String?,
+        accent: UInt32
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ColorfulAlbumArt(title: title, accent: accent, artworkURL: artworkURL, size: 138)
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(ColorfulTheme.ink).lineLimit(2)
+            Text(subtitle).font(.caption).foregroundStyle(ColorfulTheme.mutedInk).lineLimit(1)
+        }
+        .frame(width: 138, alignment: .leading)
     }
 }
 
@@ -1068,6 +1118,162 @@ private struct SearchResultRow: View {
             TrackRow(track: track, store: store) {
                 onPlay([track])
             }
+        }
+    }
+}
+
+private struct SoundCloudSetView: View {
+    let set: SoundCloudSetSummary
+    @ObservedObject var store: PlaybackStore
+    let onPlay: ([CoreTrack]) -> Void
+    @State private var collection: SoundCloudSetCollection?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let collection {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(spacing: 10) {
+                            ColorfulAlbumArt(
+                                title: collection.summary.title,
+                                accent: 0xFFC857,
+                                artworkURL: collection.summary.artworkURL,
+                                size: 220
+                            )
+                            Text(collection.summary.title)
+                                .font(.title2.bold())
+                                .foregroundStyle(ColorfulTheme.ink)
+                                .multilineTextAlignment(.center)
+                            Text(collection.summary.artistName)
+                                .font(.subheadline)
+                                .foregroundStyle(ColorfulTheme.mutedInk)
+                            Button {
+                                onPlay(collection.tracks)
+                            } label: {
+                                Label("Play set", systemImage: "play.fill")
+                                    .font(.headline)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .background(Color(hex: 0xFFC857), in: Capsule())
+                                    .foregroundStyle(.black)
+                            }
+                            .disabled(collection.tracks.isEmpty)
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        LazyVStack(spacing: 8) {
+                            ForEach(collection.tracks) { track in
+                                TrackRow(track: track, store: store) { onPlay([track]) }
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+            } else if let errorMessage {
+                ContentUnavailableView("Set unavailable", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+            } else {
+                ProgressView("Loading set…")
+            }
+        }
+        .background(ColorfulTheme.background.ignoresSafeArea())
+        .navigationTitle(set.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        do {
+            collection = try await SoundCloudClient.shared.setPage(id: set.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct SoundCloudProfileView: View {
+    let profile: SoundCloudProfileSummary
+    @ObservedObject var store: PlaybackStore
+    let onPlay: ([CoreTrack]) -> Void
+    @State private var collection: SoundCloudProfileCollection?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let collection {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        VStack(spacing: 10) {
+                            ColorfulAlbumArt(
+                                title: collection.profile.name,
+                                accent: 0xFFC857,
+                                artworkURL: collection.profile.artworkURL,
+                                size: 160
+                            )
+                            .clipShape(Circle())
+                            Text(collection.profile.name)
+                                .font(.title.bold())
+                                .foregroundStyle(ColorfulTheme.ink)
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        if !collection.sets.isEmpty {
+                            HomeSectionHeader(title: "Sets", subtitle: "From SoundCloud")
+                            ScrollView(.horizontal) {
+                                LazyHStack(alignment: .top, spacing: 14) {
+                                    ForEach(collection.sets) { set in
+                                        NavigationLink {
+                                            SoundCloudSetView(set: set, store: store, onPlay: onPlay)
+                                        } label: {
+                                            VStack(alignment: .leading, spacing: 6) {
+                                                ColorfulAlbumArt(
+                                                    title: set.title,
+                                                    accent: 0xFFC857,
+                                                    artworkURL: set.artworkURL,
+                                                    size: 138
+                                                )
+                                                Text(set.title)
+                                                    .font(.subheadline.weight(.semibold))
+                                                    .foregroundStyle(ColorfulTheme.ink)
+                                                    .lineLimit(2)
+                                            }
+                                            .frame(width: 138, alignment: .leading)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .scrollIndicators(.hidden)
+                        }
+
+                        if !collection.topTracks.isEmpty {
+                            HomeSectionHeader(title: "Tracks", subtitle: "Public uploads")
+                            LazyVStack(spacing: 8) {
+                                ForEach(collection.topTracks) { track in
+                                    TrackRow(track: track, store: store) { onPlay([track]) }
+                                }
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+            } else if let errorMessage {
+                ContentUnavailableView("Profile unavailable", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+            } else {
+                ProgressView("Loading profile…")
+            }
+        }
+        .background(ColorfulTheme.background.ignoresSafeArea())
+        .navigationTitle(profile.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        do {
+            collection = try await SoundCloudClient.shared.profilePage(id: profile.id)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }
