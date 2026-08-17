@@ -2023,17 +2023,31 @@ private struct LyricsSurface: View {
                     }
                 }
             } else {
-                ContentUnavailableView {
-                    Label("Lyrics unavailable", systemImage: "quote.bubble")
-                } description: {
-                    Text(errorMessage ?? "No lyrics were found for this track.")
-                } actions: {
-                    Button("Try again", action: onRetry)
+                ZStack {
+                    RadialGradient(
+                        colors: [
+                            .black.opacity(0.52),
+                            .black.opacity(0.28),
+                            .black.opacity(0.08),
+                            .clear
+                        ],
+                        center: .center,
+                        startRadius: 8,
+                        endRadius: 190
+                    )
+                    .blur(radius: 10)
+                    .accessibilityHidden(true)
+
+                    ContentUnavailableView {
+                        Label("Lyrics unavailable", systemImage: "quote.bubble")
+                    } description: {
+                        Text(errorMessage ?? "No lyrics were found for this track.")
+                    } actions: {
+                        Button("Try again", action: onRetry)
+                    }
+                    .foregroundStyle(ColorfulTheme.ink)
                 }
-                .foregroundStyle(ColorfulTheme.ink)
-                .padding(20)
-                .background(.black.opacity(0.26), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: .black.opacity(0.42), radius: 26, y: 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(.horizontal, 4)
