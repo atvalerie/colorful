@@ -21,6 +21,7 @@ struct ColorfulRootView: View {
                     isShowingPlayer = true
                 }
             }
+            .contentMargins(.bottom, miniPlayerContentClearance, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
@@ -30,6 +31,7 @@ struct ColorfulRootView: View {
             NavigationStack {
                 LibraryView(store: store)
             }
+            .contentMargins(.bottom, miniPlayerContentClearance, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
@@ -39,6 +41,7 @@ struct ColorfulRootView: View {
             NavigationStack {
                 OfflineView()
             }
+            .contentMargins(.bottom, miniPlayerContentClearance, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
@@ -48,6 +51,7 @@ struct ColorfulRootView: View {
             NavigationStack {
                 SettingsView(store: store, account: account)
             }
+            .contentMargins(.bottom, miniPlayerContentClearance, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 miniPlayerInset
             }
@@ -120,6 +124,10 @@ struct ColorfulRootView: View {
                 isShowingPlayer = true
             }
         }
+    }
+
+    private var miniPlayerContentClearance: CGFloat {
+        store.currentTrack == nil ? 0 : 84
     }
 }
 
