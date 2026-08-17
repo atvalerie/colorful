@@ -730,7 +730,7 @@ private struct SearchView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(ColorfulTheme.mutedInk)
@@ -767,8 +767,8 @@ private struct SearchView: View {
                                 Text(provider.label)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(providerFilter == provider ? .black : ColorfulTheme.ink)
-                                    .padding(.horizontal, 14)
-                                    .frame(minHeight: 34)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 30)
                                     .background(
                                         providerFilter == provider
                                             ? ColorfulTheme.accent
@@ -781,6 +781,7 @@ private struct SearchView: View {
                         }
                     }
                 }
+                .frame(height: 30)
                 .scrollIndicators(.hidden)
 
                 if isSearching {

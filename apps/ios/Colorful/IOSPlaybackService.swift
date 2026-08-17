@@ -18,6 +18,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var sourceTask: Task<Void, Never>?
     private var activeTrackID: CoreMediaID?
     private var activeQueueEntryID: UInt64?
+    private var installedTrackID: CoreMediaID?
+    private var installedQueueEntryID: UInt64?
     private var lastCheckpointMs: UInt64 = 0
     private var lastNowPlayingPositionMs: UInt64 = 0
     private var artworkTask: Task<Void, Never>?
@@ -88,6 +90,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         loadedArtworkURL = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
+        installedTrackID = nil
+        installedQueueEntryID = nil
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
             self.timeObserver = nil
@@ -161,6 +165,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         activeTrackID = nil
         errorMessage = nil
         player.replaceCurrentItem(with: nil)
+        installedTrackID = nil
+        installedQueueEntryID = nil
         store.resume()
         synchronize()
     }
@@ -174,6 +180,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             isBuffering = false
             activeTrackID = nil
             activeQueueEntryID = nil
+            installedTrackID = nil
+            installedQueueEntryID = nil
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             return
         }
@@ -208,6 +216,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         activeQueueEntryID = queueEntryID
         sourceTask?.cancel()
         player.pause()
+        player.replaceCurrentItem(with: nil)
+        installedTrackID = nil
+        installedQueueEntryID = nil
         isBuffering = store.effectiveIsPlaying
         errorMessage = nil
         sourceTask = Task { [weak self] in
@@ -265,6 +276,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
               store.currentQueueEntryID == queueEntryID else { return }
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
+        installedTrackID = track.id
+        installedQueueEntryID = queueEntryID
         if initialPositionMs > 0 {
             player.seek(to: CMTime(value: Int64(initialPositionMs), timescale: 1_000))
         }
@@ -273,7 +286,17 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     }
 
     private func applyPlaybackState() {
-        guard player.currentItem != nil else { return }
+        guard let currentTrack = store.currentTrack,
+              installedTrackID == currentTrack.id,
+              installedQueueEntryID == store.currentQueueEntryID,
+              player.currentItem != nil else {
+            // A core refresh can publish the new playing state before its
+            // asynchronously resolved AVPlayerItem is installed. Never apply
+            // that state to the stale item from the previous queue entry.
+            player.pause()
+            updateNowPlaying(for: store.currentTrack)
+            return
+        }
         if store.effectiveIsPlaying {
             configureAudioSession(activate: true)
             player.play()
