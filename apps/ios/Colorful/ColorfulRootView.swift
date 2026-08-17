@@ -654,10 +654,8 @@ private struct TrackActionMenuItems: View {
                 downloads.remove(track)
             }
         case .complete:
-            if let url = downloads.localURL(for: track) {
-                ShareLink(item: url) {
-                    Label("Export offline package", systemImage: "square.and.arrow.up")
-                }
+            Button("Manage offline download", systemImage: "arrow.down.circle.fill") {
+                store.selectedTab = .offline
             }
             Button("Remove download", systemImage: "trash", role: .destructive) {
                 downloads.remove(track)
@@ -1596,14 +1594,33 @@ private struct OfflineActionsSheet: View {
     @EnvironmentObject private var downloads: IOSOfflineDownloadManager
     @Environment(\.dismiss) private var dismiss
     @State private var isConfirmingRemoval = false
+    @State private var exportURL: URL?
+    @State private var isPreparingExport = false
+    @State private var exportError: String?
 
     var body: some View {
         NavigationStack {
             List {
-                if let url = downloads.localURL(for: track) {
-                    ShareLink(item: url) {
-                        Label("Export offline package", systemImage: "square.and.arrow.up")
+                if let exportURL {
+                    ShareLink(item: exportURL) {
+                        Label("Share M4A file", systemImage: "square.and.arrow.up")
                     }
+                } else {
+                    Button {
+                        prepareExport()
+                    } label: {
+                        Label(
+                            isPreparingExport ? "Creating M4A…" : "Create M4A file",
+                            systemImage: isPreparingExport ? "waveform" : "doc.badge.plus"
+                        )
+                    }
+                    .disabled(isPreparingExport)
+                    if isPreparingExport {
+                        ProgressView()
+                    }
+                    Text("Creates one tagged audio file that works in Files and other players. Lossless FLAC export is not available yet.")
+                        .font(.footnote)
+                        .foregroundStyle(ColorfulTheme.mutedInk)
                 }
                 Button("Remove offline copy", systemImage: "trash", role: .destructive) {
                     isConfirmingRemoval = true
@@ -1618,6 +1635,17 @@ private struct OfflineActionsSheet: View {
             }
         }
         .presentationDetents([.height(210), .medium])
+        .alert(
+            "Export failed",
+            isPresented: Binding(
+                get: { exportError != nil },
+                set: { if !$0 { exportError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "The M4A file could not be created.")
+        }
         .confirmationDialog(
             "Remove offline copy?",
             isPresented: $isConfirmingRemoval,
@@ -1630,6 +1658,20 @@ private struct OfflineActionsSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("The local media package will be deleted. The track stays in your library and playlists.")
+        }
+    }
+
+    private func prepareExport() {
+        guard !isPreparingExport else { return }
+        isPreparingExport = true
+        exportError = nil
+        Task {
+            do {
+                exportURL = try await downloads.prepareM4AExport(for: track)
+            } catch {
+                exportError = error.localizedDescription
+            }
+            isPreparingExport = false
         }
     }
 }

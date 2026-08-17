@@ -2,6 +2,23 @@ import AVFoundation
 import Combine
 import Foundation
 
+enum IOSOfflineExportError: LocalizedError {
+    case unavailable
+    case notExportable
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "The completed offline track could not be found."
+        case .notExportable:
+            return "iOS cannot export this downloaded TIDAL asset."
+        case .failed(let detail):
+            return "Could not create the M4A file: \(detail)"
+        }
+    }
+}
+
 @MainActor
 final class IOSOfflineDownloadManager: NSObject, ObservableObject {
     @Published private(set) var progressByTrack = [CoreMediaID: Double]()
@@ -93,8 +110,52 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         if let path = job(for: track)?.localPath, !path.isEmpty {
             try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
         }
+        try? FileManager.default.removeItem(at: exportURL(for: track))
         store.removeDownload(track.id)
         message = "Removed the offline copy of \(track.title)."
+    }
+
+    func prepareM4AExport(for track: CoreTrack) async throws -> URL {
+        guard let localURL = localURL(for: track) else {
+            throw IOSOfflineExportError.unavailable
+        }
+        let destination = exportURL(for: track)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            return destination
+        }
+
+        let asset = AVURLAsset(url: localURL)
+        guard try await asset.load(.isExportable) else {
+            throw IOSOfflineExportError.notExportable
+        }
+        guard let exporter = AVAssetExportSession(
+            asset: asset,
+            presetName: AVAssetExportPresetAppleM4A
+        ) else {
+            throw IOSOfflineExportError.notExportable
+        }
+
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? FileManager.default.removeItem(at: destination)
+        exporter.outputURL = destination
+        exporter.outputFileType = .m4a
+        exporter.shouldOptimizeForNetworkUse = false
+        exporter.metadata = exportMetadata(for: track)
+        await withCheckedContinuation { continuation in
+            exporter.exportAsynchronously {
+                continuation.resume()
+            }
+        }
+        guard exporter.status == .completed else {
+            try? FileManager.default.removeItem(at: destination)
+            throw IOSOfflineExportError.failed(
+                exporter.error?.localizedDescription ?? "the media exporter stopped unexpectedly"
+            )
+        }
+        return destination
     }
 
     func dismissMessage() {
@@ -233,6 +294,42 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
             total += UInt64(max(0, values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0))
         }
         return total
+    }
+
+    private func exportURL(for track: CoreTrack) -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let artist = safeFilenameComponent(track.artists.first?.name ?? "Unknown artist")
+        let title = safeFilenameComponent(track.title)
+        let identity = safeFilenameComponent(String(track.id.providerID.suffix(10)))
+        return support
+            .appendingPathComponent("Colorful", isDirectory: true)
+            .appendingPathComponent("Exports", isDirectory: true)
+            .appendingPathComponent("\(artist) - \(title) [\(identity)].m4a", isDirectory: false)
+    }
+
+    private func safeFilenameComponent(_ value: String) -> String {
+        let forbidden = CharacterSet(charactersIn: "/\\:?%*|\"<>\n\r\t")
+        let cleaned = value.components(separatedBy: forbidden).joined(separator: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(cleaned.prefix(80)).isEmpty ? "Track" : String(cleaned.prefix(80))
+    }
+
+    private func exportMetadata(for track: CoreTrack) -> [AVMetadataItem] {
+        var result = [AVMetadataItem]()
+        result.append(metadataItem(identifier: .commonIdentifierTitle, value: track.title))
+        result.append(metadataItem(identifier: .commonIdentifierArtist, value: track.artistLabel))
+        if let album = track.albumTitle, !album.isEmpty {
+            result.append(metadataItem(identifier: .commonIdentifierAlbumName, value: album))
+        }
+        return result
+    }
+
+    private func metadataItem(identifier: AVMetadataIdentifier, value: String) -> AVMetadataItem {
+        let item = AVMutableMetadataItem()
+        item.identifier = identifier
+        item.value = value as NSString
+        item.extendedLanguageTag = "und"
+        return item
     }
 }
 
