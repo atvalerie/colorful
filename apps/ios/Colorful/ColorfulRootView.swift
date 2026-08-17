@@ -715,13 +715,14 @@ private struct TrackRowContent: View {
 
 private struct SearchView: View {
     @ObservedObject var account: TidalAccountStore
-    @ObservedObject var store: PlaybackStore
+    let store: PlaybackStore
     let onPlay: ([CoreTrack]) -> Void
 
     @State private var query = ""
     @State private var results: TidalCatalogSearchResults?
     @State private var soundCloudTracks = [CoreTrack]()
     @State private var hasSearched = false
+    @State private var providerFilter: SearchProviderFilter = .all
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var searchID = UUID()
@@ -757,6 +758,31 @@ private struct SearchView: View {
                 .background(ColorfulTheme.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: ColorfulTheme.cardRadius, style: .continuous))
 
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(SearchProviderFilter.allCases) { provider in
+                            Button {
+                                providerFilter = provider
+                            } label: {
+                                Text(provider.label)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(providerFilter == provider ? .black : ColorfulTheme.ink)
+                                    .padding(.horizontal, 14)
+                                    .frame(minHeight: 34)
+                                    .background(
+                                        providerFilter == provider
+                                            ? ColorfulTheme.accent
+                                            : ColorfulTheme.surfaceRaised,
+                                        in: Capsule()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(providerFilter == provider ? .isSelected : [])
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+
                 if isSearching {
                     ProgressView("Searching…")
                         .tint(ColorfulTheme.accent)
@@ -781,7 +807,8 @@ private struct SearchView: View {
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 24) {
-                            if let artists = results?.artists, !artists.isEmpty {
+                            if providerFilter != .soundcloud,
+                               let artists = results?.artists, !artists.isEmpty {
                                 searchSectionHeader("Artists", count: artists.count)
                                 ScrollView(.horizontal) {
                                     LazyHStack(alignment: .top, spacing: 14) {
@@ -822,7 +849,8 @@ private struct SearchView: View {
                                 .scrollIndicators(.hidden)
                             }
 
-                            if let albums = results?.albums, !albums.isEmpty {
+                            if providerFilter != .soundcloud,
+                               let albums = results?.albums, !albums.isEmpty {
                                 searchSectionHeader("Albums", count: albums.count)
                                 ScrollView(.horizontal) {
                                     LazyHStack(alignment: .top, spacing: 14) {
@@ -861,13 +889,10 @@ private struct SearchView: View {
                                 .scrollIndicators(.hidden)
                             }
 
-                            if let tracks = results?.tracks, !tracks.isEmpty {
-                                searchSectionHeader(
-                                    soundCloudTracks.isEmpty ? "Tracks" : "TIDAL tracks",
-                                    count: tracks.count
-                                )
+                            if !visibleTracks.isEmpty {
+                                searchSectionHeader("Tracks", count: visibleTracks.count)
                                 LazyVStack(spacing: 8) {
-                                    ForEach(tracks) { track in
+                                    ForEach(visibleTracks) { track in
                                         SearchResultRow(
                                             track: track,
                                             account: account,
@@ -876,19 +901,11 @@ private struct SearchView: View {
                                         )
                                     }
                                 }
-                            }
-
-                            if !soundCloudTracks.isEmpty {
-                                searchSectionHeader("SoundCloud tracks", count: soundCloudTracks.count)
-                                LazyVStack(spacing: 8) {
-                                    ForEach(soundCloudTracks) { track in
-                                        SearchResultRow(
-                                            track: track,
-                                            account: account,
-                                            store: store,
-                                            onPlay: onPlay
-                                        )
-                                    }
+                            } else {
+                                ContentUnavailableView {
+                                    Label("No \(providerFilter.label) results", systemImage: "music.magnifyingglass")
+                                } description: {
+                                    Text("Try another source or search term.")
                                 }
                             }
                         }
@@ -969,12 +986,46 @@ private struct SearchView: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
     }
+
+    private var visibleTracks: [CoreTrack] {
+        let tracks = (results?.tracks ?? []) + soundCloudTracks
+        guard providerFilter == .all else {
+            return tracks.filter { $0.id.provider.lowercased() == providerFilter.rawValue }
+        }
+        let listenedOrder = store.listenStats?.providerStats.map { $0.provider.lowercased() } ?? []
+        let fallback = ["tidal", "youtube", "soundcloud", "local"]
+        func rank(_ provider: String) -> Int {
+            if let index = listenedOrder.firstIndex(of: provider) { return index }
+            return listenedOrder.count + (fallback.firstIndex(of: provider) ?? fallback.count)
+        }
+        return tracks.enumerated().sorted { left, right in
+            let difference = rank(left.element.id.provider.lowercased())
+                - rank(right.element.id.provider.lowercased())
+            return difference == 0 ? left.offset < right.offset : difference < 0
+        }.map(\.element)
+    }
+}
+
+private enum SearchProviderFilter: String, CaseIterable, Identifiable {
+    case all
+    case tidal
+    case soundcloud
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .all: return "All"
+        case .tidal: return "TIDAL"
+        case .soundcloud: return "SoundCloud"
+        }
+    }
 }
 
 private struct SearchResultRow: View {
     let track: CoreTrack
     @ObservedObject var account: TidalAccountStore
-    @ObservedObject var store: PlaybackStore
+    let store: PlaybackStore
     let onPlay: ([CoreTrack]) -> Void
 
     var body: some View {
@@ -1008,6 +1059,12 @@ private struct SearchResultRow: View {
                     onPlay([track])
                 }
             }
+            .background(ColorfulTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(ColorfulTheme.border, lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         } else {
             TrackRow(track: track, store: store) {
                 onPlay([track])

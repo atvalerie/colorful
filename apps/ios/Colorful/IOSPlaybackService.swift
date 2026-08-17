@@ -198,6 +198,12 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             return
         }
 
+        let startsAtBeginning = activeTrackID != nil
+            && (activeTrackID != track.id || activeQueueEntryID != queueEntryID)
+        let initialPositionMs: UInt64 = startsAtBeginning ? 0 : store.positionMs
+        if startsAtBeginning {
+            store.updatePositionFromPlayer(0)
+        }
         activeTrackID = track.id
         activeQueueEntryID = queueEntryID
         sourceTask?.cancel()
@@ -211,7 +217,12 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     guard !Task.isCancelled,
                           store.currentTrack?.id == track.id,
                           store.currentQueueEntryID == queueEntryID else { return }
-                    install(source: localURL, track: track, queueEntryID: queueEntryID)
+                    install(
+                        source: localURL,
+                        track: track,
+                        queueEntryID: queueEntryID,
+                        initialPositionMs: initialPositionMs
+                    )
                     return
                 }
                 let sourceURL: URL
@@ -227,7 +238,12 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 guard !Task.isCancelled,
                       store.currentTrack?.id == track.id,
                       store.currentQueueEntryID == queueEntryID else { return }
-                install(source: sourceURL, track: track, queueEntryID: queueEntryID)
+                install(
+                    source: sourceURL,
+                    track: track,
+                    queueEntryID: queueEntryID,
+                    initialPositionMs: initialPositionMs
+                )
             } catch is CancellationError {
                 return
             } catch {
@@ -239,13 +255,18 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         }
     }
 
-    private func install(source url: URL, track: CoreTrack, queueEntryID: UInt64?) {
+    private func install(
+        source url: URL,
+        track: CoreTrack,
+        queueEntryID: UInt64?,
+        initialPositionMs: UInt64
+    ) {
         guard store.currentTrack?.id == track.id,
               store.currentQueueEntryID == queueEntryID else { return }
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
-        if store.positionMs > 0 {
-            player.seek(to: CMTime(value: Int64(store.positionMs), timescale: 1_000))
+        if initialPositionMs > 0 {
+            player.seek(to: CMTime(value: Int64(initialPositionMs), timescale: 1_000))
         }
         updateNowPlaying(for: track)
         applyPlaybackState()

@@ -155,11 +155,13 @@ final class PlaybackStore: ObservableObject {
     }
 
     func play(_ track: CoreTrack) {
+        prepareForTrackTransition()
         dispatch(CorePlayTracksCommand(tracks: [track]))
     }
 
     func playTracks(_ tracks: [CoreTrack]) {
         guard !tracks.isEmpty else { return }
+        prepareForTrackTransition()
         dispatch(CorePlayTracksCommand(tracks: tracks))
     }
 
@@ -212,6 +214,7 @@ final class PlaybackStore: ObservableObject {
     }
 
     func selectQueueEntry(_ entryID: UInt64) {
+        prepareForTrackTransition()
         dispatch(CoreQueueEntryCommand(command: "select", entryID: entryID))
     }
 
@@ -251,10 +254,12 @@ final class PlaybackStore: ObservableObject {
     }
 
     func skipNext() {
+        prepareForTrackTransition()
         dispatch(CoreSimpleCommand(command: "skip_next"))
     }
 
     func skipPrevious() {
+        prepareForTrackTransition()
         dispatch(CoreSimpleCommand(command: "skip_previous"))
     }
 
@@ -299,6 +304,12 @@ final class PlaybackStore: ObservableObject {
 
     func removeDownload(_ id: CoreMediaID) {
         dispatch(CoreRemoveDownloadCommand(id: id))
+    }
+
+    private func prepareForTrackTransition() {
+        pendingPlayingState = nil
+        isPlaying = false
+        positionMs = 0
     }
 
     private func dispatch<T: Encodable>(_ command: T) {
