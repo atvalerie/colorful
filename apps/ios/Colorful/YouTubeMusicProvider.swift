@@ -20,6 +20,14 @@ struct YouTubeMusicSearchResults: Sendable {
 struct YouTubeMusicPlaybackSource: Sendable {
     let url: URL
     let httpHeaders: [String: String]
+    let mimeType: String
+    let contentLength: Int64?
+}
+
+private struct YouTubeDirectAudioSource {
+    let url: URL
+    let mimeType: String
+    let contentLength: Int64?
 }
 
 actor YouTubeMusicClient {
@@ -78,9 +86,12 @@ actor YouTubeMusicClient {
                 "X-Youtube-Client-Version": androidVersion,
                 ]
             )
-            let url = try directAudioURL(document)
-            try await validateSource(url, userAgent: androidUserAgent, expectsManifest: false)
-            return YouTubeMusicPlaybackSource(url: url, httpHeaders: ["User-Agent": androidUserAgent])
+            let source = try directAudioSource(document)
+            let probedLength = try await validateSource(source.url, userAgent: androidUserAgent, expectsManifest: false)
+            return YouTubeMusicPlaybackSource(
+                url: source.url, httpHeaders: ["User-Agent": androidUserAgent],
+                mimeType: source.mimeType, contentLength: source.contentLength ?? probedLength
+            )
         } catch {
             firstFailure = error
         }
@@ -107,16 +118,22 @@ actor YouTubeMusicClient {
                     "X-Youtube-Client-Version": iosVersion,
                 ]
             )
-            if let direct = try? directAudioURL(document) {
-                try await validateSource(direct, userAgent: iosUserAgent, expectsManifest: false)
-                return YouTubeMusicPlaybackSource(url: direct, httpHeaders: ["User-Agent": iosUserAgent])
+            if let direct = try? directAudioSource(document) {
+                let probedLength = try await validateSource(direct.url, userAgent: iosUserAgent, expectsManifest: false)
+                return YouTubeMusicPlaybackSource(
+                    url: direct.url, httpHeaders: ["User-Agent": iosUserAgent],
+                    mimeType: direct.mimeType, contentLength: direct.contentLength ?? probedLength
+                )
             }
             let manifest = string(dictionary(document["streamingData"])["hlsManifestUrl"])
             guard let hls = URL(string: manifest), hls.scheme == "https" else {
                 throw YouTubeMusicClientError.invalidResponse("YouTube iOS player returned no usable audio source.")
             }
             try await validateSource(hls, userAgent: iosUserAgent, expectsManifest: true)
-            return YouTubeMusicPlaybackSource(url: hls, httpHeaders: ["User-Agent": iosUserAgent])
+            return YouTubeMusicPlaybackSource(
+                url: hls, httpHeaders: ["User-Agent": iosUserAgent],
+                mimeType: "application/vnd.apple.mpegurl", contentLength: nil
+            )
         } catch {
             // Current iOS identities may return metadata-only/SABR formats or
             // enforce a PO token. Continue through the public web/TV fallbacks.
@@ -142,7 +159,10 @@ actor YouTubeMusicClient {
                 throw YouTubeMusicClientError.invalidResponse("YouTube web player returned no HLS stream.")
             }
             try await validateSource(url, userAgent: safariUserAgent, expectsManifest: true)
-            return YouTubeMusicPlaybackSource(url: url, httpHeaders: ["User-Agent": safariUserAgent])
+            return YouTubeMusicPlaybackSource(
+                url: url, httpHeaders: ["User-Agent": safariUserAgent],
+                mimeType: "application/vnd.apple.mpegurl", contentLength: nil
+            )
         } catch {
             // Continue to the TV client, which often exposes direct formats when
             // the Android VR response is restricted or incomplete.
@@ -163,9 +183,12 @@ actor YouTubeMusicClient {
                     "X-Youtube-Client-Version": tvVersion,
                 ]
             )
-            let url = try directAudioURL(document)
-            try await validateSource(url, userAgent: tvUserAgent, expectsManifest: false)
-            return YouTubeMusicPlaybackSource(url: url, httpHeaders: ["User-Agent": tvUserAgent])
+            let source = try directAudioSource(document)
+            let probedLength = try await validateSource(source.url, userAgent: tvUserAgent, expectsManifest: false)
+            return YouTubeMusicPlaybackSource(
+                url: source.url, httpHeaders: ["User-Agent": tvUserAgent],
+                mimeType: source.mimeType, contentLength: source.contentLength ?? probedLength
+            )
         } catch {
             throw firstFailure ?? error
         }
@@ -197,7 +220,7 @@ actor YouTubeMusicClient {
         )
     }
 
-    private func directAudioURL(_ document: [String: Any]) throws -> URL {
+    private func directAudioSource(_ document: [String: Any]) throws -> YouTubeDirectAudioSource {
         let playability = dictionary(document["playabilityStatus"])
         let status = string(playability["status"])
         if !status.isEmpty && status != "OK" {
@@ -219,10 +242,15 @@ actor YouTubeMusicClient {
                 ? "YouTube Music returned only protected audio for this track."
                 : "YouTube Music returned no directly playable audio.")
         }
-        return url
+        let rawLength = number64(selected["contentLength"])
+        return YouTubeDirectAudioSource(
+            url: url,
+            mimeType: string(selected["mimeType"]).components(separatedBy: ";").first ?? "audio/mp4",
+            contentLength: rawLength > 0 ? rawLength : nil
+        )
     }
 
-    private func validateSource(_ url: URL, userAgent: String, expectsManifest: Bool) async throws {
+    private func validateSource(_ url: URL, userAgent: String, expectsManifest: Bool) async throws -> Int64? {
         var request = URLRequest(url: url, timeoutInterval: 12)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if !expectsManifest { request.setValue("bytes=0-1", forHTTPHeaderField: "Range") }
@@ -243,7 +271,13 @@ actor YouTubeMusicClient {
             guard prefix.contains("#EXTM3U") else {
                 throw YouTubeMusicClientError.invalidResponse("YouTube Music returned an invalid HLS stream.")
             }
+            return nil
         }
+        if let range = http.value(forHTTPHeaderField: "Content-Range"),
+           let total = range.split(separator: "/").last.flatMap({ Int64($0) }), total > 0 {
+            return total
+        }
+        return response.expectedContentLength > 0 ? response.expectedContentLength : nil
     }
 
     private func searchPage(query: String, params: String) async throws -> [String: Any] {
@@ -520,4 +554,5 @@ actor YouTubeMusicClient {
     private func array(_ value: Any?) -> [Any] { value as? [Any] ?? [] }
     private func string(_ value: Any?) -> String { value as? String ?? "" }
     private func number(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? Int(value as? String ?? "") ?? 0 }
+    private func number64(_ value: Any?) -> Int64 { (value as? NSNumber)?.int64Value ?? Int64(value as? String ?? "") ?? 0 }
 }
