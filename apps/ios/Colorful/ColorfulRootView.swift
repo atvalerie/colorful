@@ -524,6 +524,7 @@ private struct RootTabHeader: View {
                 .accessibilityLabel(actionLabel)
             }
         }
+        .frame(minHeight: 36)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
@@ -645,8 +646,10 @@ private struct TrackActionMenuItems: View {
                 }
             }
         }
-        Divider()
-        downloadActions
+        if track.id.provider.lowercased() == "tidal" {
+            Divider()
+            downloadActions
+        }
     }
 
     @ViewBuilder
@@ -717,6 +720,8 @@ private struct SearchView: View {
 
     @State private var query = ""
     @State private var results: TidalCatalogSearchResults?
+    @State private var soundCloudTracks = [CoreTrack]()
+    @State private var hasSearched = false
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var searchID = UUID()
@@ -728,7 +733,7 @@ private struct SearchView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(ColorfulTheme.mutedInk)
-                    TextField("Search TIDAL", text: $query)
+                    TextField("Search music", text: $query)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($isSearchFocused)
@@ -738,6 +743,8 @@ private struct SearchView: View {
                             searchID = UUID()
                             query = ""
                             results = nil
+                            soundCloudTracks = []
+                            hasSearched = false
                             isSearching = false
                             errorMessage = nil
                         }
@@ -759,13 +766,13 @@ private struct SearchView: View {
                     } description: {
                         Text(errorMessage)
                     }
-                } else if results == nil {
+                } else if !hasSearched {
                     ContentUnavailableView {
-                        Label("Search TIDAL", systemImage: "music.magnifyingglass")
+                        Label("Search music", systemImage: "music.magnifyingglass")
                     } description: {
-                        Text("Search for a track, artist, or album.")
+                        Text("Search TIDAL and SoundCloud.")
                     }
-                } else if results?.isEmpty == true {
+                } else if (results?.isEmpty ?? true) && soundCloudTracks.isEmpty {
                     ContentUnavailableView {
                         Label("No results", systemImage: "music.magnifyingglass")
                     } description: {
@@ -855,9 +862,26 @@ private struct SearchView: View {
                             }
 
                             if let tracks = results?.tracks, !tracks.isEmpty {
-                                searchSectionHeader("Tracks", count: tracks.count)
+                                searchSectionHeader(
+                                    soundCloudTracks.isEmpty ? "Tracks" : "TIDAL tracks",
+                                    count: tracks.count
+                                )
                                 LazyVStack(spacing: 8) {
                                     ForEach(tracks) { track in
+                                        SearchResultRow(
+                                            track: track,
+                                            account: account,
+                                            store: store,
+                                            onPlay: onPlay
+                                        )
+                                    }
+                                }
+                            }
+
+                            if !soundCloudTracks.isEmpty {
+                                searchSectionHeader("SoundCloud tracks", count: soundCloudTracks.count)
+                                LazyVStack(spacing: 8) {
+                                    ForEach(soundCloudTracks) { track in
                                         SearchResultRow(
                                             track: track,
                                             account: account,
@@ -898,16 +922,36 @@ private struct SearchView: View {
         isSearching = true
         errorMessage = nil
         Task {
+            let tidalTask = Task {
+                try await account.searchCatalog(query: value, core: store.core)
+            }
+            let soundCloudTask = Task {
+                try await SoundCloudClient.shared.searchTracks(query: value)
+            }
+            var failures = [String]()
             do {
-                let response = try await account.searchCatalog(query: value, core: store.core)
+                let response = try await tidalTask.value
                 guard searchID == requestID else { return }
                 results = response
             } catch {
                 guard searchID == requestID else { return }
                 results = nil
-                errorMessage = error.localizedDescription
+                failures.append("TIDAL: \(error.localizedDescription)")
+            }
+            do {
+                let response = try await soundCloudTask.value
+                guard searchID == requestID else { return }
+                soundCloudTracks = response
+            } catch {
+                guard searchID == requestID else { return }
+                soundCloudTracks = []
+                failures.append("SoundCloud: \(error.localizedDescription)")
             }
             guard searchID == requestID else { return }
+            hasSearched = true
+            if (results?.isEmpty ?? true) && soundCloudTracks.isEmpty && !failures.isEmpty {
+                errorMessage = failures.joined(separator: "\n")
+            }
             isSearching = false
         }
     }

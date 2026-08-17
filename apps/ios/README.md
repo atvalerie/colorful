@@ -20,6 +20,11 @@ delete, reorder, removal, and track-action flows.
 TIDAL search is grouped into relevance-ordered track, album, and artist
 sections, and collection results navigate into the native album and artist
 surfaces.
+Public SoundCloud track search and native playback are also connected through
+a Swift actor that discovers the current public web client, prefers AAC 160
+HLS, refreshes rejected bootstrap credentials, and falls back across available
+transcodings. SoundCloud set/profile pages, account import, and downloads remain
+follow-up slices.
 
 The first offline slice uses Apple's background asset-download session for
 TIDAL HLS, persists every job through the Rust download state machine, prefers

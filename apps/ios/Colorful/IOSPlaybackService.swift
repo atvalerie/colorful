@@ -178,10 +178,11 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             return
         }
 
-        guard track.id.provider.lowercased() == "tidal" else {
+        let provider = track.id.provider.lowercased()
+        guard provider == "tidal" || provider == "soundcloud" else {
             player.pause()
             isBuffering = false
-            errorMessage = "This iOS playback slice only supports TIDAL tracks."
+            errorMessage = "This provider is not available for iOS playback yet."
             return
         }
 
@@ -213,12 +214,20 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     install(source: localURL, track: track, queueEntryID: queueEntryID)
                     return
                 }
-                let resolution = try await account.playbackSource(for: track)
+                let sourceURL: URL
+                if provider == "soundcloud" {
+                    sourceURL = try await SoundCloudClient.shared.playbackURL(for: track)
+                } else {
+                    let resolution = try await account.playbackSource(for: track)
+                    guard let resolvedURL = URL(string: resolution.source.uri) else {
+                        throw TidalClientError.invalidResponse("TIDAL returned an invalid playback URL.")
+                    }
+                    sourceURL = resolvedURL
+                }
                 guard !Task.isCancelled,
                       store.currentTrack?.id == track.id,
-                      store.currentQueueEntryID == queueEntryID,
-                      let url = URL(string: resolution.source.uri) else { return }
-                install(source: url, track: track, queueEntryID: queueEntryID)
+                      store.currentQueueEntryID == queueEntryID else { return }
+                install(source: sourceURL, track: track, queueEntryID: queueEntryID)
             } catch is CancellationError {
                 return
             } catch {
