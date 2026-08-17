@@ -1,5 +1,6 @@
 import AVKit
 import SwiftUI
+import UIKit
 
 struct ColorfulRootView: View {
     @ObservedObject var store: PlaybackStore
@@ -1594,34 +1595,28 @@ private struct OfflineActionsSheet: View {
     @EnvironmentObject private var downloads: IOSOfflineDownloadManager
     @Environment(\.dismiss) private var dismiss
     @State private var isConfirmingRemoval = false
-    @State private var exportURL: URL?
+    @State private var shareExport: IOSOfflineExport?
     @State private var isPreparingExport = false
     @State private var exportError: String?
 
     var body: some View {
         NavigationStack {
             List {
-                if let exportURL {
-                    ShareLink(item: exportURL) {
-                        Label("Share M4A file", systemImage: "square.and.arrow.up")
-                    }
-                } else {
-                    Button {
-                        prepareExport()
-                    } label: {
-                        Label(
-                            isPreparingExport ? "Creating M4A…" : "Create M4A file",
-                            systemImage: isPreparingExport ? "waveform" : "doc.badge.plus"
-                        )
-                    }
-                    .disabled(isPreparingExport)
-                    if isPreparingExport {
-                        ProgressView()
-                    }
-                    Text("Creates one tagged audio file that works in Files and other players. Lossless FLAC export is not available yet.")
-                        .font(.footnote)
-                        .foregroundStyle(ColorfulTheme.mutedInk)
+                Button {
+                    prepareAndShareExport()
+                } label: {
+                    Label(
+                        isPreparingExport ? "Preparing audio file…" : "Export and share",
+                        systemImage: isPreparingExport ? "waveform" : "square.and.arrow.up"
+                    )
                 }
+                .disabled(isPreparingExport)
+                if isPreparingExport {
+                    ProgressView()
+                }
+                Text("Exports lossless downloads as FLAC and AAC downloads as M4A, then opens the share sheet automatically.")
+                    .font(.footnote)
+                    .foregroundStyle(ColorfulTheme.mutedInk)
                 Button("Remove offline copy", systemImage: "trash", role: .destructive) {
                     isConfirmingRemoval = true
                 }
@@ -1634,7 +1629,10 @@ private struct OfflineActionsSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(210), .medium])
+        .presentationDetents([.medium, .large])
+        .sheet(item: $shareExport) { export in
+            IOSActivityShareSheet(items: [export.url])
+        }
         .alert(
             "Export failed",
             isPresented: Binding(
@@ -1661,19 +1659,29 @@ private struct OfflineActionsSheet: View {
         }
     }
 
-    private func prepareExport() {
+    private func prepareAndShareExport() {
         guard !isPreparingExport else { return }
         isPreparingExport = true
         exportError = nil
         Task {
             do {
-                exportURL = try await downloads.prepareM4AExport(for: track)
+                shareExport = try await downloads.prepareShareableExport(for: track)
             } catch {
                 exportError = error.localizedDescription
             }
             isPreparingExport = false
         }
     }
+}
+
+private struct IOSActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 private struct SettingsView: View {

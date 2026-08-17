@@ -1,5 +1,7 @@
 import AVFoundation
+import AudioToolbox
 import Combine
+import CoreMedia
 import Foundation
 
 enum IOSOfflineExportError: LocalizedError {
@@ -17,6 +19,13 @@ enum IOSOfflineExportError: LocalizedError {
             return "Could not create the M4A file: \(detail)"
         }
     }
+}
+
+struct IOSOfflineExport: Identifiable {
+    let url: URL
+    let isLossless: Bool
+
+    var id: URL { url }
 }
 
 @MainActor
@@ -110,24 +119,39 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         if let path = job(for: track)?.localPath, !path.isEmpty {
             try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
         }
-        try? FileManager.default.removeItem(at: exportURL(for: track))
+        try? FileManager.default.removeItem(at: exportURL(for: track, extension: "m4a"))
+        try? FileManager.default.removeItem(at: exportURL(for: track, extension: "flac"))
         store.removeDownload(track.id)
         message = "Removed the offline copy of \(track.title)."
     }
 
-    func prepareM4AExport(for track: CoreTrack) async throws -> URL {
+    func prepareShareableExport(for track: CoreTrack) async throws -> IOSOfflineExport {
         guard let localURL = localURL(for: track) else {
             throw IOSOfflineExportError.unavailable
         }
-        let destination = exportURL(for: track)
+        let asset = AVURLAsset(url: localURL)
+        let lossless = try await isLossless(asset: asset)
+        let destination = exportURL(for: track, extension: lossless ? "flac" : "m4a")
         if FileManager.default.fileExists(atPath: destination.path) {
-            return destination
+            return IOSOfflineExport(url: destination, isLossless: lossless)
         }
 
-        let asset = AVURLAsset(url: localURL)
         guard try await asset.load(.isExportable) else {
             throw IOSOfflineExportError.notExportable
         }
+        if lossless {
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try await Self.writeFLAC(from: localURL, to: destination)
+            return IOSOfflineExport(url: destination, isLossless: true)
+        }
+        try await writeM4A(asset: asset, track: track, destination: destination)
+        return IOSOfflineExport(url: destination, isLossless: false)
+    }
+
+    private func writeM4A(asset: AVAsset, track: CoreTrack, destination: URL) async throws {
         guard let exporter = AVAssetExportSession(
             asset: asset,
             presetName: AVAssetExportPresetAppleM4A
@@ -155,7 +179,6 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
                 exporter.error?.localizedDescription ?? "the media exporter stopped unexpectedly"
             )
         }
-        return destination
     }
 
     func dismissMessage() {
@@ -296,7 +319,7 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         return total
     }
 
-    private func exportURL(for track: CoreTrack) -> URL {
+    private func exportURL(for track: CoreTrack, extension fileExtension: String) -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let artist = safeFilenameComponent(track.artists.first?.name ?? "Unknown artist")
         let title = safeFilenameComponent(track.title)
@@ -304,7 +327,7 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         return support
             .appendingPathComponent("Colorful", isDirectory: true)
             .appendingPathComponent("Exports", isDirectory: true)
-            .appendingPathComponent("\(artist) - \(title) [\(identity)].m4a", isDirectory: false)
+            .appendingPathComponent("\(artist) - \(title) [\(identity)].\(fileExtension)", isDirectory: false)
     }
 
     private func safeFilenameComponent(_ value: String) -> String {
@@ -330,6 +353,162 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         item.value = value as NSString
         item.extendedLanguageTag = "und"
         return item
+    }
+
+    private func isLossless(asset: AVAsset) async throws -> Bool {
+        guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
+            throw IOSOfflineExportError.unavailable
+        }
+        let descriptions = try await audioTrack.load(.formatDescriptions)
+        return descriptions.contains { description in
+            let subtype = CMFormatDescriptionGetMediaSubType(description)
+            return subtype == kAudioFormatFLAC
+                || subtype == kAudioFormatAppleLossless
+                || subtype == kAudioFormatLinearPCM
+        }
+    }
+
+    private nonisolated static func writeFLAC(from source: URL, to destination: URL) async throws {
+        try? FileManager.default.removeItem(at: destination)
+        let asset = AVURLAsset(url: source)
+        guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
+            throw IOSOfflineExportError.unavailable
+        }
+        let descriptions = try await audioTrack.load(.formatDescriptions)
+        guard let description = descriptions.first,
+              let sourceFormat = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
+            throw IOSOfflineExportError.failed("the source audio format is unavailable")
+        }
+
+        let sampleRate = sourceFormat.mSampleRate > 0 ? sourceFormat.mSampleRate : 44_100
+        let channels = max(1, sourceFormat.mChannelsPerFrame)
+        let bytesPerFrame = channels * 4
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(
+            track: audioTrack,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: channels,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+            ]
+        )
+        output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else {
+            throw IOSOfflineExportError.failed("iOS could not decode the downloaded audio")
+        }
+        reader.add(output)
+
+        var destinationFormat = AudioStreamBasicDescription(
+            mSampleRate: sampleRate,
+            mFormatID: kAudioFormatFLAC,
+            mFormatFlags: 0,
+            mBytesPerPacket: 0,
+            mFramesPerPacket: 0,
+            mBytesPerFrame: 0,
+            mChannelsPerFrame: channels,
+            mBitsPerChannel: sourceFormat.mBitsPerChannel == 16 ? 16 : 24,
+            mReserved: 0
+        )
+        var formatSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        try checkAudioStatus(
+            AudioFormatGetProperty(
+                kAudioFormatProperty_FormatInfo,
+                0,
+                nil,
+                &formatSize,
+                &destinationFormat
+            ),
+            operation: "configure FLAC"
+        )
+
+        var outputFile: ExtAudioFileRef?
+        try checkAudioStatus(
+            ExtAudioFileCreateWithURL(
+                destination as CFURL,
+                kAudioFileFLACType,
+                &destinationFormat,
+                nil,
+                AudioFileFlags.eraseFile.rawValue,
+                &outputFile
+            ),
+            operation: "create FLAC"
+        )
+        guard let outputFile else {
+            throw IOSOfflineExportError.failed("iOS did not create the FLAC file")
+        }
+        defer { ExtAudioFileDispose(outputFile) }
+
+        var clientFormat = AudioStreamBasicDescription(
+            mSampleRate: sampleRate,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: bytesPerFrame,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: bytesPerFrame,
+            mChannelsPerFrame: channels,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+        try checkAudioStatus(
+            ExtAudioFileSetProperty(
+                outputFile,
+                kExtAudioFileProperty_ClientDataFormat,
+                UInt32(MemoryLayout<AudioStreamBasicDescription>.size),
+                &clientFormat
+            ),
+            operation: "configure FLAC encoder"
+        )
+        guard reader.startReading() else {
+            throw IOSOfflineExportError.failed(reader.error?.localizedDescription ?? "the decoder could not start")
+        }
+
+        while let sampleBuffer = output.copyNextSampleBuffer() {
+            try Task.checkCancellation()
+            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
+            let byteCount = CMBlockBufferGetDataLength(blockBuffer)
+            var data = Data(count: byteCount)
+            let copyStatus = data.withUnsafeMutableBytes { bytes in
+                guard let baseAddress = bytes.baseAddress else { return kCMBlockBufferBadCustomBlockSourceErr }
+                return CMBlockBufferCopyDataBytes(
+                    blockBuffer,
+                    atOffset: 0,
+                    dataLength: byteCount,
+                    destination: baseAddress
+                )
+            }
+            guard copyStatus == kCMBlockBufferNoErr else {
+                throw IOSOfflineExportError.failed("iOS could not read decoded audio")
+            }
+            let frameCount = UInt32(CMSampleBufferGetNumSamples(sampleBuffer))
+            try data.withUnsafeMutableBytes { bytes in
+                var audioBuffer = AudioBuffer(
+                    mNumberChannels: channels,
+                    mDataByteSize: UInt32(byteCount),
+                    mData: bytes.baseAddress
+                )
+                var bufferList = AudioBufferList(
+                    mNumberBuffers: 1,
+                    mBuffers: audioBuffer
+                )
+                try checkAudioStatus(
+                    ExtAudioFileWrite(outputFile, frameCount, &bufferList),
+                    operation: "write FLAC"
+                )
+            }
+        }
+        guard reader.status == .completed else {
+            throw IOSOfflineExportError.failed(reader.error?.localizedDescription ?? "the decoder stopped unexpectedly")
+        }
+    }
+
+    private nonisolated static func checkAudioStatus(_ status: OSStatus, operation: String) throws {
+        guard status == noErr else {
+            throw IOSOfflineExportError.failed("\(operation) failed (AudioToolbox \(status))")
+        }
     }
 }
 

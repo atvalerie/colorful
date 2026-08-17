@@ -23,9 +23,10 @@ surfaces.
 The first offline slice uses Apple's background asset-download session for
 TIDAL HLS, persists every job through the Rust download state machine, prefers
 completed local packages during playback, and exposes pause/resume, deletion,
-storage totals, album batching, and finalization to one tagged, shareable M4A
-file. Native standalone lossless FLAC finalization remains separate work; the
-UI never exposes Apple's internal HLS package as though it were a song file.
+storage totals, album batching, and one-action export/share. Lossless assets
+are decoded and finalized through AudioToolbox as standalone FLAC files; AAC
+assets are finalized as tagged M4A files. The UI never exposes Apple's internal
+HLS package as though it were a song file.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.
