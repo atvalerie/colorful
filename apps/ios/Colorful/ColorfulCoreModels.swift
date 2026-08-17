@@ -169,6 +169,17 @@ struct CoreDownloadJob: Codable, Identifiable, Hashable, Sendable {
     let updatedAtMs: Int64
 
     var id: CoreMediaID { mediaID }
+
+    enum CodingKeys: String, CodingKey {
+        case mediaID = "mediaId"
+        case state
+        case localPath
+        case bytesDownloaded
+        case bytesTotal
+        case sourceExpiresAtMs
+        case errorCode
+        case updatedAtMs
+    }
 }
 
 struct CoreDownloadItem: Identifiable, Hashable, Sendable {
