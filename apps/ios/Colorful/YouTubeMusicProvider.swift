@@ -17,6 +17,11 @@ struct YouTubeMusicSearchResults: Sendable {
     let tracks: [CoreTrack]
 }
 
+struct YouTubeMusicPlaybackSource: Sendable {
+    let url: URL
+    let httpHeaders: [String: String]
+}
+
 actor YouTubeMusicClient {
     static let shared = YouTubeMusicClient()
 
@@ -47,7 +52,7 @@ actor YouTubeMusicClient {
         return YouTubeMusicSearchResults(tracks: interleaved.filter { seen.insert($0.id).inserted })
     }
 
-    func playbackURL(for track: CoreTrack) async throws -> URL {
+    func playbackSource(for track: CoreTrack) async throws -> YouTubeMusicPlaybackSource {
         let videoID = track.id.providerID
         guard track.id.provider.lowercased() == "youtube",
               videoID.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil else {
@@ -75,7 +80,7 @@ actor YouTubeMusicClient {
             )
             let url = try directAudioURL(document)
             try await validateSource(url, userAgent: androidUserAgent, expectsManifest: false)
-            return url
+            return YouTubeMusicPlaybackSource(url: url, httpHeaders: ["User-Agent": androidUserAgent])
         } catch {
             firstFailure = error
         }
@@ -104,14 +109,14 @@ actor YouTubeMusicClient {
             )
             if let direct = try? directAudioURL(document) {
                 try await validateSource(direct, userAgent: iosUserAgent, expectsManifest: false)
-                return direct
+                return YouTubeMusicPlaybackSource(url: direct, httpHeaders: ["User-Agent": iosUserAgent])
             }
             let manifest = string(dictionary(document["streamingData"])["hlsManifestUrl"])
             guard let hls = URL(string: manifest), hls.scheme == "https" else {
                 throw YouTubeMusicClientError.invalidResponse("YouTube iOS player returned no usable audio source.")
             }
             try await validateSource(hls, userAgent: iosUserAgent, expectsManifest: true)
-            return hls
+            return YouTubeMusicPlaybackSource(url: hls, httpHeaders: ["User-Agent": iosUserAgent])
         } catch {
             // Current iOS identities may return metadata-only/SABR formats or
             // enforce a PO token. Continue through the public web/TV fallbacks.
@@ -137,7 +142,7 @@ actor YouTubeMusicClient {
                 throw YouTubeMusicClientError.invalidResponse("YouTube web player returned no HLS stream.")
             }
             try await validateSource(url, userAgent: safariUserAgent, expectsManifest: true)
-            return url
+            return YouTubeMusicPlaybackSource(url: url, httpHeaders: ["User-Agent": safariUserAgent])
         } catch {
             // Continue to the TV client, which often exposes direct formats when
             // the Android VR response is restricted or incomplete.
@@ -160,7 +165,7 @@ actor YouTubeMusicClient {
             )
             let url = try directAudioURL(document)
             try await validateSource(url, userAgent: tvUserAgent, expectsManifest: false)
-            return url
+            return YouTubeMusicPlaybackSource(url: url, httpHeaders: ["User-Agent": tvUserAgent])
         } catch {
             throw firstFailure ?? error
         }
@@ -221,12 +226,20 @@ actor YouTubeMusicClient {
         var request = URLRequest(url: url, timeoutInterval: 12)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if !expectsManifest { request.setValue("bytes=0-1", forHTTPHeaderField: "Range") }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw YouTubeMusicClientError.invalidResponse("YouTube Music returned an unusable audio source.")
         }
         if expectsManifest {
-            let prefix = String(data: data.prefix(256), encoding: .utf8) ?? ""
+            var prefixData = Data()
+            prefixData.reserveCapacity(256)
+            for try await byte in bytes {
+                prefixData.append(byte)
+                if prefixData.count == 256 { break }
+            }
+            let prefix = String(data: prefixData, encoding: .utf8) ?? ""
             guard prefix.contains("#EXTM3U") else {
                 throw YouTubeMusicClientError.invalidResponse("YouTube Music returned an invalid HLS stream.")
             }

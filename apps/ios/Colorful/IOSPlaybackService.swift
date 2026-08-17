@@ -16,6 +16,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var notificationTokens = [NSObjectProtocol]()
     private var timeObserver: Any?
     private var sourceTask: Task<Void, Never>?
+    private var itemReadinessTask: Task<Void, Never>?
+    private var itemStatusCancellable: AnyCancellable?
     private var activeTrackID: CoreMediaID?
     private var activeQueueEntryID: UInt64?
     private var installedTrackID: CoreMediaID?
@@ -87,6 +89,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         finishListeningSession()
         sourceTask?.cancel()
         sourceTask = nil
+        itemReadinessTask?.cancel()
+        itemReadinessTask = nil
+        itemStatusCancellable = nil
         artworkTask?.cancel()
         artworkTask = nil
         loadedArtworkURL = nil
@@ -164,6 +169,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     func retryCurrentTrack() {
         guard store.currentTrack != nil else { return }
         sourceTask?.cancel()
+        itemReadinessTask?.cancel()
+        itemStatusCancellable = nil
         activeTrackID = nil
         errorMessage = nil
         player.replaceCurrentItem(with: nil)
@@ -220,6 +227,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         activeTrackID = track.id
         activeQueueEntryID = queueEntryID
         sourceTask?.cancel()
+        itemReadinessTask?.cancel()
+        itemStatusCancellable = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         installedTrackID = nil
@@ -244,10 +253,13 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     return
                 }
                 let sourceURL: URL
+                var sourceHeaders = [String: String]()
                 if provider == "soundcloud" {
                     sourceURL = try await SoundCloudClient.shared.playbackURL(for: track)
                 } else if provider == "youtube" {
-                    sourceURL = try await YouTubeMusicClient.shared.playbackURL(for: track)
+                    let source = try await YouTubeMusicClient.shared.playbackSource(for: track)
+                    sourceURL = source.url
+                    sourceHeaders = source.httpHeaders
                 } else {
                     let resolution = try await account.playbackSource(for: track)
                     guard let resolvedURL = URL(string: resolution.source.uri) else {
@@ -262,7 +274,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     source: sourceURL,
                     track: track,
                     queueEntryID: queueEntryID,
-                    initialPositionMs: initialPositionMs
+                    initialPositionMs: initialPositionMs,
+                    httpHeaders: sourceHeaders
                 )
             } catch is CancellationError {
                 return
@@ -281,21 +294,81 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         source url: URL,
         track: CoreTrack,
         queueEntryID: UInt64?,
-        initialPositionMs: UInt64
+        initialPositionMs: UInt64,
+        httpHeaders: [String: String] = [:]
     ) {
         guard store.currentTrack?.id == track.id,
               store.currentQueueEntryID == queueEntryID else { return }
-        let item = AVPlayerItem(url: url)
+        let asset = httpHeaders.isEmpty
+            ? AVURLAsset(url: url)
+            : AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": httpHeaders])
+        let item = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: item)
         installedTrackID = track.id
         installedQueueEntryID = queueEntryID
         failedTrackID = nil
         failedQueueEntryID = nil
+        itemStatusCancellable = item.publisher(for: \.status)
+            .receive(on: RunLoop.main)
+            .sink { [weak self, weak item] status in
+                guard let self, let item,
+                      self.installedTrackID == track.id,
+                      self.installedQueueEntryID == queueEntryID else { return }
+                switch status {
+                case .readyToPlay:
+                    self.itemReadinessTask?.cancel()
+                    self.itemReadinessTask = nil
+                    self.isBuffering = false
+                    self.applyPlaybackState()
+                case .failed:
+                    self.failInstalledItem(
+                        track: track,
+                        queueEntryID: queueEntryID,
+                        message: item.error?.localizedDescription ?? "The audio stream could not be played by iOS."
+                    )
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+        itemReadinessTask = Task { [weak self, weak item] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled, let self, let item,
+                  item.status == .unknown,
+                  self.installedTrackID == track.id,
+                  self.installedQueueEntryID == queueEntryID else { return }
+            self.failInstalledItem(
+                track: track,
+                queueEntryID: queueEntryID,
+                message: "Playback timed out while opening the audio stream."
+            )
+        }
         if initialPositionMs > 0 {
             player.seek(to: CMTime(value: Int64(initialPositionMs), timescale: 1_000))
         }
         updateNowPlaying(for: track)
         applyPlaybackState()
+    }
+
+    private func failInstalledItem(
+        track: CoreTrack,
+        queueEntryID: UInt64?,
+        message: String
+    ) {
+        guard installedTrackID == track.id, installedQueueEntryID == queueEntryID else { return }
+        itemReadinessTask?.cancel()
+        itemReadinessTask = nil
+        itemStatusCancellable = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        installedTrackID = nil
+        installedQueueEntryID = nil
+        failedTrackID = track.id
+        failedQueueEntryID = queueEntryID
+        isBuffering = false
+        errorMessage = message
+        store.pause()
     }
 
     private func applyPlaybackState() {
