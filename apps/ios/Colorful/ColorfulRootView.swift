@@ -1967,9 +1967,15 @@ private struct LyricsSurface: View {
                                         .font(.title2.weight(.bold))
                                         .foregroundStyle(
                                             document.synced
-                                                ? ColorfulTheme.ink.opacity(line.id == activeLineID ? 1 : 0.42)
+                                                ? ColorfulTheme.ink.opacity(line.id == activeLineID ? 1 : 0.72)
                                                 : ColorfulTheme.ink.opacity(0.9)
                                         )
+                                        .visualEffect { content, proxy in
+                                            let midpoint = proxy.frame(in: .scrollView(axis: .vertical)).midY
+                                            let distanceFromCenter = abs(midpoint - 205)
+                                            let radialOpacity = max(0.16, 1 - distanceFromCenter / 245)
+                                            return content.opacity(radialOpacity)
+                                        }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .contentShape(Rectangle())
                                         .id(line.id)

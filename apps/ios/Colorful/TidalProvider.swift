@@ -458,9 +458,84 @@ actor TidalClient {
         guard !cleaned.isEmpty else {
             return TidalUserCatalogResolution(value: nil, refreshToken: refreshToken)
         }
-        return try await withUserCatalog(refreshToken: refreshToken) { token in
+        var currentRefreshToken = refreshToken
+        if let userResolution = try? await withUserCatalog(refreshToken: refreshToken, operation: { token in
             try await self.fetchLyrics(trackID: cleaned, countryCode: countryCode, token: token)
+        }) {
+            currentRefreshToken = userResolution.refreshToken
+            if userResolution.value != nil {
+                return userResolution
+            }
         }
+        let browseToken = try await browseAccessToken(force: false)
+        let catalogLyrics = try await fetchLyrics(
+            trackID: cleaned,
+            countryCode: countryCode,
+            token: browseToken
+        )
+        return TidalUserCatalogResolution(value: catalogLyrics, refreshToken: currentRefreshToken)
+    }
+
+    func lrclibLyrics(for track: CoreTrack) async -> TidalLyricsDocument? {
+        guard !track.title.isEmpty,
+              let primaryArtist = track.artists.first?.name,
+              !primaryArtist.isEmpty else { return nil }
+        var exactQuery = [
+            URLQueryItem(name: "track_name", value: track.title),
+            URLQueryItem(name: "artist_name", value: track.artistLabel),
+        ]
+        if let albumTitle = track.albumTitle, !albumTitle.isEmpty,
+           let durationMs = track.durationMs {
+            exactQuery.append(URLQueryItem(name: "album_name", value: albumTitle))
+            exactQuery.append(URLQueryItem(name: "duration", value: String((durationMs + 500) / 1_000)))
+        }
+
+        var candidates = [[String: Any]]()
+        if let exactURL = try? makeURL(base: "https://lrclib.net/api/", path: "get", query: exactQuery),
+           let response = try? await perform(exactURL),
+           (200..<300).contains(response.0),
+           let record = try? JSONSerialization.jsonObject(with: response.1) as? [String: Any] {
+            candidates.append(record)
+        }
+        let exactHasSyncedLyrics = candidates.contains {
+            firstNonblankString($0, keys: ["syncedLyrics"]) != nil
+        }
+        if !exactHasSyncedLyrics,
+           let searchURL = try? makeURL(
+               base: "https://lrclib.net/api/",
+               path: "search",
+               query: [
+                   URLQueryItem(name: "track_name", value: track.title),
+                   URLQueryItem(name: "artist_name", value: primaryArtist),
+               ]
+           ),
+           let response = try? await perform(searchURL),
+           (200..<300).contains(response.0),
+           let records = try? JSONSerialization.jsonObject(with: response.1) as? [[String: Any]] {
+            candidates.append(contentsOf: records)
+        }
+
+        let durationSeconds = track.durationMs.map { Double($0) / 1_000 }
+        let matchingDuration = candidates.filter { record in
+            guard let durationSeconds else { return true }
+            guard let candidateDuration = (record["duration"] as? NSNumber)?.doubleValue else { return false }
+            return abs(candidateDuration - durationSeconds) <= 3
+        }
+        let ranked = matchingDuration.isEmpty ? candidates : matchingDuration
+        guard let candidate = ranked.first(where: {
+            firstNonblankString($0, keys: ["syncedLyrics"]) != nil
+        }) ?? ranked.first else { return nil }
+        let syncedLines = firstNonblankString(candidate, keys: ["syncedLyrics"])
+            .map(parseSyncedLyrics) ?? []
+        let lines = syncedLines.isEmpty
+            ? plainLyricsLines(firstNonblankString(candidate, keys: ["plainLyrics"]))
+            : syncedLines
+        guard !lines.isEmpty else { return nil }
+        return TidalLyricsDocument(
+            sourceLabel: "LRCLIB",
+            synced: !syncedLines.isEmpty,
+            lines: lines
+        )
     }
 
     func playbackSource(
@@ -1491,15 +1566,29 @@ final class TidalAccountStore: ObservableObject {
         guard let refreshToken = try? keychain.readString(forKey: Self.refreshTokenKey) else {
             throw TidalClientError.invalidResponse("Connect TIDAL to load lyrics.")
         }
-        let resolution = try await client.lyrics(
-            trackID: track.id.providerID,
-            countryCode: countryCode,
-            refreshToken: refreshToken
-        )
-        if resolution.refreshToken != refreshToken {
-            try keychain.writeString(resolution.refreshToken, forKey: Self.refreshTokenKey)
+        var nativeError: Error?
+        do {
+            let resolution = try await client.lyrics(
+                trackID: track.id.providerID,
+                countryCode: countryCode,
+                refreshToken: refreshToken
+            )
+            if resolution.refreshToken != refreshToken {
+                try keychain.writeString(resolution.refreshToken, forKey: Self.refreshTokenKey)
+            }
+            if let lyrics = resolution.value {
+                return lyrics
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            nativeError = error
         }
-        return resolution.value
+        if let fallback = await client.lrclibLyrics(for: track) {
+            return fallback
+        }
+        if let nativeError { throw nativeError }
+        return nil
     }
 
     func playbackSource(for track: CoreTrack) async throws -> TidalPlaybackResolution {
