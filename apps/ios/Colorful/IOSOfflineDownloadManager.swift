@@ -643,21 +643,24 @@ extension IOSOfflineDownloadManager: AVAssetDownloadDelegate {
                 stagingError = error.localizedDescription
             }
         }
+        let retainedLocation = durableLocation
+        let retentionError = stagingError
+        let shouldFinalizeForContainer = Self.usesStandaloneContainerDownload
         Task { @MainActor [weak self] in
             guard let self, let id = mediaID(from: description),
                   let track = tracksByID[id] ?? store.downloadItems.first(where: { $0.id == id })?.track else { return }
-            if let stagingError {
+            if let retentionError {
                 persist(track: track, state: .failed, errorCode: "container_copy_failed", preserveProgress: false)
-                message = "Could not retain \(track.title) inside LiveContainer: \(stagingError)"
+                message = "Could not retain \(track.title) inside LiveContainer: \(retentionError)"
                 return
             }
-            completedLocations[taskID] = durableLocation
-            if Self.usesStandaloneContainerDownload {
+            completedLocations[taskID] = retainedLocation
+            if shouldFinalizeForContainer {
                 message = "Finalizing \(track.title)… Keep colorful open."
-                await finalizeContainerPackage(at: durableLocation, track: track)
+                await finalizeContainerPackage(at: retainedLocation, track: track)
             } else {
-                let size = sizeOfItem(at: durableLocation)
-                persist(track: track, state: .complete, localURL: durableLocation, size: size)
+                let size = sizeOfItem(at: retainedLocation)
+                persist(track: track, state: .complete, localURL: retainedLocation, size: size)
                 progressByTrack[id] = 1
                 message = "\(track.title) is ready offline."
             }
