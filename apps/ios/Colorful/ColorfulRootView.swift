@@ -758,31 +758,29 @@ private struct SearchView: View {
                 .background(ColorfulTheme.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: ColorfulTheme.cardRadius, style: .continuous))
 
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(SearchProviderFilter.allCases) { provider in
-                            Button {
-                                providerFilter = provider
-                            } label: {
-                                Text(provider.label)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(providerFilter == provider ? .black : ColorfulTheme.ink)
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 30)
-                                    .background(
-                                        providerFilter == provider
-                                            ? ColorfulTheme.accent
-                                            : ColorfulTheme.surfaceRaised,
-                                        in: Capsule()
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(providerFilter == provider ? .isSelected : [])
+                HStack(spacing: 8) {
+                    ForEach(SearchProviderFilter.allCases) { provider in
+                        Button {
+                            providerFilter = provider
+                        } label: {
+                            Text(provider.label)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(providerFilter == provider ? .black : ColorfulTheme.ink)
+                                .padding(.horizontal, 12)
+                                .frame(height: 30)
+                                .background(
+                                    providerFilter == provider
+                                        ? ColorfulTheme.accent
+                                        : ColorfulTheme.surfaceRaised,
+                                    in: Capsule()
+                                )
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(providerFilter == provider ? .isSelected : [])
                     }
+                    Spacer(minLength: 0)
                 }
-                .frame(height: 30)
-                .scrollIndicators(.hidden)
+                .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
 
                 if isSearching {
                     ProgressView("Searching…")
