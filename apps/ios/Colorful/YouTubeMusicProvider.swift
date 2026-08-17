@@ -165,8 +165,8 @@ actor YouTubeMusicClient {
         let streaming = dictionary(document["streamingData"])
         let formats = (array(streaming["adaptiveFormats"]) + array(streaming["formats"]))
             .compactMap { $0 as? [String: Any] }
-            .filter { isIOSPlayableAudio($0) && !string($0["url"]).isEmpty }
-            .sorted { formatScore($0) > formatScore($1) }
+            .filter { self.isIOSPlayableAudio($0) && !self.string($0["url"]).isEmpty }
+            .sorted { self.formatScore($0) > self.formatScore($1) }
         guard let selected = formats.first, let url = URL(string: string(selected["url"])) else {
             let ciphered = (array(streaming["adaptiveFormats"]) + array(streaming["formats"]))
                 .compactMap { $0 as? [String: Any] }
@@ -272,8 +272,8 @@ actor YouTubeMusicClient {
     private func mapTrack(_ renderer: [String: Any]) -> CoreTrack? {
         let titleRuns = columnRuns(renderer, index: 0)
         let metadataRuns = columnRuns(renderer, index: 1)
-        let id = titleRuns.lazy.map(videoID).first(where: { !$0.isEmpty })
-            ?? children(renderer, key: "watchEndpoint").lazy.map { string($0["videoId"]) }.first(where: { !$0.isEmpty })
+        let id = titleRuns.lazy.map(self.videoID).first(where: { !$0.isEmpty })
+            ?? children(renderer, key: "watchEndpoint").lazy.map { self.string($0["videoId"]) }.first(where: { !$0.isEmpty })
             ?? ""
         let title = titleRuns.map { string($0["text"]) }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty, !title.isEmpty else { return nil }
@@ -348,10 +348,10 @@ actor YouTubeMusicClient {
         string(dictionary(dictionary(run["navigationEndpoint"])["watchEndpoint"])["videoId"])
     }
     private func thumbnail(_ root: Any) -> String? {
-        let candidates = children(root, key: "thumbnail").flatMap { array($0["thumbnails"]) }
+        let candidates = children(root, key: "thumbnail").flatMap { self.array($0["thumbnails"]) }
             .compactMap { $0 as? [String: Any] }
             .filter { !string($0["url"]).isEmpty }
-            .sorted { number($0["width"]) * number($0["height"]) > number($1["width"]) * number($1["height"]) }
+            .sorted { self.number($0["width"]) * self.number($0["height"]) > self.number($1["width"]) * self.number($1["height"]) }
         let value = candidates.first.map { string($0["url"]) } ?? ""
         return value.isEmpty ? nil : (value.hasPrefix("//") ? "https:\(value)" : value)
     }
