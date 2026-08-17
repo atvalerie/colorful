@@ -19,7 +19,6 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var sourceTask: Task<Void, Never>?
     private var itemReadinessTask: Task<Void, Never>?
     private var itemStatusCancellable: AnyCancellable?
-    private var mediaResourceLoader: YouTubeMediaResourceLoader?
     private var activeTrackID: CoreMediaID?
     private var activeQueueEntryID: UInt64?
     private var installedTrackID: CoreMediaID?
@@ -94,8 +93,6 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         itemReadinessTask?.cancel()
         itemReadinessTask = nil
         itemStatusCancellable = nil
-        mediaResourceLoader?.invalidate()
-        mediaResourceLoader = nil
         artworkTask?.cancel()
         artworkTask = nil
         loadedArtworkURL = nil
@@ -175,8 +172,6 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         sourceTask?.cancel()
         itemReadinessTask?.cancel()
         itemStatusCancellable = nil
-        mediaResourceLoader?.invalidate()
-        mediaResourceLoader = nil
         activeTrackID = nil
         errorMessage = nil
         player.replaceCurrentItem(with: nil)
@@ -194,8 +189,6 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             sourceTask?.cancel()
             itemReadinessTask?.cancel()
             itemStatusCancellable = nil
-            mediaResourceLoader?.invalidate()
-            mediaResourceLoader = nil
             player.pause()
             player.replaceCurrentItem(with: nil)
             isBuffering = false
@@ -239,8 +232,6 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         sourceTask?.cancel()
         itemReadinessTask?.cancel()
         itemStatusCancellable = nil
-        mediaResourceLoader?.invalidate()
-        mediaResourceLoader = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         installedTrackID = nil
@@ -265,13 +256,18 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     return
                 }
                 let sourceURL: URL
-                var youtubeSource: YouTubeMusicPlaybackSource?
                 if provider == "soundcloud" {
                     sourceURL = try await SoundCloudClient.shared.playbackURL(for: track)
                 } else if provider == "youtube" {
                     let source = try await YouTubeMusicClient.shared.playbackSource(for: track)
-                    sourceURL = source.url
-                    youtubeSource = source
+                    if source.mimeType.lowercased().contains("mpegurl") {
+                        sourceURL = source.url
+                    } else {
+                        sourceURL = try await YouTubePlaybackCache.shared.localURL(
+                            for: source,
+                            videoID: track.id.providerID
+                        )
+                    }
                 } else {
                     let resolution = try await account.playbackSource(for: track)
                     guard let resolvedURL = URL(string: resolution.source.uri) else {
@@ -286,8 +282,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     source: sourceURL,
                     track: track,
                     queueEntryID: queueEntryID,
-                    initialPositionMs: initialPositionMs,
-                    youtubeSource: youtubeSource
+                    initialPositionMs: initialPositionMs
                 )
             } catch is CancellationError {
                 return
@@ -306,31 +301,11 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         source url: URL,
         track: CoreTrack,
         queueEntryID: UInt64?,
-        initialPositionMs: UInt64,
-        youtubeSource: YouTubeMusicPlaybackSource? = nil
+        initialPositionMs: UInt64
     ) {
         guard store.currentTrack?.id == track.id,
               store.currentQueueEntryID == queueEntryID else { return }
-        let asset: AVURLAsset
-        if let youtubeSource, let contentLength = youtubeSource.contentLength,
-           !youtubeSource.mimeType.lowercased().contains("mpegurl") {
-            let loader = YouTubeMediaResourceLoader(
-                upstreamURL: youtubeSource.url,
-                httpHeaders: youtubeSource.httpHeaders,
-                mimeType: youtubeSource.mimeType,
-                contentLength: contentLength
-            )
-            let proxyURL = URL(string: "colorful-youtube://media/audio.m4a")!
-            asset = AVURLAsset(url: proxyURL)
-            asset.resourceLoader.setDelegate(loader, queue: loader.delegateQueue)
-            mediaResourceLoader = loader
-        } else {
-            // Signed Google media URLs work without custom request headers. A
-            // custom resource loader handles direct byte-range media above;
-            // keep native HLS and all other providers on AVFoundation's path.
-            asset = AVURLAsset(url: url)
-        }
-        let item = AVPlayerItem(asset: asset)
+        let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         installedTrackID = track.id
         installedQueueEntryID = queueEntryID
@@ -388,8 +363,6 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         itemReadinessTask?.cancel()
         itemReadinessTask = nil
         itemStatusCancellable = nil
-        mediaResourceLoader?.invalidate()
-        mediaResourceLoader = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         installedTrackID = nil
@@ -919,5 +892,59 @@ private final class YouTubeMediaResourceLoader: NSObject, AVAssetResourceLoaderD
         } else {
             context.request.finishLoading(with: URLError(.networkConnectionLost))
         }
+    }
+}
+
+private actor YouTubePlaybackCache {
+    static let shared = YouTubePlaybackCache()
+
+    private let fileManager = FileManager.default
+
+    func localURL(for source: YouTubeMusicPlaybackSource, videoID: String) async throws -> URL {
+        let directory = try cacheDirectory()
+        let destination = directory.appending(path: "\(videoID).m4a")
+        if fileManager.fileExists(atPath: destination.path) { return destination }
+
+        var request = URLRequest(url: source.url, timeoutInterval: 30)
+        request.setValue("audio/mp4,audio/aac,audio/mpeg,*/*", forHTTPHeaderField: "Accept")
+        if let contentLength = source.contentLength, contentLength > 0 {
+            request.setValue("bytes=0-\(contentLength - 1)", forHTTPHeaderField: "Range")
+        }
+        for (name, value) in source.httpHeaders { request.setValue(value, forHTTPHeaderField: name) }
+        let (temporaryURL, response) = try await URLSession.shared.download(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw NSError(
+                domain: "YouTubePlaybackCache",
+                code: status,
+                userInfo: [NSLocalizedDescriptionKey: "YouTube media download returned HTTP \(status)."]
+            )
+        }
+        try Task.checkCancellation()
+        try fileManager.moveItem(at: temporaryURL, to: destination)
+        try? prune(directory: directory, keeping: 24)
+        return destination
+    }
+
+    private func cacheDirectory() throws -> URL {
+        let directory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appending(path: "YouTubePlayback", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func prune(directory: URL, keeping limit: Int) throws {
+        let files = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+        guard files.count > limit else { return }
+        let ordered = files.sorted {
+            let left = try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            let right = try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            return (left ?? .distantPast) < (right ?? .distantPast)
+        }
+        for file in ordered.prefix(files.count - limit) { try? fileManager.removeItem(at: file) }
     }
 }
