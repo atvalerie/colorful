@@ -240,48 +240,6 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         }
     }
 
-    private nonisolated static var usesStandaloneContainerDownload: Bool {
-        let bundlePath = Bundle.main.bundleURL.standardizedFileURL.path.lowercased()
-        return bundlePath.contains("/documents/applications/")
-            || bundlePath.contains("/applications/sh.valerie.colorful")
-    }
-
-    private nonisolated static func containerStagingURL(taskID: Int) -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Colorful", isDirectory: true)
-            .appendingPathComponent("OfflineStaging", isDirectory: true)
-            .appendingPathComponent("asset-\(taskID).movpkg", isDirectory: true)
-    }
-
-    private func finalizeContainerPackage(at packageURL: URL, track: CoreTrack) async {
-        defer { try? FileManager.default.removeItem(at: packageURL) }
-        do {
-            let asset = AVURLAsset(url: packageURL)
-            let lossless = try await isLossless(asset: asset)
-            let destination = exportURL(for: track, extension: lossless ? "flac" : "m4a")
-            try FileManager.default.createDirectory(
-                at: destination.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try? FileManager.default.removeItem(at: destination)
-            if lossless {
-                try await Self.writeFLAC(from: packageURL, to: destination)
-            } else {
-                guard try await asset.load(.isExportable) else {
-                    throw IOSOfflineExportError.notExportable
-                }
-                try await writeM4A(asset: asset, track: track, destination: destination)
-            }
-            let size = sizeOfItem(at: destination)
-            persist(track: track, state: .complete, localURL: destination, size: size)
-            progressByTrack[track.id] = 1
-            message = "\(track.title) is ready offline."
-        } catch {
-            persist(track: track, state: .failed, errorCode: "container_finalize_failed", preserveProgress: false)
-            message = "Could not finalize \(track.title): \(error.localizedDescription)"
-        }
-    }
-
     private func attachBackgroundTasksAndRestore() {
         session.getAllTasks { [weak self] tasks in
             Task { @MainActor [weak self] in
@@ -627,43 +585,17 @@ extension IOSOfflineDownloadManager: AVAssetDownloadDelegate {
     ) {
         let taskID = assetDownloadTask.taskIdentifier
         let description = assetDownloadTask.taskDescription
-        var durableLocation = location
-        var stagingError: String?
-        if Self.usesStandaloneContainerDownload {
-            let stagingURL = Self.containerStagingURL(taskID: taskID)
-            do {
-                try FileManager.default.createDirectory(
-                    at: stagingURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try? FileManager.default.removeItem(at: stagingURL)
-                try FileManager.default.copyItem(at: location, to: stagingURL)
-                durableLocation = stagingURL
-            } catch {
-                stagingError = error.localizedDescription
-            }
-        }
-        let retainedLocation = durableLocation
-        let retentionError = stagingError
-        let shouldFinalizeForContainer = Self.usesStandaloneContainerDownload
         Task { @MainActor [weak self] in
             guard let self, let id = mediaID(from: description),
                   let track = tracksByID[id] ?? store.downloadItems.first(where: { $0.id == id })?.track else { return }
-            if let retentionError {
-                persist(track: track, state: .failed, errorCode: "container_copy_failed", preserveProgress: false)
-                message = "Could not retain \(track.title) inside LiveContainer: \(retentionError)"
-                return
-            }
-            completedLocations[taskID] = retainedLocation
-            if shouldFinalizeForContainer {
-                message = "Finalizing \(track.title)… Keep colorful open."
-                await finalizeContainerPackage(at: retainedLocation, track: track)
-            } else {
-                let size = sizeOfItem(at: retainedLocation)
-                persist(track: track, state: .complete, localURL: retainedLocation, size: size)
-                progressByTrack[id] = 1
-                message = "\(track.title) is ready offline."
-            }
+            // AVAssetDownloadURLSession owns this package. Copying a .movpkg in
+            // LiveContainer can make its tracks unreadable to AVFoundation, so
+            // keep the managed location that is already known to be playable.
+            completedLocations[taskID] = location
+            let size = sizeOfItem(at: location)
+            persist(track: track, state: .complete, localURL: location, size: size)
+            progressByTrack[id] = 1
+            message = "\(track.title) is ready offline."
         }
     }
 

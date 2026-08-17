@@ -23,17 +23,17 @@ surfaces.
 The first offline slice uses Apple's background asset-download session for
 TIDAL HLS, persists every job through the Rust download state machine, prefers
 completed local packages during playback, and exposes pause/resume, deletion,
-storage totals, album batching, and one-action export/share. Lossless assets
-are decoded and finalized through AudioToolbox as standalone FLAC files; AAC
-assets are finalized as tagged M4A files. The UI never exposes Apple's internal
-HLS package as though it were a song file. Media paths are stored relative to
+storage totals, album batching, and one-action export/share. When AVFoundation
+can expose the downloaded audio, lossless assets export through AudioToolbox as
+standalone FLAC files and AAC assets export as tagged M4A files. The UI never
+exposes Apple's internal HLS package as though it were a song file. Media paths are stored relative to
 the application container and legacy absolute paths are rebased at lookup so
 sideloading-container UUID changes do not orphan otherwise valid downloads.
-LiveContainer is detected from its `Documents/Applications` bundle mapping.
-The app copies the daemon-owned media package into Colorful storage inside the
-asset completion callback, while it is still reachable, then finalizes that
-copy as a standalone FLAC/M4A while the app remains open. Native installations
-retain the background package directly.
+LiveContainer also retains Apple's managed background package directly.
+Copying a completed `.movpkg` out of that location can leave AVFoundation
+unable to resolve its audio tracks, so export failure never invalidates a
+playable offline download. Standalone export from LiveContainer remains a
+separate compatibility limitation.
 
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.

@@ -17,7 +17,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Listening history | Globally identified local events and provider aggregates | Implemented from qualified native audible time; physical-device lifecycle verification remains | P0 |
 | Playback | libmpv, prepared-next, gapless, EQ/normalization | AVFoundation native playback foundation; harden buffering, transitions, and physical-device behavior | P0 |
 | System media controls | Linux MPRIS; Windows SMTC | Now Playing + Remote Command Center | P0 |
-| Offline downloads | Resumable desktop transfers and standalone `.mka` files | Native background HLS packages plus a foreground standalone FLAC/M4A path for LiveContainer, durable Rust job state, offline playback, deletion, and one-action export implemented; physical-device lifecycle and exported metadata validation remain | P1 |
+| Offline downloads | Resumable desktop transfers and standalone `.mka` files | Native background HLS packages, durable Rust job state, offline playback, deletion, and one-action export implemented; LiveContainer package export, physical-device lifecycle, and exported metadata validation remain | P1 |
 | Lyrics | Provider-first, synced, cached, LRCLIB fallback | Native TIDAL user/catalog lookup plus synced/plain LRCLIB fallback implemented; caching remains | P1 |
 | Appearance | Accent mode, fixed accent, low-data mode, text scale | Dynamic Type plus Colorful accent/low-data policies | P1 |
 | Detail behavior | Linux optional actions, fallbacks, metadata, toasts, and edge-case handling | Preserve these details in native presentations; document intentional iOS divergences | P0 |
