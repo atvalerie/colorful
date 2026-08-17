@@ -103,6 +103,7 @@ struct ColorfulRootView: View {
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+                .presentationContentInteraction(.resizes)
             }
         }
     }

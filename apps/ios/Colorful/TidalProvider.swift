@@ -866,7 +866,9 @@ actor TidalClient {
         let primaryObject = document["data"] as? [String: Any]
         let primary = (document["data"] as? [[String: Any]]) ?? primaryObject.map { [$0] } ?? []
         let included = document["included"] as? [[String: Any]] ?? []
-        guard let resource = (primary + included).first(where: { ($0["type"] as? String) == "lyrics" }),
+        guard let resource = (primary + included).last(where: {
+            ($0["type"] as? String) == "lyrics" && $0["attributes"] is [String: Any]
+        }),
               let attributes = resource["attributes"] as? [String: Any] else { return nil }
         let syncedText = firstNonblankString(
             attributes,
