@@ -90,7 +90,7 @@ actor YouTubeMusicClient {
             let probedLength = try await validateSource(source.url, userAgent: androidUserAgent, expectsManifest: false)
             return YouTubeMusicPlaybackSource(
                 url: source.url, httpHeaders: ["User-Agent": androidUserAgent],
-                mimeType: source.mimeType, contentLength: source.contentLength ?? probedLength
+                mimeType: source.mimeType, contentLength: probedLength ?? source.contentLength
             )
         } catch {
             firstFailure = error
@@ -122,7 +122,7 @@ actor YouTubeMusicClient {
                 let probedLength = try await validateSource(direct.url, userAgent: iosUserAgent, expectsManifest: false)
                 return YouTubeMusicPlaybackSource(
                     url: direct.url, httpHeaders: ["User-Agent": iosUserAgent],
-                    mimeType: direct.mimeType, contentLength: direct.contentLength ?? probedLength
+                    mimeType: direct.mimeType, contentLength: probedLength ?? direct.contentLength
                 )
             }
             let manifest = string(dictionary(document["streamingData"])["hlsManifestUrl"])
@@ -187,7 +187,7 @@ actor YouTubeMusicClient {
             let probedLength = try await validateSource(source.url, userAgent: tvUserAgent, expectsManifest: false)
             return YouTubeMusicPlaybackSource(
                 url: source.url, httpHeaders: ["User-Agent": tvUserAgent],
-                mimeType: source.mimeType, contentLength: source.contentLength ?? probedLength
+                mimeType: source.mimeType, contentLength: probedLength ?? source.contentLength
             )
         } catch {
             throw firstFailure ?? error
@@ -253,7 +253,9 @@ actor YouTubeMusicClient {
     private func validateSource(_ url: URL, userAgent: String, expectsManifest: Bool) async throws -> Int64? {
         var request = URLRequest(url: url, timeoutInterval: 12)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        if !expectsManifest { request.setValue("bytes=0-1", forHTTPHeaderField: "Range") }
+        // Validate a representative media chunk. Some GVS enforcement permits
+        // a tiny metadata probe but rejects the larger ranges AVPlayer needs.
+        if !expectsManifest { request.setValue("bytes=0-65535", forHTTPHeaderField: "Range") }
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(for: request)

@@ -755,10 +755,12 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 private final class YouTubeMediaResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate {
     final class LoadingContext {
         let request: AVAssetResourceLoadingRequest
+        let requestedRange: String
         var remainingBytes: Int64
 
-        init(request: AVAssetResourceLoadingRequest, remainingBytes: Int64) {
+        init(request: AVAssetResourceLoadingRequest, requestedRange: String, remainingBytes: Int64) {
             self.request = request
+            self.requestedRange = requestedRange
             self.remainingBytes = remainingBytes
         }
     }
@@ -828,14 +830,13 @@ private final class YouTubeMediaResourceLoader: NSObject, AVAssetResourceLoaderD
         }
 
         var request = URLRequest(url: upstreamURL, timeoutInterval: 20)
-        request.setValue(
-            "bytes=\(requestedOffset)-\(requestedOffset + max(1, requestedLength) - 1)",
-            forHTTPHeaderField: "Range"
-        )
+        let requestedRange = "bytes=\(requestedOffset)-\(requestedOffset + max(1, requestedLength) - 1)"
+        request.setValue(requestedRange, forHTTPHeaderField: "Range")
         for (name, value) in httpHeaders { request.setValue(value, forHTTPHeaderField: name) }
         let task = session.dataTask(with: request)
         contexts[task.taskIdentifier] = LoadingContext(
             request: loadingRequest,
+            requestedRange: requestedRange,
             remainingBytes: dataRequest == nil ? 0 : requestedLength
         )
         task.resume()
@@ -865,7 +866,13 @@ private final class YouTubeMediaResourceLoader: NSObject, AVAssetResourceLoaderD
         }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 || http.statusCode == 206 else {
             contexts.removeValue(forKey: dataTask.taskIdentifier)
-            context.request.finishLoading(with: URLError(.badServerResponse))
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            context.request.finishLoading(with: NSError(
+                domain: "YouTubeMediaResourceLoader",
+                code: status,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "YouTube media returned HTTP \(status) for \(context.requestedRange)."]
+            ))
             completionHandler(.cancel)
             return
         }
