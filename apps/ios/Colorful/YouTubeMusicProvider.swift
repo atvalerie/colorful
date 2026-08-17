@@ -81,6 +81,38 @@ actor YouTubeMusicClient {
             firstFailure = error
         }
 
+        let iosVersion = "21.26.4"
+        let iosUserAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)"
+        do {
+            let document = try await playerDocument(
+                videoID: videoID, visitor: bootstrap.visitor, timestamp: bootstrap.timestamp,
+                client: [
+                    "clientName": "IOS", "clientVersion": iosVersion,
+                    "deviceMake": "Apple", "deviceModel": "iPhone16,2",
+                    "userAgent": iosUserAgent, "osName": "iPhone", "osVersion": "18.3.2.22D82",
+                    "hl": "en", "gl": "US", "visitorData": bootstrap.visitor,
+                ],
+                headers: [
+                    "User-Agent": iosUserAgent,
+                    "X-Youtube-Client-Name": "5",
+                    "X-Youtube-Client-Version": iosVersion,
+                ]
+            )
+            if let direct = try? directAudioURL(document) {
+                try await validateSource(direct, userAgent: iosUserAgent, expectsManifest: false)
+                return direct
+            }
+            let manifest = string(dictionary(document["streamingData"])["hlsManifestUrl"])
+            guard let hls = URL(string: manifest), hls.scheme == "https" else {
+                throw YouTubeMusicClientError.invalidResponse("YouTube iOS player returned no usable audio source.")
+            }
+            try await validateSource(hls, userAgent: iosUserAgent, expectsManifest: true)
+            return hls
+        } catch {
+            // Current iOS identities may return metadata-only/SABR formats or
+            // enforce a PO token. Continue through the public web/TV fallbacks.
+        }
+
         let safariVersion = "2.20260708.00.00"
         let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
         do {

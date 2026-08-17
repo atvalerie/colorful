@@ -29,8 +29,8 @@ queueing or playback. Account import, personalized shelves, and downloads
 remain follow-up slices.
 Public YouTube Music song/video search and native playback are available in
 the same mixed search surface. Playback attempts the desktop-tested public
-Android VR direct-audio strategy, validates the returned source, then falls
-back to Safari HLS and the downgraded TV client. iOS selects AAC/MP4-compatible
+Android VR direct-audio strategy, validates the returned source, then tries
+native iOS, Safari HLS, and downgraded TV client identities. iOS selects AAC/MP4-compatible
 direct formats rather than WebM/Opus. YouTube artist, album, account, library,
 and authenticated deciphering surfaces remain follow-up work.
 

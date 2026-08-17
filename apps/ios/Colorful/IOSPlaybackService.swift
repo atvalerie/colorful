@@ -187,7 +187,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         }
 
         let provider = track.id.provider.lowercased()
-        guard provider == "tidal" || provider == "soundcloud" else {
+        guard provider == "tidal" || provider == "soundcloud" || provider == "youtube" else {
             player.pause()
             isBuffering = false
             errorMessage = "This provider is not available for iOS playback yet."
