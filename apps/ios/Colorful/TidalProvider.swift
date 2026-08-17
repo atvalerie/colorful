@@ -257,6 +257,18 @@ struct TidalPlaybackResolution: Sendable {
     let refreshToken: String
 }
 
+struct TidalLyricLine: Identifiable, Hashable, Sendable {
+    let id: Int
+    let startMs: UInt64?
+    let text: String
+}
+
+struct TidalLyricsDocument: Sendable {
+    let sourceLabel: String
+    let synced: Bool
+    let lines: [TidalLyricLine]
+}
+
 actor TidalClient {
     private let configuration: TidalConfiguration
     private var browseAccessToken: String?
@@ -434,6 +446,20 @@ actor TidalClient {
                 return try await fetchArtistPage(artistID: cleaned, countryCode: countryCode, token: token)
             }
             throw error
+        }
+    }
+
+    func lyrics(
+        trackID: String,
+        countryCode: String,
+        refreshToken: String
+    ) async throws -> TidalUserCatalogResolution<TidalLyricsDocument?> {
+        let cleaned = trackID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else {
+            return TidalUserCatalogResolution(value: nil, refreshToken: refreshToken)
+        }
+        return try await withUserCatalog(refreshToken: refreshToken) { token in
+            try await self.fetchLyrics(trackID: cleaned, countryCode: countryCode, token: token)
         }
     }
 
@@ -740,6 +766,94 @@ actor TidalClient {
             tracksDocument: document,
             albums: albums
         )
+    }
+
+    private func fetchLyrics(
+        trackID: String,
+        countryCode: String,
+        token: String
+    ) async throws -> TidalLyricsDocument? {
+        let country = countryCode.uppercased().range(of: "^[A-Z]{2}$", options: .regularExpression) != nil
+            ? countryCode.uppercased() : configuration.countryCode
+        let encodedID = trackID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trackID
+        let url = try makeURL(
+            base: configuration.apiBaseURL,
+            path: "tracks/\(encodedID)/relationships/lyrics",
+            query: [
+                URLQueryItem(name: "include", value: "lyrics"),
+                URLQueryItem(name: "countryCode", value: country),
+            ]
+        )
+        let document = try object(from: await request(url, headers: [
+            "Authorization": "Bearer \(token)",
+            "Accept": "application/vnd.api+json",
+        ]))
+        let primary = document["data"] as? [[String: Any]] ?? []
+        let included = document["included"] as? [[String: Any]] ?? []
+        guard let resource = (primary + included).first(where: { ($0["type"] as? String) == "lyrics" }),
+              let attributes = resource["attributes"] as? [String: Any] else { return nil }
+        let syncedText = firstNonblankString(
+            attributes,
+            keys: ["subtitles", "syncLyrics", "lrc", "lrcText"]
+        )
+        let plainText = firstNonblankString(
+            attributes,
+            keys: ["text", "lyrics", "body", "content"]
+        )
+        let syncedLines = syncedText.map(parseSyncedLyrics) ?? []
+        let lines = syncedLines.isEmpty ? plainLyricsLines(plainText) : syncedLines
+        guard !lines.isEmpty else { return nil }
+        return TidalLyricsDocument(sourceLabel: "TIDAL", synced: !syncedLines.isEmpty, lines: lines)
+    }
+
+    private func firstNonblankString(_ object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = object[key] as? String,
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
+    }
+
+    private func parseSyncedLyrics(_ value: String) -> [TidalLyricLine] {
+        let pattern = #"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        var parsed = [(UInt64, String)]()
+        for rawLine in value.components(separatedBy: .newlines) {
+            let range = NSRange(rawLine.startIndex..<rawLine.endIndex, in: rawLine)
+            let matches = expression.matches(in: rawLine, range: range)
+            guard !matches.isEmpty else { continue }
+            let text = expression.stringByReplacingMatches(in: rawLine, range: range, withTemplate: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            for match in matches {
+                guard let minuteRange = Range(match.range(at: 1), in: rawLine),
+                      let secondRange = Range(match.range(at: 2), in: rawLine),
+                      let minutes = UInt64(rawLine[minuteRange]),
+                      let seconds = UInt64(rawLine[secondRange]),
+                      seconds < 60 else { continue }
+                var milliseconds: UInt64 = 0
+                if let fractionRange = Range(match.range(at: 3), in: rawLine),
+                   let fraction = UInt64(rawLine[fractionRange]) {
+                    switch rawLine[fractionRange].count {
+                    case 1: milliseconds = fraction * 100
+                    case 2: milliseconds = fraction * 10
+                    default: milliseconds = fraction
+                    }
+                }
+                parsed.append(((minutes * 60 + seconds) * 1_000 + milliseconds, text))
+            }
+        }
+        return parsed.sorted { $0.0 < $1.0 }.enumerated().map { index, item in
+            TidalLyricLine(id: index, startMs: item.0, text: item.1)
+        }
+    }
+
+    private func plainLyricsLines(_ value: String?) -> [TidalLyricLine] {
+        guard let value else { return [] }
+        return value.components(separatedBy: .newlines).enumerated().map { index, text in
+            TidalLyricLine(id: index, startMs: nil, text: text.trimmingCharacters(in: .whitespaces))
+        }
     }
 
     private func fetchRecommendations(
@@ -1369,6 +1483,22 @@ final class TidalAccountStore: ObservableObject {
             artworkURL: page.artworkURL,
             tracks: tracks
         )
+    }
+
+    func loadLyrics(for track: CoreTrack) async throws -> TidalLyricsDocument? {
+        guard track.id.provider.lowercased() == "tidal" else { return nil }
+        guard let refreshToken = try? keychain.readString(forKey: Self.refreshTokenKey) else {
+            throw TidalClientError.invalidResponse("Connect TIDAL to load lyrics.")
+        }
+        let resolution = try await client.lyrics(
+            trackID: track.id.providerID,
+            countryCode: countryCode,
+            refreshToken: refreshToken
+        )
+        if resolution.refreshToken != refreshToken {
+            try keychain.writeString(resolution.refreshToken, forKey: Self.refreshTokenKey)
+        }
+        return resolution.value
     }
 
     func playbackSource(for track: CoreTrack) async throws -> TidalPlaybackResolution {

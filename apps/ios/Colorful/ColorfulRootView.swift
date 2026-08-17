@@ -1554,6 +1554,11 @@ private struct FullPlayer: View {
     @State private var isScrubbing = false
     @State private var isShowingQueue = false
     @State private var artistDestination: ArtistDestination?
+    @State private var isShowingLyrics = false
+    @State private var lyrics: TidalLyricsDocument?
+    @State private var lyricsLoading = false
+    @State private var lyricsError: String?
+    @State private var lyricsTrackID: CoreMediaID?
 
     init(
         store: PlaybackStore,
@@ -1614,8 +1619,25 @@ private struct FullPlayer: View {
     var body: some View {
         ZStack {
             ColorfulArtworkBackground(palette: paletteLoader.palette, image: paletteLoader.image)
+            if isShowingLyrics {
+                Color.black.opacity(0.18).ignoresSafeArea()
+            }
             ScrollView {
                 VStack(spacing: 22) {
+                    if isShowingLyrics {
+                        LyricsSurface(
+                            document: lyrics,
+                            isLoading: lyricsLoading,
+                            errorMessage: lyricsError,
+                            positionMs: positionMs,
+                            accent: paletteLoader.palette.primaryColor,
+                            onSeek: onSeek,
+                            onRetry: { Task { await loadLyrics(force: true) } }
+                        )
+                        .frame(height: 450)
+                        .padding(.top, 72)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    } else {
                         ColorfulAlbumArt(
                             title: track.title,
                             accent: track.accent,
@@ -1638,6 +1660,8 @@ private struct FullPlayer: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
 
                         VStack(spacing: 2) {
                             Slider(
@@ -1719,6 +1743,17 @@ private struct FullPlayer: View {
 
                         HStack {
                             utilityButton(
+                                symbol: isShowingLyrics ? "quote.bubble.fill" : "quote.bubble",
+                                label: isShowingLyrics ? "Hide lyrics" : "Show lyrics",
+                                active: isShowingLyrics,
+                                action: {
+                                    withAnimation(.easeInOut(duration: 0.24)) {
+                                        isShowingLyrics.toggle()
+                                    }
+                                }
+                            )
+                            Spacer()
+                            utilityButton(
                                 symbol: shuffleEnabled ? "shuffle.circle.fill" : "shuffle",
                                 label: shuffleEnabled ? "Disable shuffle" : "Enable shuffle",
                                 active: shuffleEnabled,
@@ -1752,6 +1787,10 @@ private struct FullPlayer: View {
         .task(id: track.artwork?.url) {
             paletteLoader.load(for: track.artwork?.url)
         }
+        .task(id: isShowingLyrics ? track.id : nil) {
+            guard isShowingLyrics else { return }
+            await loadLyrics(force: false)
+        }
         .sheet(isPresented: $isShowingQueue) {
             QueueView(store: store)
                 .presentationDetents([.large])
@@ -1766,6 +1805,29 @@ private struct FullPlayer: View {
             .presentationDragIndicator(.visible)
             .presentationBackground(ColorfulTheme.background)
         }
+    }
+
+    private func loadLyrics(force: Bool) async {
+        guard force || lyricsTrackID != track.id || lyrics == nil else { return }
+        lyricsTrackID = track.id
+        lyrics = nil
+        lyricsLoading = true
+        lyricsError = nil
+        do {
+            let loaded = try await account.loadLyrics(for: track)
+            guard !Task.isCancelled else { return }
+            lyrics = loaded
+            if loaded == nil {
+                lyricsError = "No lyrics were found for this track."
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            lyrics = nil
+            lyricsError = error.localizedDescription
+        }
+        lyricsLoading = false
     }
 
     @ViewBuilder
@@ -1853,6 +1915,125 @@ private struct FullPlayer: View {
         }
         .foregroundStyle(active ? paletteLoader.palette.primaryColor : ColorfulTheme.ink.opacity(0.72))
         .accessibilityLabel(label)
+    }
+}
+
+private struct LyricsSurface: View {
+    let document: TidalLyricsDocument?
+    let isLoading: Bool
+    let errorMessage: String?
+    let positionMs: UInt64
+    let accent: Color
+    let onSeek: (UInt64) -> Void
+    let onRetry: () -> Void
+    @State private var followsPlayback = true
+
+    private var activeLineID: Int? {
+        guard let document, document.synced else { return nil }
+        return document.lines.last(where: { line in
+            guard let startMs = line.startMs else { return false }
+            return startMs <= positionMs
+        })?.id
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .tint(ColorfulTheme.ink)
+                    Text("Finding lyrics…")
+                        .font(.subheadline)
+                        .foregroundStyle(ColorfulTheme.ink.opacity(0.68))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let document {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Lyrics")
+                            .font(.headline)
+                        Spacer()
+                        Text(document.synced ? "\(document.sourceLabel) · Synced" : document.sourceLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(ColorfulTheme.ink.opacity(0.58))
+                    }
+                    .foregroundStyle(ColorfulTheme.ink)
+
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 18) {
+                                ForEach(document.lines) { line in
+                                    Text(line.text.isEmpty ? " " : line.text)
+                                        .font(.title2.weight(.bold))
+                                        .foregroundStyle(
+                                            document.synced
+                                                ? ColorfulTheme.ink.opacity(line.id == activeLineID ? 1 : 0.42)
+                                                : ColorfulTheme.ink.opacity(0.9)
+                                        )
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
+                                        .id(line.id)
+                                        .onTapGesture {
+                                            guard let startMs = line.startMs else { return }
+                                            followsPlayback = true
+                                            onSeek(startMs)
+                                        }
+                                        .accessibilityValue(line.id == activeLineID ? "Current line" : "")
+                                }
+                            }
+                            .padding(.vertical, 180)
+                        }
+                        .scrollIndicators(.hidden)
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 8).onChanged { _ in
+                                followsPlayback = false
+                            }
+                        )
+                        .onChange(of: activeLineID) { _, lineID in
+                            guard followsPlayback, let lineID else { return }
+                            withAnimation(.easeInOut(duration: 0.34)) {
+                                proxy.scrollTo(lineID, anchor: .center)
+                            }
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            if document.synced, !followsPlayback {
+                                Button {
+                                    followsPlayback = true
+                                    if let activeLineID {
+                                        withAnimation(.easeInOut(duration: 0.28)) {
+                                            proxy.scrollTo(activeLineID, anchor: .center)
+                                        }
+                                    }
+                                } label: {
+                                    Label("Follow", systemImage: "location.fill")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(.regularMaterial, in: Capsule())
+                                }
+                                .foregroundStyle(accent)
+                            }
+                        }
+                    }
+                }
+            } else {
+                ContentUnavailableView {
+                    Label("Lyrics unavailable", systemImage: "quote.bubble")
+                } description: {
+                    Text(errorMessage ?? "No lyrics were found for this track.")
+                } actions: {
+                    Button("Try again", action: onRetry)
+                }
+                .foregroundStyle(ColorfulTheme.ink)
+            }
+        }
+        .padding(18)
+        .background(.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(.white.opacity(0.08), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 

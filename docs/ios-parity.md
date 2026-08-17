@@ -18,7 +18,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Playback | libmpv, prepared-next, gapless, EQ/normalization | AVFoundation native playback foundation; harden buffering, transitions, and physical-device behavior | P0 |
 | System media controls | Linux MPRIS; Windows SMTC | Now Playing + Remote Command Center | P0 |
 | Offline downloads | Resumable desktop transfers and standalone `.mka` files | Background-capable resumable transfers | P1 |
-| Lyrics | Provider-first, synced, cached, LRCLIB fallback | Cached provider-first lyrics | P1 |
+| Lyrics | Provider-first, synced, cached, LRCLIB fallback | Native TIDAL synced/plain full-player mode implemented; caching and fallback remain | P1 |
 | Appearance | Accent mode, fixed accent, low-data mode, text scale | Dynamic Type plus Colorful accent/low-data policies | P1 |
 | Detail behavior | Linux optional actions, fallbacks, metadata, toasts, and edge-case handling | Preserve these details in native presentations; document intentional iOS divergences | P0 |
 | EQ/normalization | Desktop contract; Android incomplete | Add after stable playback unless daily use requires it | P2 |

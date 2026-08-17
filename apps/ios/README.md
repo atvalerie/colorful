@@ -3,7 +3,8 @@
 **Status:** The SwiftUI shell, Rust-backed snapshot, queue/library projection,
 TIDAL device authorization, Keychain refresh-token storage, grouped search,
 album/artist/playlist pages, personalized recommendation shelves, qualified
-listening history, and native TIDAL playback are connected. Device
+listening history, in-player synced/plain TIDAL lyrics, and native TIDAL
+playback are connected. Device
 authorization persists across the Safari handoff, pauses safely in the
 background, and resumes when the app is active. Native audio output, Now
 Playing metadata, remote controls, lifecycle reconciliation, and artwork
