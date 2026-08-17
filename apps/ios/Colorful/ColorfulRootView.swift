@@ -289,7 +289,11 @@ private struct HomeView: View {
         .background(ColorfulTheme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
-            HomeHeader(greeting: greeting) {
+            RootTabHeader(
+                title: greeting,
+                actionSymbol: "magnifyingglass",
+                actionLabel: "Search"
+            ) {
                 presentsPlayerAfterSearch = false
                 isShowingSearch = true
             }
@@ -484,9 +488,11 @@ private struct HomeArtistCard: View {
     }
 }
 
-private struct HomeHeader: View {
-    let greeting: String
-    let onSearch: () -> Void
+private struct RootTabHeader: View {
+    let title: String
+    var actionSymbol: String? = nil
+    var actionLabel: String? = nil
+    var action: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -495,25 +501,28 @@ private struct HomeHeader: View {
                     .font(.system(.caption2, design: .rounded).weight(.bold))
                     .foregroundStyle(ColorfulTheme.accent)
                     .textCase(.uppercase)
-                Text(greeting)
+                Text(title)
                     .font(.system(.headline, design: .rounded).weight(.black))
                     .foregroundStyle(ColorfulTheme.ink)
+                    .lineLimit(1)
             }
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 0)
 
-            Button(action: onSearch) {
-                Image(systemName: "magnifyingglass")
-                    .font(.headline)
-                    .foregroundStyle(ColorfulTheme.ink)
-                    .frame(width: 36, height: 36)
+            if let actionSymbol, let actionLabel, let action {
+                Button(action: action) {
+                    Image(systemName: actionSymbol)
+                        .font(.headline)
+                        .foregroundStyle(ColorfulTheme.ink)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .background(.ultraThinMaterial, in: Circle())
+                .accessibilityLabel(actionLabel)
             }
-            .buttonStyle(.plain)
-            .background(.ultraThinMaterial, in: Circle())
-            .accessibilityLabel("Search")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -1269,13 +1278,15 @@ private struct LibraryView: View {
         }
         .scrollContentBackground(.hidden)
         .background(ColorfulTheme.background.ignoresSafeArea())
-        .navigationTitle("Library")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("New playlist", systemImage: "plus") {
-                    playlistName = ""
-                    isCreatingPlaylist = true
-                }
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            RootTabHeader(
+                title: "Library",
+                actionSymbol: "plus",
+                actionLabel: "New playlist"
+            ) {
+                playlistName = ""
+                isCreatingPlaylist = true
             }
         }
         .alert("New playlist", isPresented: $isCreatingPlaylist) {
@@ -1474,7 +1485,10 @@ private struct OfflineView: View {
             }
         }
         .background(ColorfulTheme.background.ignoresSafeArea())
-        .navigationTitle("Offline")
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            RootTabHeader(title: "Offline")
+        }
         .sheet(item: $actionCandidate) { track in
             OfflineActionsSheet(track: track)
                 .environmentObject(downloads)
@@ -1747,7 +1761,10 @@ private struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(ColorfulTheme.background.ignoresSafeArea())
-        .navigationTitle("Settings")
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            RootTabHeader(title: "Settings")
+        }
     }
 }
 
