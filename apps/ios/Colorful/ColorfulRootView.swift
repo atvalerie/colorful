@@ -2025,14 +2025,12 @@ private struct LyricsSurface: View {
                     Button("Try again", action: onRetry)
                 }
                 .foregroundStyle(ColorfulTheme.ink)
+                .padding(20)
+                .background(.black.opacity(0.26), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: .black.opacity(0.42), radius: 26, y: 14)
             }
         }
-        .padding(18)
-        .background(.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.08), lineWidth: 1)
-        }
+        .padding(.horizontal, 4)
         .accessibilityElement(children: .contain)
     }
 }
