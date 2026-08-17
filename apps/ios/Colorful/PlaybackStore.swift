@@ -50,6 +50,14 @@ final class PlaybackStore: ObservableObject {
         coreSnapshot?.listenStats
     }
 
+    var downloadItems: [CoreDownloadItem] {
+        guard let snapshot = coreSnapshot,
+              snapshot.downloads.count == snapshot.downloadTracks.count else { return [] }
+        return zip(snapshot.downloads, snapshot.downloadTracks).compactMap { job, track in
+            job.mediaID == track.id ? CoreDownloadItem(job: job, track: track) : nil
+        }
+    }
+
     func isSaved(_ track: CoreTrack) -> Bool {
         libraryTracks.contains { $0.id == track.id }
     }
@@ -283,6 +291,14 @@ final class PlaybackStore: ObservableObject {
 
     func recordListen(track: CoreTrack, event: CoreListenEvent) {
         dispatch(CoreRecordListenCommand(track: track, event: event))
+    }
+
+    func saveDownload(track: CoreTrack, job: CoreDownloadJob) {
+        dispatch(CoreSaveDownloadCommand(track: track, job: job))
+    }
+
+    func removeDownload(_ id: CoreMediaID) {
+        dispatch(CoreRemoveDownloadCommand(id: id))
     }
 
     private func dispatch<T: Encodable>(_ command: T) {

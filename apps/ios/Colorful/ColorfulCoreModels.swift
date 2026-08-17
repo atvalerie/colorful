@@ -145,6 +145,37 @@ struct ColorfulCoreSnapshot: Codable, Sendable {
     let library: [CoreTrack]
     let playlists: [CoreLocalPlaylist]
     let listenStats: CoreListenStats
+    let downloads: [CoreDownloadJob]
+    let downloadTracks: [CoreTrack]
+}
+
+enum CoreDownloadState: String, Codable, Sendable {
+    case queued
+    case resolving
+    case downloading
+    case complete
+    case failed
+    case paused
+}
+
+struct CoreDownloadJob: Codable, Identifiable, Hashable, Sendable {
+    let mediaID: CoreMediaID
+    let state: CoreDownloadState
+    let localPath: String?
+    let bytesDownloaded: UInt64
+    let bytesTotal: UInt64?
+    let sourceExpiresAtMs: Int64?
+    let errorCode: String?
+    let updatedAtMs: Int64
+
+    var id: CoreMediaID { mediaID }
+}
+
+struct CoreDownloadItem: Identifiable, Hashable, Sendable {
+    let job: CoreDownloadJob
+    let track: CoreTrack
+
+    var id: CoreMediaID { job.mediaID }
 }
 
 struct CoreTopTrack: Codable, Identifiable, Hashable, Sendable {
@@ -373,4 +404,15 @@ struct CoreRecordListenCommand: Encodable, Sendable {
     let command = "record_listen"
     let track: CoreTrack
     let event: CoreListenEvent
+}
+
+struct CoreSaveDownloadCommand: Encodable, Sendable {
+    let command = "save_download"
+    let track: CoreTrack
+    let job: CoreDownloadJob
+}
+
+struct CoreRemoveDownloadCommand: Encodable, Sendable {
+    let command = "remove_download"
+    let id: CoreMediaID
 }

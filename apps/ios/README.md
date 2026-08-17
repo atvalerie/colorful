@@ -20,6 +20,13 @@ TIDAL search is grouped into relevance-ordered track, album, and artist
 sections, and collection results navigate into the native album and artist
 surfaces.
 
+The first offline slice uses Apple's background asset-download session for
+TIDAL HLS, persists every job through the Rust download state machine, prefers
+completed local packages during playback, and exposes pause/resume, deletion,
+storage totals, album batching, and Files/share package export. Native
+standalone FLAC/M4A finalization remains separate work; the UI deliberately
+does not mislabel an HLS media package as a FLAC file.
+
 Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
 audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.
 

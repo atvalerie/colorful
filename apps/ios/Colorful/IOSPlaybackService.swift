@@ -10,6 +10,7 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     private let store: PlaybackStore
     private let account: TidalAccountStore
+    private let downloads: IOSOfflineDownloadManager
     private let player = AVPlayer()
     private var cancellables = Set<AnyCancellable>()
     private var notificationTokens = [NSObjectProtocol]()
@@ -30,9 +31,10 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var audibleClockStartedAt: TimeInterval?
     private let historyDeviceID: String
 
-    init(store: PlaybackStore, account: TidalAccountStore) {
+    init(store: PlaybackStore, account: TidalAccountStore, downloads: IOSOfflineDownloadManager) {
         self.store = store
         self.account = account
+        self.downloads = downloads
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: "identity.deviceId"), !stored.isEmpty {
             historyDeviceID = stored
@@ -204,6 +206,13 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         sourceTask = Task { [weak self] in
             guard let self else { return }
             do {
+                if let localURL = downloads.localURL(for: track) {
+                    guard !Task.isCancelled,
+                          store.currentTrack?.id == track.id,
+                          store.currentQueueEntryID == queueEntryID else { return }
+                    install(source: localURL, track: track, queueEntryID: queueEntryID)
+                    return
+                }
                 let resolution = try await account.playbackSource(for: track)
                 guard !Task.isCancelled,
                       store.currentTrack?.id == track.id,

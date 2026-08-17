@@ -6,12 +6,17 @@ struct ColorfulRootView: View {
     @ObservedObject var account: TidalAccountStore
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var playbackService: IOSPlaybackService
+    @StateObject private var downloadManager: IOSOfflineDownloadManager
     @State private var isShowingPlayer = false
 
     init(store: PlaybackStore, account: TidalAccountStore) {
         self.store = store
         self.account = account
-        _playbackService = StateObject(wrappedValue: IOSPlaybackService(store: store, account: account))
+        let downloads = IOSOfflineDownloadManager(store: store, account: account)
+        _downloadManager = StateObject(wrappedValue: downloads)
+        _playbackService = StateObject(
+            wrappedValue: IOSPlaybackService(store: store, account: account, downloads: downloads)
+        )
     }
 
     var body: some View {
@@ -39,7 +44,7 @@ struct ColorfulRootView: View {
             .tag(ColorfulTab.library)
 
             NavigationStack {
-                OfflineView()
+                OfflineView(store: store)
             }
             .contentMargins(.bottom, miniPlayerContentClearance, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -58,8 +63,10 @@ struct ColorfulRootView: View {
             .tabItem { Label(ColorfulTab.settings.title, systemImage: ColorfulTab.settings.symbol) }
             .tag(ColorfulTab.settings)
         }
+        .environmentObject(downloadManager)
         .tint(ColorfulTheme.accent)
         .task {
+            downloadManager.start()
             playbackService.start()
             account.appBecameActive()
             await playbackService.reconcileAfterActivation()
@@ -577,6 +584,7 @@ private struct TrackRow: View {
 private struct TrackActionMenuItems: View {
     let track: CoreTrack
     @ObservedObject var store: PlaybackStore
+    @EnvironmentObject private var downloads: IOSOfflineDownloadManager
     let removeFromPlaylist: (() -> Void)?
     let play: () -> Void
 
@@ -625,6 +633,38 @@ private struct TrackActionMenuItems: View {
                         )
                     }
                 }
+            }
+        }
+        Divider()
+        downloadActions
+    }
+
+    @ViewBuilder
+    private var downloadActions: some View {
+        switch downloads.job(for: track)?.state {
+        case .queued, .resolving, .downloading:
+            Button("Pause download", systemImage: "pause.circle") {
+                downloads.pause(track)
+            }
+        case .paused, .failed:
+            Button("Resume download", systemImage: "arrow.clockwise.circle") {
+                downloads.resume(track)
+            }
+            Button("Remove download", systemImage: "trash", role: .destructive) {
+                downloads.remove(track)
+            }
+        case .complete:
+            if let url = downloads.localURL(for: track) {
+                ShareLink(item: url) {
+                    Label("Export offline package", systemImage: "square.and.arrow.up")
+                }
+            }
+            Button("Remove download", systemImage: "trash", role: .destructive) {
+                downloads.remove(track)
+            }
+        case nil:
+            Button("Download", systemImage: "arrow.down.circle") {
+                downloads.download(track)
             }
         }
     }
@@ -1029,6 +1069,7 @@ private struct AlbumCollectionView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @StateObject private var paletteLoader = ColorfulArtworkPaletteLoader()
+    @EnvironmentObject private var downloads: IOSOfflineDownloadManager
 
     init(
         albumID: String,
@@ -1075,20 +1116,33 @@ private struct AlbumCollectionView: View {
                                     .foregroundStyle(ColorfulTheme.mutedInk)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.center)
-                                Button {
-                                    play(collection.tracks)
-                                } label: {
-                                    Label("Play album", systemImage: "play.fill")
-                                        .font(.headline)
-                                        .foregroundStyle(paletteLoader.palette.primaryForegroundColor)
-                                        .padding(.horizontal, 20)
-                                        .padding(.vertical, 11)
-                                        .background(
-                                            paletteLoader.palette.primaryColor,
-                                            in: Capsule(style: .continuous)
-                                        )
+                                HStack(spacing: 10) {
+                                    Button {
+                                        play(collection.tracks)
+                                    } label: {
+                                        Label("Play album", systemImage: "play.fill")
+                                            .font(.headline)
+                                            .foregroundStyle(paletteLoader.palette.primaryForegroundColor)
+                                            .padding(.horizontal, 20)
+                                            .padding(.vertical, 11)
+                                            .background(
+                                                paletteLoader.palette.primaryColor,
+                                                in: Capsule(style: .continuous)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                    Button {
+                                        downloads.download(collection.tracks)
+                                    } label: {
+                                        Image(systemName: "arrow.down.circle")
+                                            .font(.title2.weight(.semibold))
+                                            .foregroundStyle(ColorfulTheme.ink)
+                                            .frame(width: 46, height: 46)
+                                            .background(.regularMaterial, in: Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Download album")
                                 }
-                                .buttonStyle(.plain)
                             }
                             .frame(maxWidth: .infinity)
 
@@ -1371,15 +1425,167 @@ private struct LocalPlaylistView: View {
 }
 
 private struct OfflineView: View {
+    @ObservedObject var store: PlaybackStore
+    @EnvironmentObject private var downloads: IOSOfflineDownloadManager
+    @State private var removalCandidate: CoreTrack?
+
     var body: some View {
-        ContentUnavailableView {
-            Label("Nothing offline yet", systemImage: "arrow.down.circle")
-        } description: {
-            Text("Downloads will be available after the first TIDAL playback slice is connected.")
+        Group {
+            if store.downloadItems.isEmpty {
+                ContentUnavailableView {
+                    Label("Nothing offline yet", systemImage: "arrow.down.circle")
+                } description: {
+                    Text("Download a TIDAL track or album from its actions menu.")
+                }
+                .foregroundStyle(ColorfulTheme.mutedInk)
+            } else {
+                List {
+                    if let message = downloads.message {
+                        Section {
+                            HStack(spacing: 10) {
+                                Image(systemName: "info.circle.fill")
+                                    .foregroundStyle(ColorfulTheme.accent)
+                                Text(message)
+                                    .font(.footnote)
+                                Spacer()
+                                Button("Dismiss", systemImage: "xmark") {
+                                    downloads.dismissMessage()
+                                }
+                                .labelStyle(.iconOnly)
+                            }
+                        }
+                    }
+                    Section("Downloads") {
+                        ForEach(store.downloadItems) { item in
+                            offlineRow(item)
+                                .listRowBackground(ColorfulTheme.surface)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button("Remove", systemImage: "trash", role: .destructive) {
+                                        removalCandidate = item.track
+                                    }
+                                }
+                        }
+                    }
+                    Section {
+                        LabeledContent("Storage used", value: byteLabel(storageUsed))
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
         }
-        .foregroundStyle(ColorfulTheme.mutedInk)
         .background(ColorfulTheme.background.ignoresSafeArea())
         .navigationTitle("Offline")
+        .confirmationDialog(
+            "Remove offline copy?",
+            isPresented: Binding(
+                get: { removalCandidate != nil },
+                set: { if !$0 { removalCandidate = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let track = removalCandidate {
+                Button("Remove \(track.title)", role: .destructive) {
+                    downloads.remove(track)
+                    removalCandidate = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { removalCandidate = nil }
+        } message: {
+            Text("The local media package will be deleted. The track stays in your library and playlists.")
+        }
+    }
+
+    @ViewBuilder
+    private func offlineRow(_ item: CoreDownloadItem) -> some View {
+        HStack(spacing: 12) {
+            ColorfulAlbumArt(
+                title: item.track.title,
+                accent: item.track.accent,
+                artworkURL: item.track.artwork?.url,
+                size: 52
+            )
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.track.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(ColorfulTheme.ink)
+                    .lineLimit(1)
+                Text("\(item.track.compactArtistLabel) · \(stateLabel(item.job.state))")
+                    .font(.caption)
+                    .foregroundStyle(ColorfulTheme.mutedInk)
+                    .lineLimit(1)
+                if let progress = downloads.progressByTrack[item.id], item.job.state == .downloading {
+                    ProgressView(value: progress)
+                        .tint(ColorfulTheme.accent)
+                }
+            }
+            Spacer(minLength: 4)
+            rowActions(item)
+            Menu("Offline actions", systemImage: "ellipsis") {
+                if item.job.state == .complete, let url = downloads.localURL(for: item.track) {
+                    ShareLink(item: url) {
+                        Label("Export offline package", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Button("Remove download", systemImage: "trash", role: .destructive) {
+                    removalCandidate = item.track
+                }
+            }
+            .labelStyle(.iconOnly)
+            .accessibilityLabel("Offline actions for \(item.track.title)")
+        }
+        .padding(.vertical, 3)
+    }
+
+    @ViewBuilder
+    private func rowActions(_ item: CoreDownloadItem) -> some View {
+        switch item.job.state {
+        case .complete:
+            Button {
+                store.play(item.track)
+            } label: {
+                Image(systemName: "play.fill")
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play \(item.track.title)")
+        case .queued, .resolving, .downloading:
+            Button {
+                downloads.pause(item.track)
+            } label: {
+                Image(systemName: "pause.circle.fill")
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Pause download")
+        case .paused, .failed:
+            Button {
+                downloads.resume(item.track)
+            } label: {
+                Image(systemName: "arrow.clockwise.circle.fill")
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Resume download")
+        }
+    }
+
+    private var storageUsed: UInt64 {
+        store.downloadItems.reduce(0) { $0 + $1.job.bytesDownloaded }
+    }
+
+    private func stateLabel(_ state: CoreDownloadState) -> String {
+        switch state {
+        case .queued: return "Queued"
+        case .resolving: return "Preparing"
+        case .downloading: return "Downloading"
+        case .complete: return "Offline"
+        case .failed: return "Failed"
+        case .paused: return "Paused"
+        }
+    }
+
+    private func byteLabel(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(min(bytes, UInt64(Int64.max))), countStyle: .file)
     }
 }
 
