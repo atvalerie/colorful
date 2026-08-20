@@ -30,6 +30,25 @@ QString endFileReason(mpv_end_file_reason reason)
     default: return QStringLiteral("unknown");
     }
 }
+
+QString mpvFixedString(const QString &value)
+{
+    const auto utf8 = value.toUtf8();
+    return QStringLiteral("%") + QString::number(utf8.size()) + QStringLiteral("%")
+        + QString::fromUtf8(utf8);
+}
+
+QString mpvStringList(const QStringList &values)
+{
+    QStringList escaped;
+    escaped.reserve(values.size());
+    for (auto value : values) {
+        value.replace(QStringLiteral("\\"), QStringLiteral("\\\\"));
+        value.replace(QStringLiteral(","), QStringLiteral("\\,"));
+        escaped.append(value);
+    }
+    return mpvFixedString(escaped.join(QLatin1Char(',')));
+}
 }
 
 LinuxPlayback::LinuxPlayback(QObject *parent)
@@ -109,7 +128,8 @@ qint64 LinuxPlayback::position() const
 void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
                               std::optional<double> replayGainDb,
                               std::optional<double> peakAmplitude,
-                              const QString &userAgent, const QString &referrer)
+                              const QString &userAgent, const QString &referrer,
+                              const QStringList &httpHeaders)
 {
     if (!m_mpv || !source.isValid() || source.isEmpty()) return;
     DebugLog::write(u"mpv", QStringLiteral("load source scheme=%1 host=%2 autoplay=%3 positionMs=%4 userAgent=%5")
@@ -144,7 +164,7 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     const auto uri = source.toEncoded();
     const auto options = QStringLiteral("pause=yes,start=%1,%2")
         .arg(m_positionMs / 1000.0, 0, 'f', 3)
-        .arg(playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer)).toUtf8();
+        .arg(playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer, httpHeaders)).toUtf8();
     const char *arguments[] = {"loadfile", uri.constData(), "replace", "-1", options.constData(), nullptr};
     m_loadRequestId = m_nextRequestId++;
     command(arguments, m_loadRequestId);
@@ -152,7 +172,8 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
 
 void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> replayGainDb,
                                       std::optional<double> peakAmplitude,
-                                      const QString &userAgent, const QString &referrer)
+                                      const QString &userAgent, const QString &referrer,
+                                      const QStringList &httpHeaders)
 {
     if (!m_mpv || !hasSource() || !source.isValid() || source.isEmpty()) return;
     if (m_preparedSource == source) return;
@@ -166,7 +187,7 @@ void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> 
     m_preparedPeakAmplitude = peakAmplitude;
     m_prepareTimer.restart();
     const auto uri = source.toEncoded();
-    const auto options = playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer).toUtf8();
+    const auto options = playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer, httpHeaders).toUtf8();
     const char *arguments[] = {"loadfile", uri.constData(), "append", "-1", options.constData(), nullptr};
     m_prepareRequestId = m_nextRequestId++;
     command(arguments, m_prepareRequestId);
@@ -438,7 +459,8 @@ void LinuxPlayback::setReplayGain(bool enabled)
 
 QString LinuxPlayback::playbackOptions(std::optional<double> replayGainDb,
                                        std::optional<double> peakAmplitude,
-                                       const QString &userAgent, const QString &referrer) const
+                                       const QString &userAgent, const QString &referrer,
+                                       const QStringList &httpHeaders) const
 {
     QStringList options;
     if (!m_replayGainEnabled) {
@@ -458,8 +480,15 @@ QString LinuxPlayback::playbackOptions(std::optional<double> replayGainDb,
     // A provider's media URL can be tied to its client identity. Keep these as
     // per-file options so mixed-provider queues do not mutate headers on an
     // already playing stream.
-    if (!userAgent.isEmpty()) options << QStringLiteral("user-agent=%1").arg(userAgent);
-    if (!referrer.isEmpty()) options << QStringLiteral("referrer=%1").arg(referrer);
+    if (!userAgent.isEmpty()) options << QStringLiteral("user-agent=%1").arg(mpvFixedString(userAgent));
+    if (!referrer.isEmpty()) options << QStringLiteral("referrer=%1").arg(mpvFixedString(referrer));
+    if (!httpHeaders.isEmpty()) {
+        // The outer fixed-length quote protects the string-list's commas from
+        // loadfile's option parser. The list parser then receives one escaped
+        // item per field, including header values which contain commas.
+        options << QStringLiteral("http-header-fields=%1")
+                       .arg(mpvStringList(httpHeaders));
+    }
     return options.join(QLatin1Char(','));
 }
 

@@ -1,27 +1,36 @@
 import type { TrackSummary } from "./browse";
 import { debugLog } from "./debug";
 import { clearYouTubeDecipherCache, decipherYouTubeFormat } from "./youtube-decipher";
-import { refreshYouTubeMusicPlayerState, youtubeMusicPlayerId, youtubeMusicSignatureTimestamp, youtubeMusicVisitorData } from "./youtube-music";
+import { refreshYouTubeMusicPlayerState, youtubeMusicPlaybackBootstrap, youtubeMusicPlayerId, youtubeMusicSignatureTimestamp, type YouTubeMusicPlaybackBootstrap } from "./youtube-music";
+import { applyYouTubePoToken, youtubePoToken } from "./youtube-pot";
 import { youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { parseYouTubePlayerResponse, requestAuthenticatedYouTubePlayer, requestYouTubePlayer,
   requestYouTubeWebSafariPlayer,
   requestYouTubeTvDowngradedPlayer,
-  selectYouTubeCipheredAudioFormat, youtubeBrowserIdentity, type YouTubePlaybackSource } from "./youtube-player";
+  selectYouTubeCipheredAudioFormat, youtubeBrowserIdentity, youtubePlayerRequiresLogin, type YouTubePlaybackSource } from "./youtube-player";
 
 export type YouTubeTrackSummary = TrackSummary & { provider: "youtube" };
 
 const MUSIC_ORIGIN = "https://music.youtube.com";
 const sourceCache = new Map<string, { value: YouTubePlaybackSource; expiresAt: number }>();
 
+export function clearYouTubeSourceCache(): void {
+  sourceCache.clear();
+}
+
 async function probeYouTubeSource(source: YouTubePlaybackSource): Promise<void> {
-  const headers = {
+  const headers: Record<string, string> = {
+    ...source.httpHeaders,
     ...(source.userAgent ? { "User-Agent": source.userAgent } : {}),
     ...(source.referrer ? { Referer: source.referrer } : {}),
   };
   const isHls = source.mimeType.toLowerCase().includes("mpegurl")
     || source.uri.toLowerCase().includes(".m3u8");
   const response = await fetch(source.uri, {
-    headers: isHls ? headers : { Range: "bytes=0-1023", ...headers },
+    // YouTube can permit a small cold-start prefix before rejecting the rest
+    // of a source that is missing a valid proof-of-origin token. Validate the
+    // open-ended request shape native FFmpeg actually uses.
+    headers: isHls ? headers : { Range: "bytes=0-", ...headers },
     signal: AbortSignal.timeout(5_000),
   });
   if (response.status !== 200 && response.status !== 206) {
@@ -86,14 +95,17 @@ async function decipheredInnertubeSource(
 
 async function authenticatedInnertubeSource(
   videoId: string,
-  visitorData: string,
+  bootstrap: YouTubeMusicPlaybackBootstrap,
   signatureTimestamp: number,
 ): Promise<YouTubePlaybackSource> {
-  const browserHeaders = await youtubeBrowserHeaders();
-  const identity = youtubeBrowserIdentity(browserHeaders, visitorData);
+  const browserHeaders = { ...await youtubeBrowserHeaders(),
+    "x-youtube-client-version": bootstrap.clientVersion };
+  const identity = youtubeBrowserIdentity(browserHeaders, bootstrap.visitorData);
   const authenticated = await requestAuthenticatedYouTubePlayer(videoId, identity, signatureTimestamp);
   const source = await decipheredInnertubeSource(
     videoId, authenticated.document, authenticated.mediaUserAgent, authenticated.referrer);
+  const contentBinding = bootstrap.bindGvsTokenToVideoId ? videoId : identity.visitorData;
+  source.uri = applyYouTubePoToken(source.uri, await youtubePoToken(contentBinding));
   await probeYouTubeSource(source);
   return source;
 }
@@ -203,10 +215,11 @@ export function youtubeAvailable(): boolean {
 
 export async function youtubeTrack(videoId: string): Promise<YouTubeTrackSummary> {
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) throw new Error("Invalid YouTube video ID");
-  const [visitorData, signatureTimestamp] = await Promise.all([
-    youtubeMusicVisitorData(), youtubeMusicSignatureTimestamp(),
+  const [bootstrap, signatureTimestamp] = await Promise.all([
+    youtubeMusicPlaybackBootstrap(), youtubeMusicSignatureTimestamp(),
   ]);
-  const player = await requestYouTubePlayer(videoId, visitorData, signatureTimestamp);
+  const visitorData = bootstrap.visitorData;
+  const player = await requestYouTubePlayer(videoId, signatureTimestamp, bootstrap);
   let track = mapYouTubePlayerTrack(player.document, videoId);
   if (!track && youtubeLinked()) {
     const identity = youtubeBrowserIdentity(await youtubeBrowserHeaders(), visitorData);
@@ -221,6 +234,7 @@ export async function youtubeSource(videoId: string, refresh = false): Promise<Y
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) throw new Error("Invalid YouTube video ID");
   if (refresh) {
     sourceCache.delete(videoId);
+    refreshYouTubeMusicPlayerState();
     debugLog("youtube.source", "cache_bypassed", { videoId });
   }
   const cached = sourceCache.get(videoId);
@@ -229,18 +243,30 @@ export async function youtubeSource(videoId: string, refresh = false): Promise<Y
     return cached.value;
   }
   debugLog("youtube.source", "resolve_started", { videoId });
-  const [visitorData, signatureTimestamp] = await Promise.all([
-    youtubeMusicVisitorData(),
+  const [bootstrap, signatureTimestamp] = await Promise.all([
+    youtubeMusicPlaybackBootstrap(),
     youtubeMusicSignatureTimestamp(),
   ]);
-  const player = await requestYouTubePlayer(videoId, visitorData, signatureTimestamp);
+  const visitorData = bootstrap.visitorData;
+  const contentBinding = bootstrap.bindGvsTokenToVideoId ? videoId : bootstrap.visitorData;
+  const poToken = await youtubePoToken(contentBinding, refresh);
+  const player = await requestYouTubePlayer(videoId, signatureTimestamp, bootstrap);
   let source: YouTubePlaybackSource;
-  try {
-    const publicSource = parseYouTubePlayerResponse(player.document, videoId, player.mediaUserAgent);
+  if (youtubeLinked() && youtubePlayerRequiresLogin(player.document)) {
+    debugLog("youtube.source", "authenticated_login_required_started", { videoId });
+    source = await authenticatedInnertubeSource(videoId, bootstrap, signatureTimestamp);
+    debugLog("youtube.source", "authenticated_login_required_completed", {
+      videoId, itag: source.itag, mimeType: source.mimeType, bitrate: source.bitrate,
+    });
+  } else try {
+    const publicSource = await decipheredInnertubeSource(
+      videoId, player.document, player.mediaUserAgent, `${MUSIC_ORIGIN}/`,
+    );
+    publicSource.uri = applyYouTubePoToken(publicSource.uri, poToken);
     await probeYouTubeSource(publicSource);
     source = publicSource;
   } catch (publicError) {
-    debugLog("youtube.source", "android_vr_source_failed", {
+    debugLog("youtube.source", "music_pot_source_failed", {
       videoId,
       error: publicError instanceof Error ? publicError.message : String(publicError),
     });
@@ -271,10 +297,10 @@ export async function youtubeSource(videoId: string, refresh = false): Promise<Y
         refreshYouTubeMusicPlayerState();
         clearYouTubeDecipherCache();
         try {
-          const [freshVisitorData, freshSignatureTimestamp] = await Promise.all([
-            youtubeMusicVisitorData(), youtubeMusicSignatureTimestamp(),
+          const [freshBootstrap, freshSignatureTimestamp] = await Promise.all([
+            youtubeMusicPlaybackBootstrap(), youtubeMusicSignatureTimestamp(),
           ]);
-          source = await authenticatedInnertubeSource(videoId, freshVisitorData, freshSignatureTimestamp);
+          source = await authenticatedInnertubeSource(videoId, freshBootstrap, freshSignatureTimestamp);
           debugLog("youtube.source", "native_refresh_retry_completed", {
             videoId,
             itag: source.itag,

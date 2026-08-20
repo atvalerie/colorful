@@ -42,6 +42,20 @@ QString safeTrackPath(const QVariantMap &track)
     return QStringLiteral("/org/mpris/MediaPlayer2/track/%1").arg(safe.isEmpty() ? QStringLiteral("unknown") : safe);
 }
 
+QStringList playbackHttpHeaders(const QJsonObject &source)
+{
+    QStringList headers;
+    const auto values = source.value(QStringLiteral("httpHeaders")).toObject();
+    for (auto iterator = values.constBegin(); iterator != values.constEnd(); ++iterator) {
+        if (!iterator.value().isString()) continue;
+        if (iterator.key().compare(QStringLiteral("User-Agent"), Qt::CaseInsensitive) == 0
+            || iterator.key().compare(QStringLiteral("Referer"), Qt::CaseInsensitive) == 0) continue;
+        const auto value = iterator.value().toString().trimmed();
+        if (!value.isEmpty()) headers.append(iterator.key() + QStringLiteral(": ") + value);
+    }
+    return headers;
+}
+
 double linearRgbChannel(int value)
 {
     const double normalized = value / 255.0;
@@ -341,6 +355,10 @@ Backend::Backend(QObject *parent)
         setBusy(false);
         setStatus(QStringLiteral("Playback error: %1").arg(error));
         m_playbackError = error;
+        // The failed item is no longer a usable source. Keeping it makes the
+        // transport control send pause/play properties to a dead network
+        // operation instead of resolving a fresh provider URL.
+        if (streamLoadFailure) m_playback.clearSource();
         emit playbackConditionChanged();
         notify(error, QStringLiteral("error"));
     });
@@ -494,7 +512,8 @@ void Backend::preparePartyTrack(const QVariantMap &track)
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")),
             source.value(QStringLiteral("userAgent")).toString(),
-            source.value(QStringLiteral("referrer")).toString());
+            source.value(QStringLiteral("referrer")).toString(),
+            playbackHttpHeaders(source));
     });
 }
 
@@ -628,6 +647,30 @@ void Backend::copySongLink(const QVariantMap &track)
         else if (provider == QStringLiteral("tidal"))
             link = QStringLiteral("https://tidal.com/browse/track/%1").arg(encodedId);
     }
+    if (link.isEmpty() && provider == QStringLiteral("soundcloud") && !id.isEmpty()) {
+        request(QStringLiteral("detail"), {
+            {QStringLiteral("provider"), provider},
+            {QStringLiteral("kind"), QStringLiteral("track")},
+            {QStringLiteral("id"), id},
+        }, [this](const QJsonObject &message) {
+            if (!message.value(QStringLiteral("ok")).toBool()) {
+                notify(QStringLiteral("No shareable song link is available"), QStringLiteral("error"));
+                return;
+            }
+            const auto link = message.value(QStringLiteral("data")).toObject()
+                .value(QStringLiteral("track")).toObject()
+                .value(QStringLiteral("webpageUrl")).toString().trimmed();
+            const QUrl url(link);
+            if (link.isEmpty() || !url.isValid()
+                || (url.scheme() != QStringLiteral("https") && url.scheme() != QStringLiteral("http"))) {
+                notify(QStringLiteral("No shareable song link is available"), QStringLiteral("error"));
+                return;
+            }
+            QGuiApplication::clipboard()->setText(url.toString(QUrl::FullyEncoded));
+            notify(QStringLiteral("Copied song link"));
+        });
+        return;
+    }
     const QUrl url(link);
     if (link.isEmpty() || !url.isValid()
         || (url.scheme() != QStringLiteral("https") && url.scheme() != QStringLiteral("http"))) {
@@ -733,6 +776,7 @@ void Backend::refreshCoreSnapshot()
     }
 
     QVariantList nextDownloads;
+    QList<QPair<QString, QString>> invalidDownloads;
     const auto downloadJobs = snapshot.value(QStringLiteral("downloads")).toArray();
     const auto downloadTracks = snapshot.value(QStringLiteral("downloadTracks")).toArray();
     const auto downloadCount = std::min(downloadJobs.size(), downloadTracks.size());
@@ -744,7 +788,31 @@ void Backend::refreshCoreSnapshot()
         entry.insert(QStringLiteral("bytesDownloaded"), job.value(QStringLiteral("bytesDownloaded")).toInteger());
         entry.insert(QStringLiteral("bytesTotal"), job.value(QStringLiteral("bytesTotal")).toInteger());
         entry.insert(QStringLiteral("downloadError"), job.value(QStringLiteral("errorCode")).toString());
+        if (job.value(QStringLiteral("state")).toString() == QStringLiteral("complete")) {
+            const auto localPath = job.value(QStringLiteral("localPath")).toString();
+            const bool missing = localPath.isEmpty() || !QFileInfo::exists(localPath);
+            if (missing) {
+                invalidDownloads.append({
+                    entry.value(QStringLiteral("provider")).toString(),
+                    entry.value(QStringLiteral("id")).toString(),
+                });
+                continue;
+            }
+        }
         nextDownloads.append(entry);
+    }
+
+    if (!invalidDownloads.isEmpty() && !m_reconcilingDownloads) {
+        m_reconcilingDownloads = true;
+        for (const auto &[provider, providerId] : invalidDownloads) {
+            dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
+                          {QStringLiteral("id"), QJsonObject{
+                              {QStringLiteral("provider"), provider},
+                              {QStringLiteral("providerId"), providerId},
+                          }}});
+        }
+        m_reconcilingDownloads = false;
+        return;
     }
 
     const auto previousArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
@@ -1173,6 +1241,10 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         const auto account = message.value(QStringLiteral("data")).toObject()
                                  .value(QStringLiteral("account")).toObject();
         if (!account.isEmpty()) m_soundcloudHub.insert(QStringLiteral("account"), account.toVariantMap());
+        if (m_authProvider == QStringLiteral("soundcloud")) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
         emit soundcloudAccountChanged();
         setStatus(completed
                       ? QStringLiteral("SoundCloud connected")
@@ -1181,6 +1253,19 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
             emit toastRequested(QStringLiteral("SoundCloud connected"), QStringLiteral("success"));
             loadSoundCloudHub(true);
         }
+    } else if (event == QStringLiteral("browser.auth.progress")) {
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        if (m_authPending && data.value(QStringLiteral("provider")).toString() == m_authProvider) {
+            setStatus(data.value(QStringLiteral("status")).toString());
+        }
+    } else if (event == QStringLiteral("browser.auth.failed")) {
+        const auto provider = message.value(QStringLiteral("data")).toObject()
+                                  .value(QStringLiteral("provider")).toString();
+        if (m_authPending && provider == m_authProvider) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
+        notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
     } else if (event == QStringLiteral("warning")) {
         setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("subscription.status")) {
@@ -1269,6 +1354,11 @@ void Backend::connectYouTubeBrowserSession(const QString &headers)
     });
 }
 
+void Backend::startYouTubeBrowserLogin()
+{
+    startBrowserLogin(QStringLiteral("youtube"));
+}
+
 void Backend::unlinkYouTube()
 {
     request(QStringLiteral("youtube.auth.unlink"), {}, [this](const QJsonObject &message) {
@@ -1304,6 +1394,37 @@ void Backend::connectSoundCloudSession(const QString &requestText)
         setBusy(false);
         if (!message.value(QStringLiteral("ok")).toBool())
             notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+    });
+}
+
+void Backend::startSoundCloudBrowserLogin()
+{
+    startBrowserLogin(QStringLiteral("soundcloud"));
+}
+
+void Backend::startBrowserLogin(const QString &provider)
+{
+    if (provider != QStringLiteral("youtube") && provider != QStringLiteral("soundcloud")) return;
+    if (m_authPending) cancelLogin();
+    setBusy(true);
+    setStatus(QStringLiteral("Opening an isolated browser for %1…")
+                  .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+                                                               : QStringLiteral("SoundCloud")));
+    request(provider + QStringLiteral(".auth.browser.start"), {}, [this, provider](const QJsonObject &message) {
+        setBusy(false);
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            return;
+        }
+        m_authProvider = provider;
+        m_authPending = true;
+        m_userCode.clear();
+        m_verificationUrl.clear();
+        emit authDetailsChanged();
+        emit authPendingChanged();
+        setStatus(QStringLiteral("Waiting for %1 browser sign-in…")
+                      .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+                                                                   : QStringLiteral("SoundCloud")));
     });
 }
 
@@ -1506,8 +1627,11 @@ void Backend::openVerificationUrl()
 void Backend::cancelLogin()
 {
     if (!m_authPending) return;
-    const auto type = m_authProvider == QStringLiteral("youtube")
-        ? QStringLiteral("youtube.auth.cancel") : QStringLiteral("auth.cancel");
+    const bool capturedBrowserLogin = m_verificationUrl.isEmpty()
+        && (m_authProvider == QStringLiteral("youtube") || m_authProvider == QStringLiteral("soundcloud"));
+    const auto type = capturedBrowserLogin ? QStringLiteral("browser.auth.cancel")
+        : m_authProvider == QStringLiteral("youtube") ? QStringLiteral("youtube.auth.cancel")
+        : QStringLiteral("auth.cancel");
     m_authPending = false;
     m_userCode.clear();
     m_verificationUrl.clear();
@@ -3417,7 +3541,8 @@ void Backend::resolveCurrentSource(qint64 startPositionMs, bool autoplay, bool r
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")),
             source.value(QStringLiteral("userAgent")).toString(),
-            source.value(QStringLiteral("referrer")).toString());
+            source.value(QStringLiteral("referrer")).toString(),
+            playbackHttpHeaders(source));
         // setSource() starts libmpv's own loading phase synchronously, so the
         // combined playbackLoading property stays true without flickering.
         setSourceResolving(false);
@@ -3490,7 +3615,8 @@ void Backend::prepareNextSource()
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("replayGain")),
             normalizationNumber(source, QStringLiteral("trackAudioNormalizationData"), QStringLiteral("peakAmplitude")),
             source.value(QStringLiteral("userAgent")).toString(),
-            source.value(QStringLiteral("referrer")).toString());
+            source.value(QStringLiteral("referrer")).toString(),
+            playbackHttpHeaders(source));
     });
 }
 
@@ -4153,6 +4279,7 @@ QVariantMap Backend::jsonTrackToVariant(const QJsonObject &track)
         {QStringLiteral("durationMs"), track.value(QStringLiteral("durationMs")).toInteger()},
         {QStringLiteral("isrc"), track.value(QStringLiteral("isrc")).toString()},
         {QStringLiteral("coverUrl"), track.value(QStringLiteral("coverUrl")).toString()},
+        {QStringLiteral("webpageUrl"), track.value(QStringLiteral("webpageUrl")).toString()},
     };
 }
 

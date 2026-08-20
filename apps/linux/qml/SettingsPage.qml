@@ -134,16 +134,22 @@ Item {
                                     : "Anonymous catalog mode"
                         description: colorful.youtubeLinked
                                      ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
-                                     : "Paste headers from a logged-in /browse request. A fresh private window is recommended; the session stays in the credential service."
+                                     : "Sign in through an isolated Chromium-based browser window. colorful captures only the YouTube Music session needed for your library."
                         details: [
                             [((colorful.youtubeHub.account || {}).premiumStatus) || "Unknown", "Plan"],
                             [String((colorful.youtubeHub.tracks || []).length), "Liked tracks"],
                             [String((colorful.youtubeHub.playlists || []).length + (colorful.youtubeHub.mixes || []).length), "Playlists & mixes"]
                         ]
-                        primaryText: "Setup guide"
+                        primaryText: colorful.youtubeLinked ? "Reconnect" : "Sign in"
                         extraVisible: !colorful.youtubeLinked
-                        onPrimaryRequested: colorful.openYouTubeSetupGuide()
+                        onPrimaryRequested: colorful.startYouTubeBrowserLogin()
                         onSecondaryRequested: colorful.unlinkYouTube()
+                        Text {
+                            visible: !colorful.youtubeLinked; Layout.fillWidth: true
+                            text: "Manual fallback — paste a logged-in /browse request or Copy as cURL:"
+                            color: Qt.rgba(1, 1, 1, 0.34); wrapMode: Text.WordWrap
+                            font.pixelSize: Math.round(10 * colorful.textScale)
+                        }
                         RowLayout {
                             visible: !colorful.youtubeLinked; Layout.fillWidth: true; spacing: 8
                             ScrollView {
@@ -172,7 +178,7 @@ Item {
                                     : "Public catalog mode"
                         description: colorful.soundcloudLinked
                                      ? "Liked tracks, sets, and followed profiles use this account. Only the OAuth token is retained."
-                                     : "Copy any logged-in api-v2.soundcloud.com or api.soundcloud.com request as cURL. colorful extracts only its Authorization: OAuth header."
+                                     : "Sign in through an isolated Chromium-based browser window. colorful retains only the SoundCloud OAuth session token."
                         details: {
                             const account = colorful.soundcloudHub.account || {}
                             return [
@@ -181,10 +187,16 @@ Item {
                                 [String(account.likesCount || 0), "Likes"]
                             ]
                         }
-                        primaryText: "Setup guide"
+                        primaryText: colorful.soundcloudLinked ? "Reconnect" : "Sign in"
                         extraVisible: !colorful.soundcloudLinked
-                        onPrimaryRequested: colorful.openSoundCloudSetupGuide()
+                        onPrimaryRequested: colorful.startSoundCloudBrowserLogin()
                         onSecondaryRequested: colorful.unlinkSoundCloud()
+                        Text {
+                            visible: !colorful.soundcloudLinked; Layout.fillWidth: true
+                            text: "Manual fallback — paste a logged-in SoundCloud API request copied as cURL:"
+                            color: Qt.rgba(1, 1, 1, 0.34); wrapMode: Text.WordWrap
+                            font.pixelSize: Math.round(10 * colorful.textScale)
+                        }
                         RowLayout {
                             visible: !colorful.soundcloudLinked; Layout.fillWidth: true; spacing: 8
                             ScrollView {

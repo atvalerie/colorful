@@ -39,11 +39,13 @@ public:
     void setSource(const QUrl &source, qint64 startPositionMs, bool autoplay,
                    std::optional<double> replayGainDb = std::nullopt,
                    std::optional<double> peakAmplitude = std::nullopt,
-                   const QString &userAgent = {}, const QString &referrer = {});
+                   const QString &userAgent = {}, const QString &referrer = {},
+                   const QStringList &httpHeaders = {});
     void prepareNextSource(const QUrl &source,
                            std::optional<double> replayGainDb = std::nullopt,
                            std::optional<double> peakAmplitude = std::nullopt,
-                           const QString &userAgent = {}, const QString &referrer = {});
+                           const QString &userAgent = {}, const QString &referrer = {},
+                           const QStringList &httpHeaders = {});
     void clearPreparedNext();
     bool playPreparedNext(bool autoplay);
     bool hasPreparedNext() const { return !m_preparedSource.isEmpty(); }
@@ -93,7 +95,8 @@ private:
     void applyAudioProcessing();
     QString playbackOptions(std::optional<double> replayGainDb,
                             std::optional<double> peakAmplitude,
-                            const QString &userAgent = {}, const QString &referrer = {}) const;
+                            const QString &userAgent = {}, const QString &referrer = {},
+                            const QStringList &httpHeaders = {}) const;
     void applyCurrentNormalization();
     static void handleWakeup(void *userData);
 

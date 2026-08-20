@@ -16,7 +16,20 @@ const YOUTUBE_REQUEST_TIMEOUT_MS = 15_000;
 let accessTokenProvider: (() => Promise<string>) | null = null;
 let browserHeadersProvider: (() => Promise<Record<string, string>>) | null = null;
 let visitorIdPromise: Promise<string> | null = null;
-let bootstrapPromise: Promise<JsonObject> | null = null;
+type YouTubeMusicBootstrapState = {
+  config: JsonObject;
+};
+
+export interface YouTubeMusicPlaybackBootstrap {
+  context: JsonObject;
+  clientNumber: string;
+  clientVersion: string;
+  userAgent: string;
+  visitorData: string;
+  bindGvsTokenToVideoId: boolean;
+}
+
+let bootstrapPromise: Promise<YouTubeMusicBootstrapState> | null = null;
 let signatureTimestampPromise: Promise<number> | null = null;
 let playerScriptUrlPromise: Promise<URL> | null = null;
 const SEARCH_FILTERS = {
@@ -279,17 +292,18 @@ export function parseYouTubeMusicBootstrap(html: string): JsonObject {
   return merged;
 }
 
-async function youtubeMusicBootstrap(): Promise<JsonObject> {
+async function youtubeMusicBootstrap(): Promise<YouTubeMusicBootstrapState> {
   if (!bootstrapPromise) {
     bootstrapPromise = fetch(MUSIC_ORIGIN, {
       headers: { "User-Agent": YOUTUBE_MUSIC_USER_AGENT },
     }).then(async (response) => {
       if (!response.ok) throw new Error(`YouTube Music bootstrap returned HTTP ${response.status}`);
-      const config = parseYouTubeMusicBootstrap(await response.text());
+      const html = await response.text();
+      const config = parseYouTubeMusicBootstrap(html);
       if (!string(config.INNERTUBE_CLIENT_VERSION) || !Object.keys(object(config.INNERTUBE_CONTEXT)).length) {
         throw new Error("YouTube Music bootstrap did not contain an Innertube client context");
       }
-      return config;
+      return { config };
     }).catch((error) => {
       bootstrapPromise = null;
       throw error;
@@ -306,7 +320,7 @@ export function parseYouTubeSignatureTimestamp(script: string): number | null {
 async function youtubeMusicPlayerScriptUrl(): Promise<URL> {
   if (!playerScriptUrlPromise) {
     playerScriptUrlPromise = youtubeMusicBootstrap().then((bootstrap) => {
-      const playerConfigs = object(bootstrap.WEB_PLAYER_CONTEXT_CONFIGS);
+      const playerConfigs = object(bootstrap.config.WEB_PLAYER_CONTEXT_CONFIGS);
       const playerConfig = Object.values(playerConfigs).map(object)
         .find((config) => string(config.jsUrl));
       const relativeUrl = string(playerConfig?.jsUrl);
@@ -346,9 +360,36 @@ export async function youtubeMusicSignatureTimestamp(): Promise<number> {
 
 export async function youtubeMusicVisitorData(): Promise<string> {
   const bootstrap = await youtubeMusicBootstrap();
-  const visitor = string(object(object(bootstrap.INNERTUBE_CONTEXT).client).visitorData);
+  const visitor = string(object(object(bootstrap.config.INNERTUBE_CONTEXT).client).visitorData);
   if (!visitor) throw new Error("YouTube Music bootstrap did not contain visitor data");
   return visitor;
+}
+
+export async function youtubeMusicPlaybackBootstrap(): Promise<YouTubeMusicPlaybackBootstrap> {
+  const bootstrap = await youtubeMusicBootstrap();
+  const context = object(bootstrap.config.INNERTUBE_CONTEXT);
+  const client = object(context.client);
+  const clientName = string(client.clientName);
+  const clientVersion = string(client.clientVersion);
+  const userAgent = string(client.userAgent) || YOUTUBE_MUSIC_USER_AGENT;
+  const visitorData = string(client.visitorData);
+  const clientNumber = String(bootstrap.config.INNERTUBE_CONTEXT_CLIENT_NAME ?? "").trim();
+  if (clientName !== "WEB_REMIX" || !clientVersion || !visitorData || !/^\d+$/.test(clientNumber)) {
+    throw new Error("YouTube Music bootstrap did not contain a complete WEB_REMIX client identity");
+  }
+  const playerConfigs = object(bootstrap.config.WEB_PLAYER_CONTEXT_CONFIGS);
+  const bindGvsTokenToVideoId = Object.values(playerConfigs).some((value) => {
+    const flags = new URLSearchParams(string(object(value).serializedExperimentFlags));
+    return flags.getAll("html5_generate_content_po_token").includes("true");
+  });
+  return {
+    context,
+    clientNumber,
+    clientVersion,
+    userAgent,
+    visitorData,
+    bindGvsTokenToVideoId,
+  };
 }
 
 export function refreshYouTubeMusicPlayerState(): void {
@@ -561,14 +602,18 @@ export async function youtubei(endpoint: YouTubeiEndpoint, body: JsonObject,
     }
   }
   const browserCookie = browserHeaders.cookie ?? "";
+  const liveBootstrap = browserCookie ? await youtubeMusicBootstrap() : null;
+  const liveClient = object(object(liveBootstrap?.config.INNERTUBE_CONTEXT).client);
   const browserAuthUser = browserHeaders["x-goog-authuser"] ?? "0";
   if (accountRequired && !browserCookie && !accessToken) throw new Error("Connect your YouTube Music account first");
   const visitor = browserHeaders["x-goog-visitor-id"] ?? ((accessToken || browserCookie) ? await visitorId() : "");
   const retainedIdentityHeaders = Object.fromEntries(Object.entries(browserHeaders).filter(([name]) =>
     (name.startsWith("x-goog-") || name.startsWith("x-youtube-"))
       && name !== "x-goog-authuser" && name !== "x-goog-visitor-id"));
-  const browserClientVersion = browserHeaders["x-youtube-client-version"] || clientVersion();
-  const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json${browserCookie ? `&key=${MUSIC_API_KEY}` : ""}`, {
+  const browserClientVersion = string(liveClient.clientVersion)
+    || browserHeaders["x-youtube-client-version"] || clientVersion();
+  const apiKey = string(liveBootstrap?.config.INNERTUBE_API_KEY) || MUSIC_API_KEY;
+  const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json${browserCookie ? `&key=${apiKey}` : ""}`, {
     method: "POST",
     signal: AbortSignal.timeout(YOUTUBE_REQUEST_TIMEOUT_MS),
     headers: {

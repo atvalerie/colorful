@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mapYouTubePlayerTrack } from "../src/youtube";
+import { applyYouTubePoToken } from "../src/youtube-pot";
 import { buildYouTubePlayerRequest, buildYouTubeTvDowngradedPlayerRequest, buildYouTubeWebSafariPlayerRequest, parseYouTubePlayerResponse, selectYouTubeAudioFormat,
   selectYouTubeCipheredAudioFormat, youtubeBrowserIdentity } from "../src/youtube-player";
 
@@ -76,28 +77,47 @@ describe("YouTube Music mapping", () => {
     });
   });
 
-  test("builds the typed Android VR player request without browser tracking fields", () => {
-    const plan = buildYouTubePlayerRequest("abcdefghijk", "public-visitor", 20653);
-    expect(plan.url).toBe("https://www.youtube.com/youtubei/v1/player?prettyPrint=false");
+  test("builds the WEB_REMIX player request used with a separate GVS token", () => {
+    const plan = buildYouTubePlayerRequest("abcdefghijk", 20653, {
+      context: { client: {
+        clientName: "WEB_REMIX", clientVersion: "1.20260818.08.00",
+        userAgent: "colorful-browser", visitorData: "public-visitor",
+      } },
+      clientNumber: "67",
+      clientVersion: "1.20260818.08.00",
+      userAgent: "colorful-browser",
+      visitorData: "public-visitor",
+      bindGvsTokenToVideoId: true,
+    });
+    expect(plan.url).toBe("https://music.youtube.com/youtubei/v1/player?prettyPrint=false");
     expect(plan.headers).toEqual(expect.objectContaining({
-      "X-Youtube-Client-Name": "28",
-      "X-Youtube-Client-Version": "1.65.10",
+      "X-Youtube-Client-Name": "67",
+      "X-Youtube-Client-Version": "1.20260818.08.00",
       "X-Goog-Visitor-Id": "public-visitor",
+      Origin: "https://music.youtube.com",
     }));
     expect(plan.body).toEqual(expect.objectContaining({
       videoId: "abcdefghijk",
-      contentCheckOk: true,
-      racyCheckOk: true,
       playbackContext: { contentPlaybackContext: {
         html5Preference: "HTML5_PREF_WANTS",
         signatureTimestamp: 20653,
       } },
     }));
     expect(plan.body.context.client).toEqual(expect.objectContaining({
-      clientName: "ANDROID_VR",
-      clientVersion: "1.65.10",
+      clientName: "WEB_REMIX",
+      clientVersion: "1.20260818.08.00",
       visitorData: "public-visitor",
     }));
+  });
+
+  test("attaches a GVS proof token without disturbing the deciphered media URL", () => {
+    const uri = applyYouTubePoToken("https://media.test/videoplayback?itag=251&n=solved", "proof-token");
+    const url = new URL(uri);
+    expect(url.searchParams.get("itag")).toBe("251");
+    expect(url.searchParams.get("n")).toBe("solved");
+    expect(url.searchParams.get("pot")).toBe("proof-token");
+    expect(() => applyYouTubePoToken("http://media.test/videoplayback", "proof-token"))
+      .toThrow("must use HTTPS");
   });
 
   test("builds the TV downgraded fallback player request", () => {

@@ -189,11 +189,13 @@ public:
     Q_INVOKABLE void cancelLogin();
     Q_INVOKABLE void unlink();
     Q_INVOKABLE void startYouTubeLogin(const QString &clientId, const QString &clientSecret);
+    Q_INVOKABLE void startYouTubeBrowserLogin();
     Q_INVOKABLE void connectYouTubeBrowserSession(const QString &headers);
     Q_INVOKABLE void unlinkYouTube();
     Q_INVOKABLE void loadYouTubeHub(bool refresh = false);
     Q_INVOKABLE void openYouTubeSetupGuide();
     Q_INVOKABLE void connectSoundCloudSession(const QString &request);
+    Q_INVOKABLE void startSoundCloudBrowserLogin();
     Q_INVOKABLE void unlinkSoundCloud();
     Q_INVOKABLE void loadSoundCloudHub(bool refresh = false);
     Q_INVOKABLE void loadMoreSoundCloud(const QString &section);
@@ -345,6 +347,7 @@ private:
     void setStatus(const QString &message);
     void notify(const QString &message, const QString &kind = QStringLiteral("info"));
     void setEntitlementWarning(bool visible, const QString &message = {});
+    void startBrowserLogin(const QString &provider);
     void playTrackAt(int index);
     void playSingleTrack(const QVariantMap &track);
     void playTracks(const QVariantList &tracks, bool preserveProvidedOrder = false);
@@ -517,6 +520,7 @@ private:
     bool m_autoplayEnabled = true;
     QString m_streamQuality = QStringLiteral("best");
     bool m_soundcloudOriginalDownloads = false;
+    bool m_reconcilingDownloads = false;
     QString m_repeatMode = QStringLiteral("off");
     bool m_shuffleEnabled = false;
     QString m_playbackError;

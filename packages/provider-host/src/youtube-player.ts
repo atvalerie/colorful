@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 import { debugLog } from "./debug";
+import type { YouTubeMusicPlaybackBootstrap } from "./youtube-music";
+
+type JsonObject = Record<string, unknown>;
 
 export interface YouTubePlayerFormat {
   itag?: unknown;
@@ -62,22 +65,7 @@ export interface YouTubePlaybackSource {
 }
 
 export interface YouTubePlayerRequest {
-  context: {
-    client: {
-      clientName: "ANDROID_VR";
-      clientVersion: string;
-      deviceMake: string;
-      deviceModel: string;
-      androidSdkVersion: number;
-      userAgent: string;
-      osName: "Android";
-      osVersion: string;
-      hl: string;
-      timeZone: string;
-      utcOffsetMinutes: number;
-      visitorData: string;
-    };
-  };
+  context: Record<string, unknown>;
   videoId: string;
   playbackContext: {
     contentPlaybackContext: {
@@ -85,8 +73,6 @@ export interface YouTubePlayerRequest {
       signatureTimestamp: number;
     };
   };
-  contentCheckOk: true;
-  racyCheckOk: true;
 }
 
 export interface YouTubePlayerRequestPlan {
@@ -115,8 +101,6 @@ export interface YouTubeCipheredAudioFormat {
 
 const MUSIC_ORIGIN = "https://music.youtube.com";
 const PLAYER_ORIGIN = "https://www.youtube.com";
-const ANDROID_VR_CLIENT_VERSION = "1.65.10";
-const ANDROID_VR_USER_AGENT = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_CLIENT_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
 const WEB_SAFARI_CLIENT_VERSION = "2.20260708.00.00";
 const WEB_SAFARI_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)";
 const TV_DOWNGRADED_CLIENT_VERSION = "5.20260707";
@@ -156,40 +140,26 @@ export function youtubeBrowserIdentity(headers: Record<string, string>, fallback
 
 export function buildYouTubePlayerRequest(
   videoId: string,
-  visitorData: string,
   signatureTimestamp: number,
+  bootstrap: YouTubeMusicPlaybackBootstrap,
 ): YouTubePlayerRequestPlan {
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) throw new Error("Invalid YouTube video ID");
-  if (!visitorData.trim()) throw new Error("YouTube Music player requires visitor data");
+  if (!bootstrap.visitorData.trim()) throw new Error("YouTube Music player requires visitor data");
   if (!Number.isSafeInteger(signatureTimestamp) || signatureTimestamp <= 0) {
     throw new Error("YouTube Music player requires a valid signature timestamp");
   }
-  const client: YouTubePlayerRequest["context"]["client"] = {
-    clientName: "ANDROID_VR",
-    clientVersion: ANDROID_VR_CLIENT_VERSION,
-    deviceMake: "Oculus",
-    deviceModel: "Quest 3",
-    androidSdkVersion: 32,
-    userAgent: ANDROID_VR_USER_AGENT,
-    osName: "Android",
-    osVersion: "12L",
-    hl: "en",
-    timeZone: "UTC",
-    utcOffsetMinutes: 0,
-    visitorData,
-  };
   return {
-    url: `${PLAYER_ORIGIN}/youtubei/v1/player?prettyPrint=false`,
+    url: `${MUSIC_ORIGIN}/youtubei/v1/player?prettyPrint=false`,
     headers: {
       "Content-Type": "application/json",
-      "User-Agent": ANDROID_VR_USER_AGENT,
-      "X-Youtube-Client-Name": "28",
-      "X-Youtube-Client-Version": ANDROID_VR_CLIENT_VERSION,
-      "X-Goog-Visitor-Id": visitorData,
-      Origin: PLAYER_ORIGIN,
+      "User-Agent": bootstrap.userAgent,
+      "X-Youtube-Client-Name": bootstrap.clientNumber,
+      "X-Youtube-Client-Version": bootstrap.clientVersion,
+      "X-Goog-Visitor-Id": bootstrap.visitorData,
+      Origin: MUSIC_ORIGIN,
     },
     body: {
-      context: { client },
+      context: bootstrap.context,
       videoId,
       playbackContext: {
         contentPlaybackContext: {
@@ -197,19 +167,17 @@ export function buildYouTubePlayerRequest(
           signatureTimestamp,
         },
       },
-      contentCheckOk: true,
-      racyCheckOk: true,
     },
-    mediaUserAgent: ANDROID_VR_USER_AGENT,
+    mediaUserAgent: bootstrap.userAgent,
   };
 }
 
 export async function requestYouTubePlayer(
   videoId: string,
-  visitorData: string,
   signatureTimestamp: number,
+  bootstrap: YouTubeMusicPlaybackBootstrap,
 ): Promise<{ document: unknown; mediaUserAgent: string }> {
-  const plan = buildYouTubePlayerRequest(videoId, visitorData, signatureTimestamp);
+  const plan = buildYouTubePlayerRequest(videoId, signatureTimestamp, bootstrap);
   const response = await fetch(plan.url, {
     method: "POST",
     headers: plan.headers,
@@ -479,6 +447,10 @@ function playabilityError(response: YouTubePlayerResponse): string | null {
   const reason = text(response.playabilityStatus?.reason);
   const messages = array(response.playabilityStatus?.messages).map(text).filter(Boolean).join(" ");
   return `YouTube Music playback is ${status.toLowerCase()}${reason || messages ? `: ${reason || messages}` : ""}`;
+}
+
+export function youtubePlayerRequiresLogin(document: unknown): boolean {
+  return text((object(document) as YouTubePlayerResponse).playabilityStatus?.status) === "LOGIN_REQUIRED";
 }
 
 export function selectYouTubeAudioFormat(document: unknown): YouTubeAudioFormat {

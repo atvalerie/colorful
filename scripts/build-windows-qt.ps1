@@ -3,7 +3,8 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
     [string]$QtRoot = $env:COLORFUL_QT_ROOT,
-    [string]$MpvRoot = $env:COLORFUL_MPV_ROOT
+    [string]$MpvRoot = $env:COLORFUL_MPV_ROOT,
+    [string]$BuildDirectory
 )
 
 # WinRM promotes native stderr (Cargo/CMake progress included) to the
@@ -70,7 +71,16 @@ if (-not $cargo) {
 }
 
 $profile = if ($Configuration -eq 'Release') { 'release' } else { 'debug' }
-$buildDirectory = Join-Path $repoRoot 'build\windows-qt'
+$buildDirectory = if ($BuildDirectory) {
+    $candidate = if ([System.IO.Path]::IsPathRooted($BuildDirectory)) {
+        $BuildDirectory
+    } else {
+        Join-Path $repoRoot $BuildDirectory
+    }
+    [System.IO.Path]::GetFullPath($candidate)
+} else {
+    Join-Path $repoRoot 'build\windows-qt'
+}
 $vulkanRuntime = Join-Path $env:USERPROFILE 'colorful-deps\vulkan\vulkan-1.dll'
 if (-not (Test-Path $vulkanRuntime)) {
     throw 'The Vulkan loader was not found. Run scripts\provision-windows-qt.ps1 first.'

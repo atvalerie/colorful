@@ -164,7 +164,13 @@ export function parseYouTubeBrowserHeaders(raw: string): Record<string, string> 
 }
 
 export async function connectYouTubeBrowser(raw: string): Promise<void> {
-  const parsed = parseYouTubeBrowserHeaders(raw.trim());
+  await connectYouTubeBrowserHeaders(parseYouTubeBrowserHeaders(raw.trim()));
+}
+
+export async function connectYouTubeBrowserHeaders(input: Record<string, string>): Promise<void> {
+  const parsed = Object.fromEntries(Object.entries(input)
+    .map(([name, value]) => [name.trim().toLowerCase(), value.trim()])
+    .filter(([name, value]) => Boolean(name && value)));
   if (!parsed.cookie) throw new Error("The copied request is missing its Cookie header");
   if (!parsed["x-goog-authuser"]) throw new Error("The copied request is missing X-Goog-AuthUser; copy a logged-in /browse request");
   if (!/(?:^|;\s*)__Secure-3PAPISID=/.test(parsed.cookie))

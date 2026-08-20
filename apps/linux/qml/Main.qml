@@ -1229,6 +1229,11 @@ ApplicationWindow {
 
                                 Item {
                                     id: playerArtistLane
+                                    readonly property var artistItems: (window.now.artistCredits || []).length > 0
+                                        ? window.now.artistCredits
+                                        : (window.now.artists || []).map(function(name) {
+                                            return { id: "", name: name }
+                                        })
                                     anchors.left: parent.left
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
@@ -1243,10 +1248,10 @@ ApplicationWindow {
                                         id: artistCreditLinks
                                         anchors.left: parent.left
                                         anchors.verticalCenter: parent.verticalCenter
-                                        visible: (window.now.artistCredits || []).length > 0
+                                        visible: playerArtistLane.artistItems.length > 0
                                         spacing: 4
                                         Repeater {
-                                            model: window.now.artistCredits || []
+                                            model: playerArtistLane.artistItems
                                             delegate: Row {
                                                 required property var modelData
                                                 required property int index
@@ -1259,7 +1264,7 @@ ApplicationWindow {
                                                     onActivated: window.openTrackArtist(window.now, index)
                                                 }
                                                 Text {
-                                                    visible: index + 1 < (window.now.artistCredits || []).length
+                                                    visible: index + 1 < playerArtistLane.artistItems.length
                                                     text: ","
                                                     color: window.mutedInk
                                                     font.pixelSize: Math.round(11 * colorful.textScale)
@@ -1915,9 +1920,11 @@ ApplicationWindow {
 
     Popup {
         id: authPopup
+        readonly property bool browserFlow: (colorful.authProvider === "youtube" || colorful.authProvider === "soundcloud")
+                                            && colorful.verificationUrl.length === 0
         anchors.centerIn: Overlay.overlay
         width: 420
-        height: 380
+        height: browserFlow ? 300 : 380
         modal: true
         closePolicy: Popup.NoAutoClose
         visible: colorful.authPending
@@ -1935,23 +1942,27 @@ ApplicationWindow {
             spacing: 13
 
             Text {
-                text: colorful.authProvider === "youtube" ? "Connect YouTube Music" : "Connect TIDAL"
+                text: colorful.authProvider === "youtube" ? "Connect YouTube Music"
+                      : colorful.authProvider === "soundcloud" ? "Connect SoundCloud" : "Connect TIDAL"
                 color: window.ink
                 font.weight: Font.Bold
                 font.pixelSize: Math.round(22 * colorful.textScale)
             }
             Text {
                 Layout.fillWidth: true
-                text: colorful.authProvider === "youtube"
-                      ? "Approve your own Google OAuth application, then return here. Your password never touches colorful."
-                      : "Approve colorful in TIDAL, then return here. Your password never touches this app."
+                text: authPopup.browserFlow
+                      ? "Finish signing in inside the isolated browser window. colorful watches only this temporary window and never receives your password."
+                      : colorful.authProvider === "youtube"
+                        ? "Approve your own Google OAuth application, then return here. Your password never touches colorful."
+                        : "Approve colorful in TIDAL, then return here. Your password never touches this app."
                 color: window.mutedInk
                 wrapMode: Text.WordWrap
                 font.pixelSize: Math.round(13 * colorful.textScale)
             }
             Rectangle {
+                visible: !authPopup.browserFlow
                 Layout.fillWidth: true
-                Layout.preferredHeight: 86
+                Layout.preferredHeight: visible ? 86 : 0
                 Layout.topMargin: 4
                 color: Qt.rgba(1, 1, 1, 0.045)
                 border.width: 1
@@ -1980,6 +1991,7 @@ ApplicationWindow {
                 }
             }
             ColorButton {
+                visible: !authPopup.browserFlow
                 Layout.fillWidth: true
                 text: colorful.authProvider === "youtube" ? "Open Google to approve" : "Open TIDAL to approve"
                 onClicked: colorful.openVerificationUrl()
@@ -1991,9 +2003,12 @@ ApplicationWindow {
                 onClicked: colorful.cancelLogin()
             }
             Text {
+                Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
-                text: "Waiting for approval…"
+                text: authPopup.browserFlow ? colorful.statusMessage : "Waiting for approval…"
                 color: window.mutedInk
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
                 font.pixelSize: Math.round(11 * colorful.textScale)
             }
             Item { Layout.fillHeight: true }
