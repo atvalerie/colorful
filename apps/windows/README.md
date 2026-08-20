@@ -80,7 +80,7 @@ shown in Settings diagnostics, and used for every artifact and installer
 registry entry. Increment it once for every setup release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\set-version.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File .\scripts\set-version.ps1 -Version 1.2.3
 powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1 -Installer
 ```
 
@@ -107,7 +107,7 @@ push an annotated `vMAJOR.MINOR.PATCH` tag matching `VERSION`. The GitHub
 Actions release workflow builds both platforms and creates one GitHub Release
 containing all four desktop artifacts. A platform failure prevents publication.
 
-Every non-documentation push to `main` also runs the desktop dev-build workflow.
+Every non-documentation push to `dev` also runs the desktop dev-build workflow.
 It produces 14-day Windows and Linux artifacts labelled
 `MAJOR.MINOR.PATCH-dev.RUN+COMMIT` inside the application; artifact and
 installer filenames carry the same `dev.RUN` marker. A manual workflow run can

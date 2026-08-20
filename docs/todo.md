@@ -5,10 +5,10 @@ file unless it provides necessary context for the next milestone.
 
 ## Next milestone: desktop distribution
 
-- test Linux AppImage and portable AppDir packages on clean machines rather
-  than development hosts;
-- validate and publish Linux artifacts from the containerized Ubuntu 22.04
-  builder with its glibc 2.35 ceiling;
+- continue testing Linux AppImage and portable archive releases on clean
+  machines rather than development hosts;
+- keep validating the published Linux artifacts from the containerized Ubuntu
+  22.04 builder with its glibc 2.35 ceiling;
 - test the Windows portable ZIP and a two-version in-place installer upgrade
   in a clean Windows VM;
 - verify bundled playback dependencies, codecs, credential storage, downloads,
@@ -61,19 +61,24 @@ owner's daily-driver platform.
 
 ## iOS native client — next product milestone
 
-- create the SwiftUI/Xcode project and bind the shared Rust core;
-- implement playback with AVFoundation/AVAudioEngine;
-- implement background audio, MPRemoteCommandCenter, and Now Playing metadata;
-- store credentials in Keychain;
-- implement the TIDAL provider slice, native catalog UI, queue, and playback
-  behavior using the shared contracts and the iOS documents;
-- add offline downloads, lyrics, local playlists, and appearance/settings
-  behavior in the order defined by `docs/ios-parity.md`;
-- establish macOS CI, signing, and sideloadable IPA builds.
+- harden AVPlayer ownership, buffering, interruption recovery, route changes,
+  rapid transport commands, and restored queues on physical iPhones;
+- complete the remaining TIDAL account, catalog, library, playlist, and action
+  surfaces using the shared contracts and the iOS documents;
+- expand YouTube Music and SoundCloud account/library support beyond the
+  current public search, catalog, and playback slices;
+- finish provider-neutral local playlists, autoplay, settings, action
+  feedback, and provider/account edge states in the order defined by
+  `docs/ios-parity.md`;
+- harden offline downloads and exported-file metadata, including explicit
+  LiveContainer compatibility and storage-cleanup behavior;
+- validate the existing unsigned simulator and device-IPA CI artifacts, then
+  add signed distribution or TestFlight only when signing material and an
+  Apple Developer Program workflow are available.
 
-The iOS client should be tested on the daily-driver phone as soon as the first
-native playback slice is buildable. Android remains a later product-parity
-track and must not gate iOS work.
+The iOS client should continue to be tested on the daily-driver phone as its
+native playback and provider slices mature. Android remains a later
+product-parity track and must not gate iOS work.
 
 ## Multi-device sync
 

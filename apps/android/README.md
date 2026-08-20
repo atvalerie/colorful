@@ -65,6 +65,6 @@ logs or screenshots.
 Android remains an engineering vertical slice with a later product-parity
 track: product UI, complete catalog navigation, YouTube Music and SoundCloud,
 provider-neutral playlists, downloads and storage controls, lyrics caching,
-EQ/normalization, and device/emulator playback restoration tests. iOS is being
-started independently as the owner's daily-driver client; both platforms
-continue to reuse the shared engine contracts.
+EQ/normalization, and device/emulator playback restoration tests. iOS is now
+the active native product client for the owner's daily-driver platform; both
+platforms continue to reuse the shared engine contracts.

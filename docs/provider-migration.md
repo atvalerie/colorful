@@ -41,8 +41,9 @@ TIDAL web/device application clients are included as overridable defaults.
 ### Credentials
 
 The device flow stays, but the refresh token is written directly to Android
-Keystore, iOS Keychain, Windows Credential Locker, or Linux Secret Service. The
-database stores only a credential handle and non-secret account metadata.
+Keystore, iOS Keychain, the Windows DPAPI-backed helper, or Linux Secret
+Service. The database stores only a credential handle and non-secret account
+metadata.
 
 Public first-party web/device clients may be shipped as overridable defaults.
 Any provider configuration whose redistribution is not permitted must instead
@@ -125,10 +126,13 @@ Filtered YouTube Music search uses the current Songs and Videos filter
 parameters and independently follows each native `musicShelfContinuation`.
 
 Google currently rejects custom-client OAuth tokens on YouTube Music's private
-Innertube endpoints. Linux therefore accepts a user-copied browser session and
-stores its reduced header set in Secret Service; it never crosses through the
-Rust database. The host exposes ordinary playlist browse continuations and the
-Music `next` endpoint's server-side shuffle continuations to the desktop queue,
+Innertube endpoints. The desktop client therefore offers an isolated
+Chromium-family browser sign-in and captures the minimum authenticated request
+headers over loopback. Manual copied-request import remains a fallback. The
+reduced header set is stored in the platform credential service and never
+crosses through the Rust database. The host exposes ordinary playlist browse
+continuations and the Music `next` endpoint's server-side shuffle continuations
+to the desktop queue,
 so large playlists start promptly and refill near the tail. Android still needs
 a native account-session capture and Keystore implementation.
 
@@ -137,9 +141,10 @@ SoundCloud public access bootstraps from the web client's `apiClient` entry in
 rediscovered after an authorization rejection; geo, privacy, and experiment
 hydration are ignored. Public tracks resolve directly to SoundCloud's signed
 progressive or HLS transcoding URL. No SoundCloud login credential is required
-for public playback. When the user explicitly imports a copied API request,
-only its OAuth token is retained in Secret Service; copied URLs, cookies,
-DataDome identifiers, and browser fingerprint headers are discarded.
+for public playback. Account sign-in uses the same isolated-browser flow to
+capture the OAuth token; importing a copied API request remains a fallback.
+Only that token is retained in the platform credential service; copied URLs,
+cookies, DataDome identifiers, and browser fingerprint headers are discarded.
 Authenticated home data comes from SoundCloud's mixed-selection shelves.
 System-playlist URNs are retained as stable catalog identities and resolved to
 their complete track lists only when opened. The first liked-track ID page and

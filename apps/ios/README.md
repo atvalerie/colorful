@@ -50,14 +50,14 @@ unable to resolve its audio tracks, so export failure never invalidates a
 playable offline download. Standalone export from LiveContainer remains a
 separate compatibility limitation.
 
-Planned stack: Swift, SwiftUI, AVFoundation/AVAudioEngine, Keychain, background
-audio mode, MPRemoteCommandCenter, and MPNowPlayingInfoCenter.
-
-The iOS target reuses the shared engine contracts and uses Android and desktop
-behavior as references. The first milestone is a real TIDAL playback slice on
-the daily-driver iPhone: SwiftUI, Keychain, AVFoundation/AVAudioEngine,
-background audio, Now Playing controls, queue restoration, and native device
-testing. Android product parity is not a prerequisite.
+The current shell uses Swift, SwiftUI, AVFoundation/AVPlayer, AVAudioSession,
+Keychain, background audio mode, MPRemoteCommandCenter, and
+MPNowPlayingInfoCenter. It reuses the shared engine contracts and uses Android
+and desktop behavior as references. The first TIDAL playback slice, public
+YouTube Music/SoundCloud search and playback, native queue/library projections,
+lyrics, and the first offline download flows are connected. Physical-device
+validation, provider account/library expansion, and remaining parity work are
+still in progress; Android product parity is not a prerequisite.
 
 To build the shell on macOS, see [`../../docs/ios-builds.md`](../../docs/ios-builds.md).
 

@@ -1,43 +1,32 @@
-# iOS builds without a local Mac
+# iOS CI on hosted macOS
 
-**Status:** Planning note. The repository has no Xcode project and no macOS CI
-workflow yet.
+**Status:** Implemented for unsigned simulator and device builds.
 
-The repository can be edited on Linux, but the final iOS compile, codesign, and
-device archive requires Xcode on macOS.
+The repository contains the native project at `apps/ios/Colorful.xcodeproj`.
+Because compiling and archiving it requires Xcode,
+`.github/workflows/ios-build.yml` runs the iOS build on GitHub's pinned
+`macos-14` image.
 
-## Recommended initial setup
+## Current workflow
 
-Use GitHub Actions with a hosted `macos-latest` runner for the first unsigned
-simulator builds and compile checks. GitHub currently maps standard
-`macos-latest` to arm64; pin a specific image label once the project depends on
-a particular Xcode/SDK combination. Once signing credentials and provisioning
-are available, the same workflow can archive a signed IPA. Keep certificates,
-profiles, and passwords in encrypted CI secrets and never in Git.
+For relevant pushes to `dev`, pull requests, and manual runs, CI:
 
-Codemagic and Bitrise are good alternatives when managed mobile signing and
-artifact handling are more useful than a generic CI workflow. Cirrus CI also
-offers Apple Silicon macOS VMs. Xcode Cloud is attractive later, but its setup
-requires Apple Developer Program enrollment, an App Store Connect app record,
-a remotely hosted Git repository, and initial workflow configuration through
-Xcode.
+- builds `colorful-core` for the matching Apple simulator target;
+- builds and uploads an unsigned simulator `.app`;
+- builds `colorful-core` for `aarch64-apple-ios`;
+- archives and uploads an unsigned device IPA; and
+- updates the `dev-nightly` prerelease IPA after successful `dev` pushes.
 
-## Important limitation
+The workflow keeps signing disabled and does not require certificates,
+provisioning profiles, Apple-account credentials, or other signing secrets.
+See [iOS builds](ios-builds.md) for local commands, artifact details, and the
+nightly download URL.
 
-Cloud macOS solves compilation; it does not remove Apple's signing and device
-provisioning rules. A free Personal Team is awkward to automate because its
-short-lived profiles are normally managed interactively by Xcode. For weekly
-sideloading, expect either occasional access to a real/remote Mac plus a
-sideloading tool, or use paid Developer Program signing/TestFlight when the app
-is mature enough to justify it.
+## Signing limitation
 
-Do not build a signing workflow until the iOS target exists. The first CI file
-should be an unsigned simulator build so it cannot leak signing material.
-
-## References
-
-- [GitHub-hosted macOS runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
-- [Codemagic signed native iOS builds](https://docs.codemagic.io/yaml-quick-start/first-signed-build/)
-- [Bitrise iOS deployment](https://docs.bitrise.io/en/bitrise-ci/deploying/ios-deployment/deploying-an-ios-app-to-bitrise-io.html)
-- [Cirrus CI macOS VMs](https://cirrus-ci.org/guide/macOS/)
-- [Xcode Cloud setup requirements](https://developer.apple.com/documentation/xcode/setting-up-your-project-to-use-xcode-cloud)
+An unsigned IPA is useful for compile validation, import-based containers, and
+as input to a separate local signing step, but it is not directly installable
+through SpringBoard. Direct device installation still requires Xcode-managed
+signing or an appropriate Apple Developer Program certificate and provisioning
+profile. If CI signing is added later, all signing material must remain in
+encrypted CI secrets and out of Git.

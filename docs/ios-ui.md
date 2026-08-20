@@ -1,6 +1,6 @@
 # iOS UI and design system
 
-**Status:** Design baseline for the native iOS client, 2026-08-16.
+**Status:** Design baseline for the native iOS client, reviewed 2026-08-20.
 
 The iOS client should feel unmistakably like colorful while respecting the
 interaction patterns of iOS. It is a native SwiftUI product with a shared

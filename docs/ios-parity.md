@@ -1,6 +1,6 @@
 # iOS parity and implementation matrix
 
-**Status:** Working matrix for the iOS-first milestone, 2026-08-16.
+**Status:** Working matrix for the iOS-first milestone, reviewed 2026-08-20.
 
 This matrix distinguishes current desktop behavior from the iOS target. It is
 not a promise that every desktop feature belongs in the first phone release.
@@ -8,15 +8,15 @@ not a promise that every desktop feature belongs in the first phone release.
 | Area | Current authoritative reference | iOS target | Priority |
 | --- | --- | --- | --- |
 | Desktop shell | Qt Quick/QML under `apps/linux`; shared by Windows | Native SwiftUI shell | P0 |
-| TIDAL authorization | Desktop device link; Android native vertical slice | Device authorization + Keychain | P0 |
-| TIDAL search/catalog/playback | Desktop broad implementation | Search, track, album, artist, playlist, and play | P0 |
+| TIDAL authorization | Desktop device link; Android native vertical slice | Device authorization and Keychain storage implemented | P0 |
+| TIDAL search/catalog/playback | Desktop broad implementation | Native search, track, album, artist, playlist, and playback flows implemented; remaining account/actions depth in progress | P0 |
 | Home feed | Cross-provider shelves ordered by local listening time plus provider recommendations | Local rotation and native TIDAL daily/discovery/new-release shelves implemented | P1 |
 | Combined search | Provider-prioritized desktop search | Native TIDAL, YouTube Music, and SoundCloud track search with provider filtering and listening-prioritized mixed ordering implemented | P1 |
-| Queue | Rust/SQLite queue with duplicates, reorder, shuffle, repeat, autoplay | Same core state with iOS sheet UI | P0 |
-| Library/playlists | Rust/SQLite library and Colorful-owned ordered playlists | Same core state and native editing flows | P0 |
+| Queue | Rust/SQLite queue with duplicates, reorder, shuffle, repeat, autoplay | Core-backed queue sheet, duplicate-safe editing, reorder, repeat, and shuffle implemented; autoplay remains | P0 |
+| Library/playlists | Rust/SQLite library and Colorful-owned ordered playlists | Core-backed library and native playlist create, rename, delete, reorder, removal, and track actions implemented | P0 |
 | Listening history | Globally identified local events and provider aggregates | Implemented from qualified native audible time; physical-device lifecycle verification remains | P0 |
-| Playback | libmpv, prepared-next, gapless, EQ/normalization | AVFoundation native playback foundation; harden buffering, transitions, and physical-device behavior | P0 |
-| System media controls | Linux MPRIS; Windows SMTC | Now Playing + Remote Command Center | P0 |
+| Playback | libmpv, prepared-next, gapless, EQ/normalization | AVPlayer playback foundation implemented; harden buffering, transitions, prepared-next, and physical-device behavior | P0 |
+| System media controls | Linux MPRIS; Windows SMTC | Now Playing and Remote Command Center implemented; physical-device lifecycle verification remains | P0 |
 | Offline downloads | Resumable desktop transfers and standalone `.mka` files | Native background HLS packages, durable Rust job state, offline playback, deletion, and one-action export implemented; LiveContainer package export, physical-device lifecycle, and exported metadata validation remain | P1 |
 | Lyrics | Provider-first, synced, cached, LRCLIB fallback | Native TIDAL user/catalog lookup, synced/plain LRCLIB fallback, Rust-backed successful-result caching, and offline-download prefetch implemented; physical-device offline verification remains | P1 |
 | Appearance | Accent mode, fixed accent, low-data mode, text scale | Dynamic Type plus Colorful accent/low-data policies | P1 |
@@ -26,7 +26,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | SoundCloud | Desktop public/account catalog, playback, downloads | Native mixed public search, track playback, profile pages, and hydrated set pages implemented; account import, home/library, radio, pagination, and downloads remain | P1 |
 | Parties | Linux encrypted party client is current active social slice | Later native participant/host experience | P2 |
 | Device sync | Identity/pairing foundation; merge journal and transport planned | Later, using existing sync/security documents | P2 |
-| Updates/builds | Desktop packaging and GitHub release workflows | Unsigned simulator/device IPA through macOS CI first | P1 |
+| Updates/builds | Desktop packaging and GitHub release workflows | Unsigned simulator app and device IPA build in macOS CI; signed distribution remains | P1 |
 
 ## Source-of-truth rules
 

@@ -1,6 +1,6 @@
 # iOS music-player platform practices
 
-**Status:** Working implementation checklist, 2026-08-16.
+**Status:** Working implementation checklist, reviewed 2026-08-20.
 
 This document turns the expectations of an iPhone music player into concrete
 Colorful rules. It complements [the iOS parity matrix](ios-parity.md): Linux is
@@ -131,8 +131,9 @@ Next P0 hardening before calling playback reliable:
 4. Test lock/unlock, Control Center, AirPods connect/disconnect, phone calls,
    Siri, rapid pause/play, rapid next/previous, seek during buffering, and
    process restoration on a physical iPhone.
-5. Add the remaining Linux parity details in the iOS UI: autoplay, downloads,
-   lyrics, history, action feedback, and provider/account edge states.
+5. Add the remaining Linux parity details in the iOS UI: autoplay, richer
+   action feedback, provider/account edge states, and complete offline-export
+   metadata validation.
 
 ActivityKit Live Activities are a later layer, not a replacement for Now
 Playing. They should be introduced only after the native player has a stable

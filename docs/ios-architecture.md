@@ -1,10 +1,10 @@
 # iOS native architecture
 
-**Status:** Initial implementation contract; shell, TIDAL account/search,
-core snapshot wiring, and the first native TIDAL playback service are
-implemented. Interruption, route, artwork-cache, lifecycle hardening, and
-qualified audible-time history are underway; physical-device validation and
-prepared-next playback remain before playback is considered complete.
+**Status:** Active implementation contract. The SwiftUI shell, Rust state,
+TIDAL account/catalog/playback, public YouTube Music and SoundCloud playback,
+system media controls, qualified listening history, lyrics, and initial offline
+flows are connected. Physical-device hardening, prepared-next playback, and
+provider-account expansion remain.
 
 The iOS target is a native SwiftUI shell around the existing portable Rust
 engine. The shell owns Apple platform behavior; it must not create a second
@@ -35,7 +35,7 @@ The Rust engine owns normalized media identities, queue state, repeat/shuffle,
 library membership, Colorful playlists, history, portable settings, and
 durable offline-job records. The iOS shell owns:
 
-- AVFoundation/AVAudioEngine output, route selection, interruptions, and audio
+- AVFoundation/AVPlayer output, route selection, interruptions, and audio
   session policy;
 - `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter` integration;
 - Keychain credentials and provider authorization UI;

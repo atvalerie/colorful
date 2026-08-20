@@ -29,10 +29,10 @@ Select a request whose headers contain `Authorization: OAuth …`, choose
 **Copy → Copy as cURL**, then paste the complete
    request, and select **Connect session**.
 
-colorful parses the request locally and retains only the OAuth token in Linux
-Secret Service. The URL, cookies, DataDome value, browser fingerprint headers,
-and copied request text are discarded. The token is never written to colorful's
-SQLite database.
+colorful parses the request locally and retains only the OAuth token in the
+operating system credential store. The URL, cookies, DataDome value, browser
+fingerprint headers, and copied request text are discarded. The token is never
+written to colorful's SQLite database.
 
 Treat the copied request like a password while it is on your clipboard. Use
 **Disconnect** to delete the stored token. If SoundCloud expires the session,

@@ -23,7 +23,8 @@ Native UI
 
 Today the Qt desktop client obtains TIDAL, SoundCloud, and YouTube Music data
 through the transitional TypeScript provider host, then plays through libmpv.
-The host runs through Bun on Linux and is compiled into the Windows build.
+Development Linux runs that host through Bun when no compiled helper is present;
+release Linux packages and Windows builds include a compiled provider host.
 Android implements
 its TIDAL authorization, account, search, and source resolution natively and
 plays through Media3. Neither shell sends provider credentials into the Rust
@@ -34,8 +35,10 @@ shell owns credential persistence. TIDAL uses device authorization and stores
 its refresh token in the platform credential service. Desktop YouTube Music
 instead imports a logged-in browser session into Secret Service because Google
 currently rejects custom-client OAuth tokens on its private Music endpoints.
-Desktop SoundCloud may import the OAuth header from the user's own logged-in API
-request; only that token is retained in Secret Service.
+Desktop YouTube Music and SoundCloud can capture the provider session from an
+isolated Chromium-family browser over loopback, and both retain a manual copied-
+request fallback. Only the reduced YouTube header set or SoundCloud OAuth token
+is retained in the platform credential service.
 An Android implementation will store equivalent provider credentials in
 Keystore while reusing the provider request semantics.
 
@@ -96,8 +99,9 @@ This is a migration, not a rewrite performed all at once.
 
 The sync journal, portable cache quotas/eviction, and portable provider
 orchestration remain planned. The desktop party transport is implemented as an
-experimental native shell feature. Linux currently owns the resumable transfer
-worker; the engine persists its provider-neutral job state.
+experimental native shell feature, including encrypted relay transport and
+clock/drift handling. Linux currently owns the resumable transfer worker; the
+engine persists its provider-neutral job state.
 
 ### Native shell
 
@@ -139,7 +143,7 @@ adapters map the same contract onto their platform audio graphs.
 | Android | Kotlin + Jetpack Compose | Media3 session with a custom audio/DSP boundary |
 | Linux | C++ + Qt Quick/QML | embedded libmpv with MPRIS over QtDBus |
 | Windows | C++ + Qt Quick/QML | embedded libmpv over WASAPI with SMTC system controls |
-| iOS | Swift + SwiftUI | AVAudioEngine/AVFoundation + MPNowPlayingInfoCenter |
+| iOS | Swift + SwiftUI | AVPlayer/AVFoundation + MPNowPlayingInfoCenter |
 
 The desktop libmpv backend already covers lossless playback, seeking, prepared-next
 gapless transitions, EQ, and normalization. Android's Media3 service covers
@@ -151,9 +155,10 @@ remain incomplete.
 - Complete: domain contracts, queue state machine, SQLite schema, stable ABI,
   provider fixtures, desktop TIDAL/YouTube Music/SoundCloud alpha, desktop
   downloads/gapless playback/DSP, and the Android TIDAL playback vertical slice.
-- Next: establish the iOS SwiftUI shell and TIDAL playback slice, validate and
-  package the shared Windows desktop build, and migrate more provider behavior
-  away from the Bun host where it directly benefits native clients.
-- Later: Android product parity, iOS provider expansion, encrypted device sync
-  and active-device presence, parties, and the broader iOS cloud
-  build/signing workflow.
+- Current: harden the iOS TIDAL player on physical devices, finish remaining
+  iOS parity and provider-account surfaces, and continue testing the public
+  YouTube Music/SoundCloud adapters. Desktop release packaging, including the
+  compiled provider host, is in the v0.2.x release workflow.
+- Later: Android product parity, encrypted device sync and active-device
+  presence, native/mobile party experiences and direct transports, and signed
+  iOS distribution.
