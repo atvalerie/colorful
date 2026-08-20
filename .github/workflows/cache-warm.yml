@@ -38,7 +38,10 @@ jobs:
           path: |
             ~\Qt\6.8.3\msvc2022_64
             ~\colorful-deps
-          key: windows-desktop-deps-v1-qt-6.8.3
+          key: windows-desktop-deps-v2-qt-6.8.3
+          restore-keys: |
+            windows-desktop-deps-v2-
+            windows-desktop-deps-v1-
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: windows-desktop-dev
@@ -67,3 +70,20 @@ jobs:
           tags: colorful-linux-builder:ubuntu-22.04
           cache-from: type=gha,scope=colorful-linux-builder
           cache-to: type=gha,mode=max,scope=colorful-linux-builder
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/container/cargo
+            .cache/container/target
+            .cache/container/bun
+            .cache/container/linuxdeploy
+          key: linux-desktop-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/linux/Dockerfile') }}
+          restore-keys: |
+            linux-desktop-
+            linux-dev-
+      - name: Warm Linux build cache
+        env:
+          COLORFUL_BUILD_CHANNEL: dev
+          COLORFUL_BUILD_NUMBER: cache
+          COLORFUL_SKIP_LINUX_BUILDER_BUILD: "1"
+        run: ./scripts/package-linux-docker.sh

@@ -64,7 +64,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+      - uses: docker/setup-buildx-action@v3
+      - name: Build cached Linux packaging image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/linux/Dockerfile
+          load: true
+          tags: colorful-linux-builder:ubuntu-22.04
+          cache-from: type=gha,scope=colorful-linux-builder
+          cache-to: type=gha,mode=max,scope=colorful-linux-builder
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/container/cargo
+            .cache/container/target
+            .cache/container/bun
+            .cache/container/linuxdeploy
+          key: linux-desktop-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/linux/Dockerfile') }}
+          restore-keys: |
+            linux-desktop-
+            linux-dev-
       - name: Build AppImage and portable archive
+        env:
+          COLORFUL_SKIP_LINUX_BUILDER_BUILD: "1"
         run: ./scripts/package-linux-docker.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -93,10 +116,12 @@ jobs:
             ~\Qt\6.8.3\msvc2022_64
             ~\colorful-deps
           key: windows-desktop-deps-v2-qt-6.8.3
-          restore-keys: windows-desktop-deps-v2-
+          restore-keys: |
+            windows-desktop-deps-v2-
+            windows-desktop-deps-v1-
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: windows-desktop-release
+          shared-key: windows-desktop-dev
       - name: Install installer compiler
         shell: powershell
         run: choco install innosetup --yes --no-progress

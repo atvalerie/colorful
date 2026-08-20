@@ -3,7 +3,6 @@ name: Desktop dev builds
 on:
   push:
     branches:
-      - main
       - dev
     paths-ignore:
       - "**/*.md"
@@ -96,8 +95,10 @@ jobs:
             .cache/container/target
             .cache/container/bun
             .cache/container/linuxdeploy
-          key: linux-dev-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/linux/Dockerfile') }}
-          restore-keys: linux-dev-
+          key: linux-desktop-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/linux/Dockerfile') }}
+          restore-keys: |
+            linux-desktop-
+            linux-dev-
       - name: Build AppImage and portable archive
         env:
           COLORFUL_SKIP_LINUX_BUILDER_BUILD: "1"
@@ -129,7 +130,10 @@ jobs:
           path: |
             ~\Qt\6.8.3\msvc2022_64
             ~\colorful-deps
-          key: windows-desktop-deps-v1-qt-6.8.3
+          key: windows-desktop-deps-v2-qt-6.8.3
+          restore-keys: |
+            windows-desktop-deps-v2-
+            windows-desktop-deps-v1-
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: windows-desktop-dev
