@@ -13,11 +13,14 @@ replace the store with an expiring encrypted mailbox/session backend before
 putting more than one relay process behind a load balancer; it must not use a
 plaintext database.
 
-The service deliberately does not accept provider credentials, track metadata,
-queue JSON, library records, audio URLs, or plaintext sync/party messages. The
-client must encrypt payloads before using the mailbox or relay. The server sees
-only routing identifiers, capability hashes, frame sizes, timing, and coarse
-connection metadata.
+The service deliberately does not accept plaintext provider credentials, track
+metadata, queue JSON, library records, audio URLs, or plaintext sync/party
+messages. The client must encrypt payloads before using the mailbox or relay.
+An explicitly requested device-to-device credential transfer may pass through
+only as short-lived recipient-bound ciphertext that the service cannot
+distinguish from another opaque envelope. The server sees only routing
+identifiers, capability hashes, frame sizes, timing, and coarse connection
+metadata.
 
 `GET /stats` is intentionally public and aggregate-only. It reports uptime,
 active mailbox/session/connection counts, cumulative allocation/connection

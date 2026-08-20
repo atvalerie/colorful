@@ -16,8 +16,10 @@ client, not a downstream port that must wait for Android feature parity.
   quirks unless iOS constraints require a change. Android and desktop behavior
   remain implementation references and contract tests, not a release gate for
   iOS.
-- Keep the client local-first: provider credentials stay on each device and the
-  shared engine remains useful without a colorful account or mandatory server.
+- Keep the client local-first: provider credentials live in each device's
+  secure store and the shared engine remains useful without a colorful account
+  or mandatory server. A user may explicitly import a compatible credential
+  from a mutually confirmed device when iOS cannot authorize that provider.
 
 ## First useful iOS slice
 

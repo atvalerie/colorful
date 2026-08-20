@@ -39,6 +39,25 @@ request; only that token is retained in Secret Service.
 An Android implementation will store equivalent provider credentials in
 Keystore while reusing the provider request semantics.
 
+Credential acquisition is a shell adapter, not a provider assumption. Desktop
+may launch an isolated Chromium-family profile and observe the provider's own
+authenticated request over loopback DevTools. Standard OAuth providers should
+instead use the platform browser callback (`ASWebAuthenticationSession` on iOS,
+Custom Tabs/App Links on Android, and the system browser on desktop). The
+adapter verifies and stores the resulting provider credential, while catalog
+and playback code consume the same account-session interface. No CDP, browser
+executable, or desktop cookie-capture type may cross that boundary into the
+portable engine or mobile targets. Provider-specific constraints and current
+fallbacks are documented in `youtube-music-login.md` and `soundcloud-login.md`.
+
+An explicitly approved device-sync handoff may transfer a versioned,
+provider-scoped credential bundle from another trusted device when the target
+cannot authorize directly. This is an acquisition adapter, not replicated
+provider state: the encrypted pairing layer transports the bundle opaquely and
+the destination shell verifies it and writes it straight to its native secure
+store. The credential still never enters the Rust SQLite database, ordinary
+sync journal, parties, playback handoff, logs, or relay plaintext.
+
 The playback adapter is deliberately native. It must expose prepared-next-item
 and transition callbacks so each shell can arrange gapless playback without a
 network request or decoder startup on the track boundary.

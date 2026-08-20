@@ -24,7 +24,11 @@ Compact product decisions for the future sync/party system.
 - The implemented cryptographic foundation and remaining platform work are
   tracked in [identity-and-pairing.md](identity-and-pairing.md).
 - Sync is opt-in and requires an identity first.
-- Never sync provider credentials, signed media URLs, local paths, downloaded
+- Never replicate provider credentials as ordinary sync state. A user may
+  explicitly transfer a provider-scoped credential between mutually confirmed
+  devices when the destination cannot authorize directly; it travels only as
+  recipient-bound end-to-end encrypted payload and is imported into the native
+  secure store. Never transfer signed media URLs, local paths, downloaded
   audio/cache files, output devices, platform permissions, or device secrets.
 - History and active-device presence are independently opt-in. Queue snapshots,
   handoff, and remote control are separately controllable. EQ and ordinary

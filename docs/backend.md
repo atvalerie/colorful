@@ -37,10 +37,12 @@ The service necessarily sees limited transport metadata:
 - connection timing, frame sizes, and coarse network metadata; and
 - expiry, quota, and delivery state.
 
-It must not receive provider refresh tokens, browser sessions, signed media
-URLs, local paths, plaintext track metadata, playlist names, library records,
-listening history, or audio payloads. Clients must encrypt sync and party
-messages before sending them. A relay forwards binary frames without parsing
+It must not receive plaintext provider refresh tokens, browser sessions, signed
+media URLs, local paths, plaintext track metadata, playlist names, library
+records, listening history, or audio payloads. Clients must encrypt sync and
+party messages before sending them. An explicit device credential handoff may
+use the mailbox only as short-lived recipient-bound ciphertext; the service
+must not know its payload type. A relay forwards binary frames without parsing
 their application contents.
 
 The mailbox store must be replaced with an expiring encrypted-at-rest backend

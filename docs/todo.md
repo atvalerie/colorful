@@ -91,6 +91,9 @@ while the party vertical slice is the active priority.
 - add ICE/STUN connectivity plus relay or encrypted-mailbox fallback;
 - synchronize library state, playlists, history, preferences, and optional
   queue snapshots;
+- add explicit provider-credential handoff between confirmed devices, with
+  provider copy/move policy, destination secure-store import, and no sync-journal
+  persistence;
 - implement explicit playback handoff;
 - publish expiring active-device presence so desktop Discord RPC can represent
   playback occurring on a paired phone.

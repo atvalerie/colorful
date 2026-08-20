@@ -69,8 +69,9 @@ local confirmations authenticate the exchange.
 
 - Define the versioned new-device enrollment request and encrypted response.
 - Persist trusted device certificates and explicit per-feature permissions.
-- Transfer the current collection-key epoch without transferring provider
-  credentials or platform secrets.
+- Transfer the current collection-key epoch independently from optional
+  provider credentials. Define a separately approved, provider-scoped transfer
+  envelope and permission; never include platform identity/device secrets.
 - Define revocation operations and rotate future collection keys.
 - Add platform secure-store adapters and pairing screens.
 - Obtain independent protocol/implementation review before production use.

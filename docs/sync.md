@@ -62,12 +62,51 @@ names, or listening history.
 
 ## Data that does not sync by default
 
-- provider credentials; each device links its own TIDAL account
+- provider credentials; an account is linked locally unless the owner explicitly
+  transfers a compatible credential from a trusted device
 - downloaded or cached provider audio; each device downloads its own copy
 - output device, volume, local paths, storage quota, and platform permissions
 - secrets belonging to party sessions
 
 Local-file transfer can be a separate, explicitly enabled encrypted feature.
+
+## Explicit provider-credential transfer
+
+Credential transfer is allowed as a privileged device-sync operation for a
+provider that cannot offer a usable authorization flow on the receiving
+platform. It is never part of the replicated collection, automatic background
+sync, a party, playback handoff, a deep link, or a recovery export.
+
+- The owner chooses **Bring account from another device**, a source device, and
+  each provider to transfer. The source names the account and credential kind
+  before confirmation; both devices require local approval.
+- Transfer uses the authenticated end-to-end encrypted paired-device channel.
+  A mailbox may carry only recipient-bound ciphertext with a short expiry and
+  deletion after acknowledgement. Relays never receive plaintext credentials.
+- The payload is versioned and provider-scoped. It contains only the credential
+  material and identity fields that provider adapter needs, plus issue/expiry
+  metadata. Signed media URLs, browser telemetry, passwords, local paths, and
+  unrelated cookies are forbidden.
+- The receiving shell imports the payload directly into Keychain, Keystore,
+  Credential Manager/DPAPI, or Secret Service, verifies it with the provider,
+  and then discards the transfer plaintext. It never enters SQLite, the sync
+  operation journal, logs, analytics, crash reports, or notifications.
+- Each provider adapter declares whether its credential can be copied, must be
+  moved, or must not be transferred. Rotating or single-use refresh tokens must
+  not be copied to two active devices because either device could invalidate
+  the other. Prefer the provider's native device/OAuth flow when it works.
+- A failed or expired import is deleted and leaves the destination unlinked.
+  Provider-side device binding and risk checks may make some browser sessions
+  non-portable.
+- Revoking a paired colorful device prevents future transfers but cannot erase
+  an already imported provider secret from an offline device or revoke it at
+  the provider. The UI must explain this and offer provider-side revocation or
+  source-account reconnect when a device is lost.
+
+The first intended use is copying a verified YouTube Music browser session from
+desktop to iOS or Android when native account capture is unavailable. TIDAL's
+device authorization remains preferred. SoundCloud should prefer its official
+OAuth callback when colorful has a safe registered-client deployment.
 
 ## Local data model
 
@@ -157,9 +196,11 @@ are recorded in [social-model.md](social-model.md).
    QR as an optional invite carrier.
 4. Add direct LAN sync.
 5. Add encrypted mailbox store-and-forward.
-6. Reuse ICE/TURN connectivity for remote direct sync.
-7. Add playback handoff after durable library sync is reliable.
-8. Add active-device presence and desktop integration bridges.
+6. Add explicit, provider-policy-checked credential transfer over the paired
+   channel, without placing secrets in the merge journal.
+7. Reuse ICE/TURN connectivity for remote direct sync.
+8. Add playback handoff after durable library sync is reliable.
+9. Add active-device presence and desktop integration bridges.
 
 ## Acceptance criteria
 
@@ -170,4 +211,7 @@ are recorded in [social-model.md](social-model.md).
 - A new device can bootstrap from a snapshot and then apply newer operations.
 - P2P-only mode works without a mailbox and clearly reports delayed sync.
 - Downloads and provider credentials never transfer implicitly.
+- An explicitly transferred credential is recipient-bound, expires in transit,
+  is verified before activation, and is stored only in the destination's native
+  secure store.
 - Stale or competing presence records cannot make integrations oscillate.

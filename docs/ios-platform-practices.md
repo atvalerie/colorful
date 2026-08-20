@@ -91,7 +91,8 @@ and full player. Never maintain a separate “lock-screen playing” flag.
 ## Data, privacy, and reliability
 
 - Refresh tokens remain in Keychain; provider credentials never enter the Rust
-  SQLite database or logs.
+  SQLite database or logs. An explicitly transferred provider credential is
+  decrypted only for validation and immediate Keychain import.
 - Signed playback URLs are short-lived transport data, not durable credentials.
   Re-resolve them after expiry, a failed stream, or a restored process.
 - Use URLSession/background URLSession for catalog and download work. Do not
