@@ -210,6 +210,7 @@ Backend::Backend(QObject *parent)
     });
 
     connect(&m_provider, &QProcess::readyReadStandardOutput, this, &Backend::processProviderOutput);
+    connect(&m_provider, &QProcess::started, this, &Backend::providerHostStarted);
     connect(&m_provider, &QProcess::readyReadStandardError, this, [this] {
         const auto detail = QString::fromUtf8(m_provider.readAllStandardError()).trimmed();
         if (detail.isEmpty()) return;
@@ -413,9 +414,18 @@ Backend::Backend(QObject *parent)
         setStatus(QStringLiteral("Refreshing the next playback source…"));
         resolveCurrentSource(0, playing(), true);
     });
+}
 
+void Backend::initialize()
+{
+    if (m_initializationStarted) return;
+    m_initializationStarted = true;
+
+    QElapsedTimer timer;
+    timer.start();
+    DebugLog::write(u"startup", u"deferred backend initialization started");
     openCore();
-    m_playback.refreshAudioDevices();
+    DebugLog::write(u"startup", QStringLiteral("local core ready after %1 ms").arg(timer.elapsed()));
     const auto restoredDownloads = m_downloads;
     for (const auto &value : restoredDownloads) {
         const auto entry = value.toMap();
@@ -427,6 +437,12 @@ Backend::Backend(QObject *parent)
         }
     }
     startProviderHost();
+    QTimer::singleShot(0, this, [this] {
+        QElapsedTimer timer;
+        timer.start();
+        m_playback.refreshAudioDevices();
+        DebugLog::write(u"startup", QStringLiteral("audio devices ready in %1 ms").arg(timer.elapsed()));
+    });
 }
 
 Backend::~Backend()
@@ -1013,6 +1029,8 @@ bool Backend::canGoPrevious() const
 
 void Backend::startProviderHost()
 {
+    m_providerStartClock.start();
+    DebugLog::write(u"provider", u"launch requested");
 #if defined(Q_OS_WIN)
     const auto providerExecutable = qEnvironmentVariable(
         "COLORFUL_PROVIDER_EXECUTABLE",
@@ -1053,11 +1071,12 @@ void Backend::startProviderHost()
     m_provider.start(bun, {host});
     }
 #endif
-    if (!m_provider.waitForStarted(3000)) {
-        setProviderStatusResolved(true);
-        setStatus(QStringLiteral("Could not launch provider host: %1").arg(m_provider.errorString()));
-        return;
-    }
+}
+
+void Backend::providerHostStarted()
+{
+    DebugLog::write(u"provider", QStringLiteral("process started after %1 ms")
+                                      .arg(m_providerStartClock.isValid() ? m_providerStartClock.elapsed() : 0));
     request(QStringLiteral("status"), {}, [this](const QJsonObject &message) {
         setProviderStatusResolved(true);
         if (!message.value(QStringLiteral("ok")).toBool()) return;

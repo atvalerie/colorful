@@ -12,6 +12,7 @@
 #include <QGuiApplication>
 #include <QDir>
 #include <QEvent>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFont>
 #include <QFontDatabase>
@@ -214,6 +215,8 @@ bool forwardToRunningInstance(const QStringList &messages)
 
 int main(int argc, char *argv[])
 {
+    QElapsedTimer startupTimer;
+    startupTimer.start();
     QCoreApplication::setApplicationName(QStringLiteral("colorful"));
     QCoreApplication::setApplicationVersion(QString::fromLatin1(COLORFUL_VERSION));
     QCoreApplication::setOrganizationName(QStringLiteral("colorful"));
@@ -272,6 +275,7 @@ int main(int argc, char *argv[])
     std::setlocale(LC_NUMERIC, "C");
 
     Backend backend;
+    DebugLog::write(u"startup", QStringLiteral("backend shell constructed after %1 ms").arg(startupTimer.elapsed()));
     PartyClient party(&backend);
     UpdateManager updater;
     QLocalServer instanceServer;
@@ -295,9 +299,24 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("updater"), &updater);
     engine.loadFromModule(QStringLiteral("colorful"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty()) return 1;
+    DebugLog::write(u"startup", QStringLiteral("QML loaded after %1 ms").arg(startupTimer.elapsed()));
 
     auto *rootObject = engine.rootObjects().constFirst();
     auto *window = qobject_cast<QWindow *>(rootObject);
+    if (auto *quickWindow = qobject_cast<QQuickWindow *>(rootObject)) {
+        QObject::connect(quickWindow, &QQuickWindow::frameSwapped, &backend,
+                         [&backend, &startupTimer] {
+            DebugLog::write(u"startup", QStringLiteral("first frame presented after %1 ms")
+                                             .arg(startupTimer.elapsed()));
+            QTimer::singleShot(0, &backend, &Backend::initialize);
+        }, Qt::SingleShotConnection);
+        // Software renderers and hidden smoke tests may not present a frame.
+        // Keep initialization progressing without placing it on the initial
+        // window-creation critical path.
+        QTimer::singleShot(1000, &backend, &Backend::initialize);
+    } else {
+        QTimer::singleShot(0, &backend, &Backend::initialize);
+    }
     logDisplayState(window);
     if (window) {
         QObject::connect(window, &QWindow::screenChanged, window,

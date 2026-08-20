@@ -98,6 +98,7 @@ class Backend final : public QObject
 public:
     explicit Backend(QObject *parent = nullptr);
     ~Backend() override;
+    void initialize();
 
     bool providerReady() const { return m_providerReady; }
     bool providerStatusResolved() const { return m_providerStatusResolved; }
@@ -334,6 +335,7 @@ private:
     using ReplyHandler = std::function<void(const QJsonObject &)>;
 
     void startProviderHost();
+    void providerHostStarted();
     void failPendingProviderRequests(const QString &message);
     int request(const QString &type, const QJsonObject &payload, ReplyHandler handler);
     void processProviderOutput();
@@ -414,6 +416,7 @@ private:
     static QVariantMap jsonCatalogPageToVariant(const QJsonObject &page);
 
     QProcess m_provider;
+    QElapsedTimer m_providerStartClock;
     QByteArray m_providerBuffer;
     QHash<int, ReplyHandler> m_replies;
     int m_nextRequestId = 1;
@@ -496,6 +499,7 @@ private:
     CoreBridge m_core;
     bool m_providerReady = false;
     bool m_providerStatusResolved = false;
+    bool m_initializationStarted = false;
     bool m_linked = false;
     bool m_authPending = false;
     bool m_busy = false;

@@ -131,8 +131,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Qt build failed with exit code $LASTEXITCODE." }
 
     $providerExecutable = Join-Path $buildDirectory 'colorful-provider.exe'
-    $providerOutput = & $bunPath build --compile '.\packages\provider-host\src\main.ts' `
-        --outfile $providerExecutable 2>&1
+    $providerOutput = & $bunPath '.\scripts\build-provider.ts' $providerExecutable 2>&1
     $providerExitCode = $LASTEXITCODE
     if ($providerExitCode -ne 0) {
         $providerOutput | Write-Host

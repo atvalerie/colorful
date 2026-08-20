@@ -40,7 +40,7 @@ appdir="$dist_dir/$artifact.AppDir"
 "$script_dir/check-linux-deps.sh" build
 "$script_dir/build-linux.sh" --release
 mkdir -p "$build_dir" "$dist_dir" "$tools_dir"
-bun build --compile "$repo_dir/packages/provider-host/src/main.ts" --outfile "$build_dir/colorful-provider"
+bun "$repo_dir/scripts/build-provider.ts" "$build_dir/colorful-provider"
 
 for tool in "$linuxdeploy" "$qt_plugin" "$appimagetool" "$appimage_runtime" "$ffmpeg" "$ffprobe"; do
   if [[ ! -x "$tool" ]]; then
