@@ -32,40 +32,37 @@
   <img src="assets/desktop_early_ver.png" alt="Early colorful desktop build showing search, queue, and playback controls" width="100%">
 </p>
 
-<p align="center"><sub>Early desktop build shown; the interface continues to evolve.</sub></p>
+<p align="center"><sub>This is an early desktop build. The interface has changed since then.</sub></p>
 
-## At a glance
+## About
 
-colorful is a personal music player built around device-local state and native
-platform integration. Your queue, library, playlists, history, settings, and
-offline jobs live on your device—there is no required colorful account or
-central library server.
+colorful is a personal music player built around device-local storage and
+native platform integration. Your queue, library, playlists, history, settings,
+and offline jobs stay on your device. colorful has no account system or central
+library server.
 
-The desktop client connects to TIDAL, YouTube Music, and SoundCloud. Each native
-client owns playback, system media controls, and secure credential storage while
-sharing the same Rust library and queue engine.
+The desktop client connects to TIDAL, YouTube Music, and SoundCloud. Playback,
+system media controls, and credential storage live in each client. The clients
+share a Rust library and queue engine.
 
 > [!NOTE]
-> colorful is active alpha software. Provider web APIs can change, sessions can
-> expire, and the mobile clients intentionally trail the desktop feature set.
+> colorful is still in alpha. The desktop app is furthest along. Android and
+> iOS are under active development. Provider changes may occasionally break
+> playback or account sessions.
 
 ## Highlights
 
-- **One desktop library across providers** — unified Home and Search without
-  flattening each service's own relevance.
-- **A real music-player queue** — persistence, reordering, play next,
-  repeat/shuffle, autoplay, prepared-next playback, and restoration.
-- **Offline listening** — resumable provider downloads, artwork, quotas,
-  cleanup, and local-file playback.
-- **Lyrics and discovery** — synchronized lyrics, cached fallbacks, related
-  tracks, radio, recommendations, and listening history.
-- **Native desktop audio** — libmpv, gapless transitions, selectable output,
-  ReplayGain, a 10-band equalizer, MPRIS, Windows media controls, and Discord
-  Rich Presence.
-- **Local-first by design** — provider credentials stay in the operating
-  system credential store; signed media URLs are not treated as durable secrets.
-- **Experimental listening parties** — encrypted party state over an opaque
-  relay, without sending provider credentials or audio through colorful.
+- Unified Home and Search for TIDAL, YouTube Music, and SoundCloud.
+- A persistent queue with reordering, play next, repeat, shuffle, autoplay,
+  prepared-next playback, and restoration.
+- Resumable downloads with artwork, storage quotas, cleanup, and local playback.
+- Synchronized lyrics, cached fallbacks, radio, recommendations, related tracks,
+  and listening history.
+- libmpv audio with gapless transitions, selectable output, ReplayGain, and a
+  10-band equalizer.
+- Linux MPRIS, Windows media controls, and Discord Rich Presence.
+- Provider credentials stored through the operating system's credential store.
+- Experimental encrypted listening parties using an opaque relay.
 
 ## Availability
 
@@ -90,15 +87,15 @@ Mobile development and installation details live in the
 TIDAL uses device authorization. YouTube Music and SoundCloud work anonymously
 for public catalog features and can optionally connect to your account.
 
-On desktop, colorful opens an installed Chromium-family browser with an isolated
-temporary profile, observes the authenticated provider request over loopback,
-and retains only the minimum session data in the operating system credential
-store. It does not embed a web view or receive your password.
+On desktop, the sign-in button opens Chrome, Edge, or another Chromium-family
+browser in a temporary profile. colorful reads the authenticated provider
+request through a local connection and saves the required headers or token in
+the operating system credential store. The browser handles passwords and forms.
 
 - [Connect YouTube Music](docs/youtube-music-login.md)
 - [Connect SoundCloud](docs/soundcloud-login.md)
 
-## How it fits together
+## Architecture
 
 ```text
 Qt / Compose / SwiftUI
@@ -110,8 +107,8 @@ Qt / Compose / SwiftUI
     └── SQLite · queue · library · playlists · history · offline jobs
 ```
 
-Playback remains platform-owned: the shared engine coordinates state but does
-not replace libmpv, Media3, AVFoundation, or platform media-session APIs.
+Each client handles playback through libmpv, Media3, or AVFoundation. The Rust
+core handles shared state such as the queue, library, history, and offline jobs.
 
 Read the [architecture overview](docs/architecture.md), [core ABI](docs/core-abi.md),
 and [storage contract](docs/storage.md) for the implementation details.
@@ -129,8 +126,7 @@ Start with the [documentation hub](docs/README.md).
 | Social | [Parties](docs/parties.md) · [sync](docs/sync.md) · [connectivity](docs/connectivity.md) |
 | Project | [Roadmap](docs/todo.md) · [contributing](CONTRIBUTING.md) · [third-party notices](THIRD_PARTY_NOTICES.md) |
 
-Build requirements and commands are kept with each platform guide rather than
-duplicated here.
+Each platform guide contains its build requirements and commands.
 
 ## Project notes
 
