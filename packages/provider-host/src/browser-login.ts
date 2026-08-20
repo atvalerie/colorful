@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, posix, resolve, win32 } from "node:path";
 import { debugLog } from "./debug";
 
 export type BrowserLoginProvider = "youtube" | "soundcloud";
@@ -83,6 +83,7 @@ export function browserExecutableCandidates(
   environment: Record<string, string | undefined> = process.env,
   which: (command: string) => string | null = (command) => Bun.which(command),
 ): string[] {
+  const candidatePath = platform === "win32" ? win32 : posix;
   const configured = environment.COLORFUL_BROWSER_EXECUTABLE?.trim();
   const values: string[] = configured ? [configured] : [];
   if (platform === "win32") {
@@ -91,25 +92,25 @@ export function browserExecutableCandidates(
     const localAppData = environment.LOCALAPPDATA ?? "";
     values.push(
       ...(localAppData ? [
-        join(localAppData, "imput", "Helium", "Application", "chrome.exe"),
-        join(localAppData, "Helium", "Application", "chrome.exe"),
+        candidatePath.join(localAppData, "imput", "Helium", "Application", "chrome.exe"),
+        candidatePath.join(localAppData, "Helium", "Application", "chrome.exe"),
       ] : []),
-      join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-      join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-      join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-      join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
-      join(programFiles, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
-      join(programFilesX86, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
-      join(programFiles, "Vivaldi", "Application", "vivaldi.exe"),
-      join(programFilesX86, "Vivaldi", "Application", "vivaldi.exe"),
+      candidatePath.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      candidatePath.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+      candidatePath.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+      candidatePath.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+      candidatePath.join(programFiles, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+      candidatePath.join(programFilesX86, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+      candidatePath.join(programFiles, "Vivaldi", "Application", "vivaldi.exe"),
+      candidatePath.join(programFilesX86, "Vivaldi", "Application", "vivaldi.exe"),
       ...(localAppData ? [
-        join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
-        join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
-        join(localAppData, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
-        join(localAppData, "Vivaldi", "Application", "vivaldi.exe"),
-        join(localAppData, "Chromium", "Application", "chrome.exe"),
-        join(localAppData, "Programs", "Opera", "opera.exe"),
-        join(localAppData, "Programs", "Opera GX", "opera.exe"),
+        candidatePath.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+        candidatePath.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
+        candidatePath.join(localAppData, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+        candidatePath.join(localAppData, "Vivaldi", "Application", "vivaldi.exe"),
+        candidatePath.join(localAppData, "Chromium", "Application", "chrome.exe"),
+        candidatePath.join(localAppData, "Programs", "Opera", "opera.exe"),
+        candidatePath.join(localAppData, "Programs", "Opera GX", "opera.exe"),
       ] : []),
     );
   } else if (platform === "darwin") {
@@ -134,7 +135,7 @@ export function browserExecutableCandidates(
     const found = which(command);
     if (found) values.push(found);
   }
-  return [...new Set(values.map((value) => resolve(value)))];
+  return [...new Set(values.map((value) => candidatePath.resolve(value)))];
 }
 
 function isHeliumBrowser(browser: string): boolean {

@@ -28,8 +28,9 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
                 start(videoID: videoID, requestID: requestID, continuation: continuation)
             }
         } onCancel: { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                self?.cancel(requestID: requestID)
+                self.cancel(requestID: requestID)
             }
         }
     }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { posix, win32 } from "node:path";
 import { browserExecutableCandidates, browserLoginCapture, selectBrowserExecutable } from "../src/browser-login";
 
 describe("isolated browser authentication capture", () => {
@@ -51,26 +51,26 @@ describe("isolated browser authentication capture", () => {
       "ProgramFiles(x86)": "C:\\Programs32",
       LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local",
     }, () => null);
-    expect(windows.some((path) => path.endsWith("Google\\Chrome\\Application\\chrome.exe"))).toBe(true);
-    expect(windows.some((path) => path.endsWith("imput\\Helium\\Application\\chrome.exe"))).toBe(true);
-    expect(windows.some((path) => path.endsWith("BraveSoftware\\Brave-Browser\\Application\\brave.exe"))).toBe(true);
-    expect(windows.some((path) => path.endsWith("Vivaldi\\Application\\vivaldi.exe"))).toBe(true);
+    expect(windows).toContain(win32.resolve("C:\\Programs", "Google", "Chrome", "Application", "chrome.exe"));
+    expect(windows).toContain(win32.resolve("C:\\Users\\tester\\AppData\\Local", "imput", "Helium", "Application", "chrome.exe"));
+    expect(windows).toContain(win32.resolve("C:\\Programs", "BraveSoftware", "Brave-Browser", "Application", "brave.exe"));
+    expect(windows).toContain(win32.resolve("C:\\Programs", "Vivaldi", "Application", "vivaldi.exe"));
 
     const linux = browserExecutableCandidates("linux", {}, (command) =>
       command === "brave-browser" ? "/usr/bin/brave-browser" : null);
-    expect(linux).toContain(resolve("/usr/bin/brave-browser"));
+    expect(linux).toContain(posix.resolve("/usr/bin/brave-browser"));
 
     const macOS = browserExecutableCandidates("darwin", {}, () => null);
-    expect(macOS).toContain(resolve("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"));
-    expect(macOS).toContain(resolve("/Applications/Vivaldi.app/Contents/MacOS/Vivaldi"));
-    expect(macOS).toContain(resolve("/Applications/Helium.app/Contents/MacOS/Helium"));
+    expect(macOS).toContain(posix.resolve("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"));
+    expect(macOS).toContain(posix.resolve("/Applications/Vivaldi.app/Contents/MacOS/Vivaldi"));
+    expect(macOS).toContain(posix.resolve("/Applications/Helium.app/Contents/MacOS/Helium"));
   });
 
   test("prefers an explicitly configured browser", () => {
     const candidates = browserExecutableCandidates("linux", {
       COLORFUL_BROWSER_EXECUTABLE: "/opt/my-browser/browser",
     }, () => null);
-    expect(candidates[0]).toBe(resolve("/opt/my-browser/browser"));
+    expect(candidates[0]).toBe(posix.resolve("/opt/my-browser/browser"));
   });
 
   test("uses Helium for ordinary providers but skips it for Google sign-in", () => {
