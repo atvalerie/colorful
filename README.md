@@ -23,6 +23,11 @@
 
 <p align="center"><strong>Linux · Windows · Android · iOS</strong></p>
 
+> [!IMPORTANT]
+> **This project is entirely AI-made.** It is a personal project built to meet
+> my own music playback needs, and an exception to my usual stance on
+> AI-generated code.
+
 <p align="center">
   <img src="assets/desktop_early_ver.png" alt="Early colorful desktop build showing search, queue, and playback controls" width="100%">
 </p>
@@ -128,11 +133,6 @@ Build requirements and commands are kept with each platform guide rather than
 duplicated here.
 
 ## Project notes
-
-> [!IMPORTANT]
-> **This project is entirely AI-made.** It is a personal project built to meet
-> my own music playback needs, and an exception to my usual stance on
-> AI-generated code.
 
 > [!CAUTION]
 > **colorful is not a piracy project.** It does not provide accounts, shared
