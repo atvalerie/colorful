@@ -22,7 +22,7 @@ not a promise that every desktop feature belongs in the first phone release.
 | Appearance | Accent mode, fixed accent, low-data mode, text scale | Dynamic Type plus Colorful accent/low-data policies | P1 |
 | Detail behavior | Linux optional actions, fallbacks, metadata, toasts, and edge-case handling | Preserve these details in native presentations; document intentional iOS divergences | P0 |
 | EQ/normalization | Desktop contract; Android incomplete | Add after stable playback unless daily use requires it | P2 |
-| YouTube Music | Desktop public/private-session catalog and playback | Native public song/video search and multi-strategy direct/HLS playback implemented; artist/album pages, account import, authenticated deciphering, recommendations, and library remain | P1 |
+| YouTube Music | Desktop public/private-session catalog and playback | Native public song/video search and audio-only native HLS playback implemented, with public HLS/direct fallbacks; artist/album pages, account import, authenticated deciphering, recommendations, and library remain | P1 |
 | SoundCloud | Desktop public/account catalog, playback, downloads | Native mixed public search, track playback, profile pages, and hydrated set pages implemented; account import, home/library, radio, pagination, and downloads remain | P1 |
 | Parties | Linux encrypted party client is current active social slice | Later native participant/host experience | P2 |
 | Device sync | Identity/pairing foundation; merge journal and transport planned | Later, using existing sync/security documents | P2 |

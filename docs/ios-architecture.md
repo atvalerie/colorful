@@ -95,6 +95,13 @@ authentication, restricted playback, browser-session, and source-resolution
 constraints must be treated as explicit platform risks rather than hidden in
 the UI layer.
 
+For public YouTube Music playback, iOS prefers the native iOS client's HLS
+master, selects and validates an audio-only AAC rendition, and lets
+`AVURLAsset` fetch the HTTPS media segments. Do not route binary HLS segments
+through `AVAssetResourceLoaderDelegate` or stage the complete adaptive file
+before playback. Direct adaptive AAC is a fallback only when public HLS
+identities fail.
+
 ## Offline and background work
 
 Offline jobs remain durable in the core. The shell performs transfers with
@@ -118,5 +125,7 @@ pairing, party, and future merge documents as the source of truth:
 - [parties](parties.md).
 
 When sync work begins, iOS should expose the same trust, revocation, recovery,
-and conflict decisions as other native clients. Provider credentials,
-downloads, and local output settings remain device-local.
+and conflict decisions as other native clients. Provider credentials remain in
+Keychain, but the user may explicitly import a compatible provider-scoped
+credential from a mutually confirmed device over the end-to-end encrypted
+pairing channel. Downloads and local output settings remain device-local.

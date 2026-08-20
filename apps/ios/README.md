@@ -28,10 +28,11 @@ large sets hydrate SoundCloud's compact track IDs in bounded batches before
 queueing or playback. Account import, personalized shelves, and downloads
 remain follow-up slices.
 Public YouTube Music song/video search and native playback are available in
-the same mixed search surface. Playback attempts the desktop-tested public
-Android VR direct-audio strategy, validates the returned source, then tries
-native iOS, Safari HLS, and downgraded TV client identities. iOS selects AAC/MP4-compatible
-direct formats rather than WebM/Opus. YouTube artist, album, account, library,
+the same mixed search surface. Playback now prefers the public native-iOS HLS
+response, resolves its AAC-LC audio rendition, validates the VOD playlist, and
+hands its HTTPS media segments to AVFoundation's native HLS stack. Safari HLS
+is the secondary strategy; Android VR and downgraded TV AAC/MP4 sources remain
+last-resort direct-stream fallbacks. YouTube artist, album, account, library,
 and authenticated deciphering surfaces remain follow-up work.
 
 The first offline slice uses Apple's background asset-download session for
