@@ -15,8 +15,8 @@ created by the view layer is a proxy to the process owner, so it cannot create a
 second session with the same identifier.
 
 The manager restores tasks with `getAllTasks`. Managed package locations arrive
-through `willDownloadTo`; `didCompleteWithError` is the success or failure
-boundary. Delegate events and durable-state writes each use a serial queue. The
+through the iOS 17-compatible `didFinishDownloadingTo` callback;
+`didCompleteWithError` is the success or failure boundary. Delegate events and durable-state writes each use a serial queue. The
 UIKit completion handler is called only after `urlSessionDidFinishEvents`, all
 earlier delegate work, package reconciliation, and the final persistence barrier
 have completed. A two-sided handshake also covers the case where the session's
@@ -50,7 +50,7 @@ download list and can be downloaded again. This prevents the offline screen from
 offering a package that will fail when the device has no network connection.
 
 LiveContainer keeps the managed package in the location returned by
-`willDownloadTo`. Exporting a standalone file is a separate operation;
+`didFinishDownloadingTo`. Exporting a standalone file is a separate operation;
 copying the private package elsewhere is not used as an offline-playback path.
 
 ## Device validation checklist

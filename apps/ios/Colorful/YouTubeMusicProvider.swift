@@ -655,7 +655,7 @@ actor YouTubeMusicClient {
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         colorfulYouTubeLogger.info(
-            "hls response url=\(sourceDescriptor(url), privacy: .public) status=\(status) bytes=\(data.count)"
+            "hls response url=\(self.sourceDescriptor(url), privacy: .public) status=\(status) bytes=\(data.count)"
         )
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let playlist = String(data: data, encoding: .utf8), playlist.contains("#EXTM3U") else {
@@ -735,7 +735,7 @@ actor YouTubeMusicClient {
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
         colorfulYouTubeLogger.info(
-            "direct probe url=\(sourceDescriptor(url), privacy: .public) status=\(status) contentType=\(contentType, privacy: .public)"
+            "direct probe url=\(self.sourceDescriptor(url), privacy: .public) status=\(status) contentType=\(contentType, privacy: .public)"
         )
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let hasPOT = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -947,7 +947,7 @@ actor YouTubeMusicClient {
 
     private func logResolvedSource(kind: String, url: URL, mimeType: String) {
         colorfulYouTubeLogger.info(
-            "resolved source kind=\(kind, privacy: .public) mime=\(mimeType, privacy: .public) url=\(sourceDescriptor(url), privacy: .public)"
+            "resolved source kind=\(kind, privacy: .public) mime=\(mimeType, privacy: .public) url=\(self.sourceDescriptor(url), privacy: .public)"
         )
     }
 

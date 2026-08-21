@@ -776,7 +776,7 @@ extension IOSOfflineDownloadManager: AVAssetDownloadDelegate {
     nonisolated func urlSession(
         _ session: URLSession,
         assetDownloadTask: AVAssetDownloadTask,
-        willDownloadTo location: URL
+        didFinishDownloadingTo location: URL
     ) {
         let taskID = assetDownloadTask.taskIdentifier
         let description = assetDownloadTask.taskDescription
