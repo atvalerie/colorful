@@ -466,9 +466,9 @@ actor YouTubeMusicClient {
             return try await resolvedAudioSource(document, userAgent: tvUserAgent)
         } catch {
             record(error, client: "TVHTML5")
-            // Client-side fallback: extract the browser's HLS or direct audio
-            // URL from a real YouTube embed loaded in a hidden WKWebView. This
-            // reaches tracks that refuse every Innertube identity above.
+            // Client-side fallback: follow the Music watch page in a mounted
+            // WKWebView so its browser session can expose the same media path
+            // used by the normal Music site.
             do {
                 let resolution = try await YouTubeHLSWebViewResolver.shared.resolve(videoID: videoID)
                 var headers = ["User-Agent": resolution.userAgent]
@@ -488,6 +488,9 @@ actor YouTubeMusicClient {
                     contentLength: nil
                 )
             } catch {
+                colorfulYouTubeError(
+                    "webview fallback failed video=\(videoID) error=\(error.localizedDescription)"
+                )
                 throw proofFailure ?? lastFailure ?? error
             }
         }

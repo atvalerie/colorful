@@ -91,11 +91,11 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         activeRequestID = requestID
         isFinishing = false
 
-        var components = URLComponents(string: "https://www.youtube.com/embed/\(videoID)")!
+        var components = URLComponents(string: "https://music.youtube.com/watch")!
         components.queryItems = [
+            URLQueryItem(name: "v", value: videoID),
             URLQueryItem(name: "autoplay", value: "1"),
             URLQueryItem(name: "playsinline", value: "1"),
-            URLQueryItem(name: "controls", value: "0"),
         ]
         var request = URLRequest(url: components.url!, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
         request.timeoutInterval = 18
@@ -234,7 +234,8 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        colorfulYouTubeWebViewInfo("webview media navigation finished")
+        let page = webView.url.map { "\($0.host ?? "")\($0.path)" } ?? "unknown"
+        colorfulYouTubeWebViewInfo("webview media navigation finished page=\(page)")
         webView.evaluateJavaScript("window.__colorfulProbeHLS && window.__colorfulProbeHLS();")
     }
 
