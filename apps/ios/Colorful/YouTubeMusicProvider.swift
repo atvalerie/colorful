@@ -466,9 +466,9 @@ actor YouTubeMusicClient {
             return try await resolvedAudioSource(document, userAgent: tvUserAgent)
         } catch {
             record(error, client: "TVHTML5")
-            // Client-side fallback: extract the HLS manifest URL from a real
-            // YouTube embed loaded in a hidden WKWebView.  This reaches tracks
-            // that refuse every innertube identity above.
+            // Client-side fallback: extract the browser's HLS or direct audio
+            // URL from a real YouTube embed loaded in a hidden WKWebView. This
+            // reaches tracks that refuse every Innertube identity above.
             do {
                 let resolution = try await YouTubeHLSWebViewResolver.shared.resolve(videoID: videoID)
                 var headers = ["User-Agent": resolution.userAgent]
@@ -482,9 +482,9 @@ actor YouTubeMusicClient {
                     HTTPCookieStorage.shared.setCookie(cookie)
                 }
                 return YouTubeMusicPlaybackSource(
-                    url: resolution.manifestURL,
+                    url: resolution.mediaURL,
                     httpHeaders: headers,
-                    mimeType: "application/vnd.apple.mpegurl",
+                    mimeType: resolution.mimeType,
                     contentLength: nil
                 )
             } catch {
