@@ -2034,6 +2034,10 @@ private struct SettingsView: View {
     @State private var snapshotExport: TravelSnapshotExport?
     @State private var snapshotExportURL: URL?
     @State private var snapshotExportError: String?
+    @State private var isPreparingDiagnosticsExport = false
+    @State private var diagnosticsExport: DiagnosticsExport?
+    @State private var diagnosticsExportError: String?
+    @State private var isConfirmingDiagnosticsClear = false
     @State private var isConfirmingSnapshotImport = false
     @State private var isImportingSnapshot = false
     @State private var isApplyingSnapshot = false
@@ -2107,6 +2111,25 @@ private struct SettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(ColorfulTheme.mutedInk)
             }
+            Section("Diagnostics") {
+                Button {
+                    prepareDiagnosticsExport()
+                } label: {
+                    Label(
+                        isPreparingDiagnosticsExport ? "Preparing log…" : "Share playback log",
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+                .disabled(isPreparingDiagnosticsExport)
+
+                Button("Clear playback log", systemImage: "trash", role: .destructive) {
+                    isConfirmingDiagnosticsClear = true
+                }
+
+                Text("The log records YouTube and AVPlayer request metadata, response status, and playback errors. It excludes cookies, authorization values, and token contents. Share it after reproducing the problem.")
+                    .font(.footnote)
+                    .foregroundStyle(ColorfulTheme.mutedInk)
+            }
             Section("Appearance") {
                 Toggle("Mint accent", isOn: $useMintAccent)
                 Text("The iOS shell keeps Colorful's dark block surfaces while native controls provide the system glass layer.")
@@ -2150,6 +2173,11 @@ private struct SettingsView: View {
         }) { export in
             IOSActivityShareSheet(items: [export.url])
         }
+        .sheet(item: $diagnosticsExport, onDismiss: {
+            cleanupDiagnosticsExport()
+        }) { export in
+            IOSActivityShareSheet(items: [export.url])
+        }
         .alert(
             "Snapshot export failed",
             isPresented: Binding(
@@ -2160,6 +2188,17 @@ private struct SettingsView: View {
             Button("OK", role: .cancel) { snapshotExportError = nil }
         } message: {
             Text(snapshotExportError ?? "The travel snapshot could not be exported.")
+        }
+        .alert(
+            "Diagnostic log failed",
+            isPresented: Binding(
+                get: { diagnosticsExportError != nil },
+                set: { if !$0 { diagnosticsExportError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { diagnosticsExportError = nil }
+        } message: {
+            Text(diagnosticsExportError ?? "The playback diagnostic log could not be exported.")
         }
         .alert(
             "Snapshot import failed",
@@ -2183,6 +2222,18 @@ private struct SettingsView: View {
         } message: {
             Text(snapshotImportSummary?.message ?? "Portable state was replaced. Downloads and account credentials were left unchanged.")
         }
+        .confirmationDialog(
+            "Clear playback log?",
+            isPresented: $isConfirmingDiagnosticsClear,
+            titleVisibility: .visible
+        ) {
+            Button("Clear log", role: .destructive) {
+                ColorfulDiagnostics.shared.clear()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The saved YouTube and AVPlayer diagnostics will be deleted from this device.")
+        }
     }
 
     private func prepareSnapshotExport() {
@@ -2201,6 +2252,22 @@ private struct SettingsView: View {
                 snapshotExportError = error.localizedDescription
             }
             isPreparingSnapshotExport = false
+        }
+    }
+
+    private func prepareDiagnosticsExport() {
+        guard !isPreparingDiagnosticsExport else { return }
+        cleanupDiagnosticsExport()
+        isPreparingDiagnosticsExport = true
+        diagnosticsExportError = nil
+        Task { @MainActor in
+            do {
+                let url = try ColorfulDiagnostics.shared.exportURL()
+                diagnosticsExport = DiagnosticsExport(url: url)
+            } catch {
+                diagnosticsExportError = error.localizedDescription
+            }
+            isPreparingDiagnosticsExport = false
         }
     }
 
@@ -2268,6 +2335,14 @@ private struct SettingsView: View {
             TravelSnapshotExport.removeTemporaryFile(at: url)
         }
     }
+
+    private func cleanupDiagnosticsExport() {
+        let url = diagnosticsExport?.url
+        diagnosticsExport = nil
+        if let url {
+            DiagnosticsExport.removeTemporaryFile(at: url)
+        }
+    }
 }
 
 private struct TravelSnapshotExport: Identifiable {
@@ -2285,6 +2360,27 @@ private struct TravelSnapshotExport: Identifiable {
         guard candidate.deletingLastPathComponent() == directory,
               candidate.lastPathComponent.hasPrefix("colorful-travel-snapshot"),
               candidate.pathExtension.lowercased() == "json" else {
+            return
+        }
+        try? FileManager.default.removeItem(at: candidate)
+    }
+}
+
+private struct DiagnosticsExport: Identifiable {
+    let url: URL
+
+    var id: URL { url }
+
+    static func removeTemporaryFile(at url: URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let candidate = url
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard candidate.deletingLastPathComponent() == directory,
+              candidate.lastPathComponent.hasPrefix("colorful-ios-diagnostics-"),
+              candidate.pathExtension.lowercased() == "log" else {
             return
         }
         try? FileManager.default.removeItem(at: candidate)

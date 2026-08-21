@@ -7,6 +7,21 @@ private let colorfulYouTubeLogger = Logger(
     category: "YouTube"
 )
 
+private func colorfulYouTubeInfo(_ message: String) {
+    colorfulYouTubeLogger.info("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "YouTube", message: message)
+}
+
+private func colorfulYouTubeDebug(_ message: String) {
+    colorfulYouTubeLogger.debug("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "YouTube", message: message)
+}
+
+private func colorfulYouTubeError(_ message: String) {
+    colorfulYouTubeLogger.error("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "YouTube", message: message)
+}
+
 enum YouTubePlayerScriptError: LocalizedError, Sendable {
     case transformNotFound
     case runtimeUnavailable(String)
@@ -309,7 +324,7 @@ actor YouTubeMusicClient {
               videoID.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil else {
             throw YouTubeMusicClientError.invalidResponse("This is not a valid YouTube Music track.")
         }
-        colorfulYouTubeLogger.info("playback source start video=\(videoID, privacy: .public)")
+        colorfulYouTubeInfo("playback source start video=\(videoID)")
         let visitor = try await publicVisitorData()
         var lastFailure: Error?
         var proofFailure: Error?
@@ -318,8 +333,8 @@ actor YouTubeMusicClient {
             if error.localizedDescription.localizedCaseInsensitiveContains("proof-of-origin") {
                 proofFailure = error
             }
-            colorfulYouTubeLogger.error(
-                "playback source failed client=\(client, privacy: .public) video=\(videoID, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            colorfulYouTubeError(
+                "playback source failed client=\(client) video=\(videoID) error=\(error.localizedDescription)"
             )
         }
 
@@ -654,8 +669,8 @@ actor YouTubeMusicClient {
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-        colorfulYouTubeLogger.info(
-            "hls response url=\(self.sourceDescriptor(url), privacy: .public) status=\(status) bytes=\(data.count)"
+        colorfulYouTubeInfo(
+            "hls response url=\(self.sourceDescriptor(url)) status=\(status) bytes=\(data.count)"
         )
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let playlist = String(data: data, encoding: .utf8), playlist.contains("#EXTM3U") else {
@@ -734,8 +749,8 @@ actor YouTubeMusicClient {
         let (_, response) = try await session.bytes(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
-        colorfulYouTubeLogger.info(
-            "direct probe url=\(self.sourceDescriptor(url), privacy: .public) status=\(status) contentType=\(contentType, privacy: .public)"
+        colorfulYouTubeInfo(
+            "direct probe url=\(self.sourceDescriptor(url)) status=\(status) contentType=\(contentType)"
         )
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let hasPOT = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -904,8 +919,8 @@ actor YouTubeMusicClient {
         }
         let document = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let status = http.statusCode
-        colorfulYouTubeLogger.debug(
-            "innertube response path=\(url.path, privacy: .public) status=\(status) bytes=\(data.count)"
+        colorfulYouTubeDebug(
+            "innertube response path=\(url.path) status=\(status) bytes=\(data.count)"
         )
         guard (200..<300).contains(http.statusCode) else {
             let detail = string(dictionary(document["error"])["message"])
@@ -929,8 +944,8 @@ actor YouTubeMusicClient {
         let proofTokens = audio.filter { hasQuery("pot", in: $0) }.count
         let umpFormats = audio.filter { isUMPFormat($0) }.count
         let hasHLS = !string(streaming["hlsManifestUrl"]).isEmpty
-        colorfulYouTubeLogger.info(
-            "player response client=\(clientName, privacy: .public) status=\(status, privacy: .public) reason=\(reason, privacy: .public) hls=\(hasHLS) formats=\(formats.count) audio=\(audio.count) direct=\(direct) ciphered=\(ciphered) potFormats=\(proofTokens) umpFormats=\(umpFormats)"
+        colorfulYouTubeInfo(
+            "player response client=\(clientName) status=\(status) reason=\(reason) hls=\(hasHLS) formats=\(formats.count) audio=\(audio.count) direct=\(direct) ciphered=\(ciphered) potFormats=\(proofTokens) umpFormats=\(umpFormats)"
         )
         for format in audio.prefix(8) {
             let itag = string(format["itag"])
@@ -939,15 +954,15 @@ actor YouTubeMusicClient {
             let isCiphered = !string(format["signatureCipher"]).isEmpty || !string(format["cipher"]).isEmpty
             let hasPOT = hasQuery("pot", in: format)
             let isUMP = isUMPFormat(format)
-            colorfulYouTubeLogger.debug(
-                "audio format client=\(clientName, privacy: .public) itag=\(itag, privacy: .public) mime=\(mimeType, privacy: .public) direct=\(isDirect) cipher=\(isCiphered) pot=\(hasPOT) ump=\(isUMP)"
+            colorfulYouTubeDebug(
+                "audio format client=\(clientName) itag=\(itag) mime=\(mimeType) direct=\(isDirect) cipher=\(isCiphered) pot=\(hasPOT) ump=\(isUMP)"
             )
         }
     }
 
     private func logResolvedSource(kind: String, url: URL, mimeType: String) {
-        colorfulYouTubeLogger.info(
-            "resolved source kind=\(kind, privacy: .public) mime=\(mimeType, privacy: .public) url=\(self.sourceDescriptor(url), privacy: .public)"
+        colorfulYouTubeInfo(
+            "resolved source kind=\(kind) mime=\(mimeType) url=\(self.sourceDescriptor(url))"
         )
     }
 

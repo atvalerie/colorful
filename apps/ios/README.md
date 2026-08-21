@@ -53,6 +53,13 @@ through the iOS document picker. Import replaces portable library, playlist,
 queue, and playback state while leaving downloads and account credentials on
 the device.
 
+Settings also exposes a bounded playback diagnostic log. After reproducing an
+iOS YouTube or AVPlayer failure, use Settings > Diagnostics > Share playback
+log and send the resulting text file. The log contains request metadata,
+response status, and playback errors; cookies, authorization values, and token
+contents are excluded. Unified logging remains available for physical-device
+debugging when a Mac is connected.
+
 The current shell uses Swift, SwiftUI, AVFoundation/AVPlayer, AVAudioSession,
 Keychain, background audio mode, MPRemoteCommandCenter, and
 MPNowPlayingInfoCenter. It reuses the shared engine contracts and uses Android

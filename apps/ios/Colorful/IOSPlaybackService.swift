@@ -9,6 +9,16 @@ private let colorfulIOSPlaybackLogger = Logger(
     category: "Playback"
 )
 
+private func colorfulPlaybackInfo(_ message: String) {
+    colorfulIOSPlaybackLogger.info("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "Playback", message: message)
+}
+
+private func colorfulPlaybackError(_ message: String) {
+    colorfulIOSPlaybackLogger.error("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "Playback", message: message)
+}
+
 @MainActor
 final class IOSPlaybackService: NSObject, ObservableObject {
     @Published private(set) var errorMessage: String?
@@ -299,8 +309,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 failedTrackID = track.id
                 failedQueueEntryID = queueEntryID
                 errorMessage = error.localizedDescription
-                colorfulIOSPlaybackLogger.error(
-                    "source resolution failed provider=\(provider, privacy: .public) track=\(track.id.providerID, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                colorfulPlaybackError(
+                    "source resolution failed provider=\(provider) track=\(track.id.providerID) error=\(error.localizedDescription)"
                 )
                 store.pause()
             }
@@ -350,8 +360,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         let headerNames = source.httpHeaders.keys.sorted().joined(separator: ",")
         let hasPOT = queryKeys.split(separator: ",").contains("pot")
         let hasUMP = queryKeys.split(separator: ",").contains("ump")
-        colorfulIOSPlaybackLogger.info(
-            "install youtube AVPlayer source track=\(track.id.providerID, privacy: .public) host=\(host, privacy: .public) mime=\(source.mimeType, privacy: .public) headers=\(headerNames, privacy: .public) cookies=\(cookies?.count ?? 0) queryKeys=[\(queryKeys)] pot=\(hasPOT) ump=\(hasUMP)"
+        colorfulPlaybackInfo(
+            "install youtube AVPlayer source track=\(track.id.providerID) host=\(host) mime=\(source.mimeType) headers=\(headerNames) cookies=\(cookies?.count ?? 0) queryKeys=[\(queryKeys)] pot=\(hasPOT) ump=\(hasUMP)"
         )
         let asset = AVURLAsset(url: source.url, options: options)
         let item = AVPlayerItem(asset: asset)
@@ -390,14 +400,14 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     self.itemReadinessTask?.cancel()
                     self.itemReadinessTask = nil
                     self.isBuffering = false
-                    colorfulIOSPlaybackLogger.info(
-                        "AVPlayer item ready track=\(track.id.providerID, privacy: .public)"
+                    colorfulPlaybackInfo(
+                        "AVPlayer item ready track=\(track.id.providerID)"
                     )
                     self.applyPlaybackState()
                 case .failed:
                     let message = self.playbackFailureMessage(for: item)
-                    colorfulIOSPlaybackLogger.error(
-                        "AVPlayer item failed track=\(track.id.providerID, privacy: .public) message=\(message, privacy: .public)"
+                    colorfulPlaybackError(
+                        "AVPlayer item failed track=\(track.id.providerID) message=\(message)"
                     )
                     self.failInstalledItem(
                         track: track,
