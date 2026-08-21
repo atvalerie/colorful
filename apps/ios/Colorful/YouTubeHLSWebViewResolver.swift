@@ -34,6 +34,9 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
     private var continuation: CheckedContinuation<YouTubeWebMediaResolution, Error>?
     private var activeRequestID: UUID?
     private var timeoutTask: Task<Void, Never>?
+    private var activeVideoID: String?
+    private var watchRequest: URLRequest?
+    private var consentIsVisible = false
     private var isFinishing = false
 
     func resolve(videoID: String) async throws -> YouTubeWebMediaResolution {
@@ -89,6 +92,7 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         self.webView = webView
         self.continuation = continuation
         activeRequestID = requestID
+        activeVideoID = videoID
         isFinishing = false
 
         var components = URLComponents(string: "https://music.youtube.com/watch")!
@@ -100,16 +104,10 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         var request = URLRequest(url: components.url!, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
         request.timeoutInterval = 18
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        watchRequest = request
         webView.load(request)
 
-        timeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 18_000_000_000)
-            guard !Task.isCancelled, self?.activeRequestID == requestID else { return }
-            colorfulYouTubeWebViewError("webview media timeout video=\(videoID)")
-            self?.finishCurrent(with: .failure(YouTubeMusicClientError.invalidResponse(
-                "YouTube did not expose an iOS playable media stream for this track."
-            )))
-        }
+        armTimeout(videoID: videoID, requestID: requestID, nanoseconds: 18_000_000_000)
     }
 
     private var mobileSafariUserAgent: String {
@@ -123,6 +121,18 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
     private func cancel(requestID: UUID) {
         guard activeRequestID == requestID else { return }
         finishCurrent(with: .failure(CancellationError()))
+    }
+
+    private func armTimeout(videoID: String, requestID: UUID, nanoseconds: UInt64) {
+        timeoutTask?.cancel()
+        timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled, self?.activeRequestID == requestID else { return }
+            colorfulYouTubeWebViewError("webview media timeout video=\(videoID)")
+            self?.finishCurrent(with: .failure(YouTubeMusicClientError.invalidResponse(
+                "YouTube did not expose an iOS playable media stream for this track."
+            )))
+        }
     }
 
     private func attachToActiveWindow(_ webView: WKWebView) {
@@ -218,6 +228,9 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
 
         self.continuation = nil
         activeRequestID = nil
+        activeVideoID = nil
+        watchRequest = nil
+        consentIsVisible = false
         isFinishing = false
         continuation.resume(with: result)
     }
@@ -236,7 +249,59 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         let page = webView.url.map { "\($0.host ?? "")\($0.path)" } ?? "unknown"
         colorfulYouTubeWebViewInfo("webview media navigation finished page=\(page)")
+
+        if webView.url?.host?.lowercased() == "consent.youtube.com" {
+            showConsentPage(in: webView)
+            return
+        }
+
+        if consentIsVisible {
+            hideConsentPage(in: webView)
+            colorfulYouTubeWebViewInfo("webview media consent completed page=\(page)")
+            if webView.url?.path != "/watch", let watchRequest {
+                colorfulYouTubeWebViewInfo("webview media consent replaying watch request")
+                webView.load(watchRequest)
+                return
+            }
+            if let activeRequestID, let activeVideoID {
+                armTimeout(
+                    videoID: activeVideoID,
+                    requestID: activeRequestID,
+                    nanoseconds: 30_000_000_000
+                )
+            }
+        }
+
         webView.evaluateJavaScript("window.__colorfulProbeHLS && window.__colorfulProbeHLS();")
+    }
+
+    private func showConsentPage(in webView: WKWebView) {
+        guard !consentIsVisible else { return }
+        consentIsVisible = true
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        webView.frame = webView.superview?.bounds ?? UIScreen.main.bounds
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        webView.alpha = 1
+        webView.isOpaque = true
+        webView.isUserInteractionEnabled = true
+        colorfulYouTubeWebViewInfo("webview media consent visible")
+        if let activeRequestID, let activeVideoID {
+            armTimeout(
+                videoID: activeVideoID,
+                requestID: activeRequestID,
+                nanoseconds: 180_000_000_000
+            )
+        }
+    }
+
+    private func hideConsentPage(in webView: WKWebView) {
+        consentIsVisible = false
+        webView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        webView.autoresizingMask = []
+        webView.alpha = 0.01
+        webView.isOpaque = false
+        webView.isUserInteractionEnabled = false
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
