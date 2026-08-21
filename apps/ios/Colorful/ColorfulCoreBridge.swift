@@ -19,6 +19,7 @@ enum ColorfulCoreBridgeError: LocalizedError, Sendable {
     case abiMismatch(UInt32)
     case core(String)
     case invalidResponse
+    case snapshotTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -30,6 +31,8 @@ enum ColorfulCoreBridgeError: LocalizedError, Sendable {
             return message
         case .invalidResponse:
             return "The Rust core returned an invalid snapshot."
+        case .snapshotTooLarge:
+            return "The travel snapshot exceeds the \(ColorfulTravelSnapshotLimits.maxBytesLabel) limit."
         }
     }
 }
@@ -81,6 +84,87 @@ actor ColorfulCoreBridge {
         return colorful_engine_snapshot(handle).flatMap(Self.consume)
 #else
         return nil
+#endif
+    }
+
+    func exportTravelSnapshot() throws -> Data {
+#if COLORFUL_CORE_ENABLED
+        guard handle != 0 else {
+            throw ColorfulCoreBridgeError.unavailable
+        }
+        guard let responseData = colorful_engine_export_travel_snapshot(handle).flatMap(Self.consume) else {
+            throw ColorfulCoreBridgeError.invalidResponse
+        }
+
+        let response = try JSONDecoder().decode(
+            ColorfulCoreResponse<ColorfulTravelSnapshotDocument>.self,
+            from: responseData
+        )
+        guard response.abiVersion == 1 else {
+            throw ColorfulCoreBridgeError.abiMismatch(response.abiVersion)
+        }
+        guard response.ok else {
+            throw ColorfulCoreBridgeError.core(response.error ?? "The Rust core rejected the travel snapshot export.")
+        }
+        guard let document = response.value else {
+            throw ColorfulCoreBridgeError.invalidResponse
+        }
+        guard document.format == "colorful-travel-snapshot" else {
+            throw ColorfulCoreBridgeError.core("The Rust core returned an unknown travel snapshot format.")
+        }
+        guard document.version == 1 else {
+            throw ColorfulCoreBridgeError.core("The Rust core returned unsupported travel snapshot version \(document.version).")
+        }
+
+        guard let envelope = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let value = envelope["value"],
+              JSONSerialization.isValidJSONObject(value) else {
+            throw ColorfulCoreBridgeError.invalidResponse
+        }
+        let snapshotData = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+        guard snapshotData.count <= ColorfulTravelSnapshotLimits.maxBytes else {
+            throw ColorfulCoreBridgeError.snapshotTooLarge
+        }
+        return snapshotData
+#else
+        throw ColorfulCoreBridgeError.unavailable
+#endif
+    }
+
+    func importTravelSnapshot(_ snapshotData: Data) throws -> ColorfulTravelImportSummary {
+#if COLORFUL_CORE_ENABLED
+        guard handle != 0 else {
+            throw ColorfulCoreBridgeError.unavailable
+        }
+        guard snapshotData.count <= ColorfulTravelSnapshotLimits.maxBytes else {
+            throw ColorfulCoreBridgeError.snapshotTooLarge
+        }
+        guard let snapshotJSON = String(data: snapshotData, encoding: .utf8),
+              !snapshotJSON.utf8.contains(0) else {
+            throw ColorfulCoreBridgeError.core("The travel snapshot is not valid UTF-8 JSON.")
+        }
+        guard let responseData = snapshotJSON.withCString({
+            colorful_engine_import_travel_snapshot(handle, $0).flatMap(Self.consume)
+        }) else {
+            throw ColorfulCoreBridgeError.invalidResponse
+        }
+
+        let response = try JSONDecoder().decode(
+            ColorfulCoreResponse<ColorfulTravelImportSummary>.self,
+            from: responseData
+        )
+        guard response.abiVersion == 1 else {
+            throw ColorfulCoreBridgeError.abiMismatch(response.abiVersion)
+        }
+        guard response.ok else {
+            throw ColorfulCoreBridgeError.core(response.error ?? "The Rust core rejected the travel snapshot import.")
+        }
+        guard let summary = response.value else {
+            throw ColorfulCoreBridgeError.invalidResponse
+        }
+        return summary
+#else
+        throw ColorfulCoreBridgeError.unavailable
 #endif
     }
 

@@ -1,6 +1,8 @@
 import AVKit
+import Foundation
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct ColorfulRootView: View {
     @ObservedObject var store: PlaybackStore
@@ -2028,6 +2030,15 @@ private struct SettingsView: View {
     @ObservedObject var store: PlaybackStore
     @ObservedObject var account: TidalAccountStore
     @AppStorage("appearance.accent") private var useMintAccent = false
+    @State private var isPreparingSnapshotExport = false
+    @State private var snapshotExport: TravelSnapshotExport?
+    @State private var snapshotExportURL: URL?
+    @State private var snapshotExportError: String?
+    @State private var isConfirmingSnapshotImport = false
+    @State private var isImportingSnapshot = false
+    @State private var isApplyingSnapshot = false
+    @State private var snapshotImportError: String?
+    @State private var snapshotImportSummary: ColorfulTravelImportSummary?
 
     var body: some View {
         Form {
@@ -2074,6 +2085,28 @@ private struct SettingsView: View {
                         .foregroundStyle(ColorfulTheme.mutedInk)
                 }
             }
+            Section("Travel snapshot") {
+                Button {
+                    prepareSnapshotExport()
+                } label: {
+                    Label(
+                        isPreparingSnapshotExport ? "Preparing snapshot…" : "Export and share snapshot",
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+                .disabled(isPreparingSnapshotExport || isApplyingSnapshot || !store.core.isReady)
+
+                Button {
+                    isConfirmingSnapshotImport = true
+                } label: {
+                    Label("Import snapshot…", systemImage: "arrow.down.doc")
+                }
+                .disabled(isPreparingSnapshotExport || isApplyingSnapshot || !store.core.isReady)
+
+                Text("Snapshots carry your library, playlists, queue, playback position, repeat/shuffle state, and portable playback settings. Importing replaces that portable state. Downloads and account credentials stay on this device.")
+                    .font(.footnote)
+                    .foregroundStyle(ColorfulTheme.mutedInk)
+            }
             Section("Appearance") {
                 Toggle("Mint accent", isOn: $useMintAccent)
                 Text("The iOS shell keeps Colorful's dark block surfaces while native controls provide the system glass layer.")
@@ -2091,6 +2124,170 @@ private struct SettingsView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             RootTabHeader(title: "Settings")
         }
+        .confirmationDialog(
+            "Replace portable state?",
+            isPresented: $isConfirmingSnapshotImport,
+            titleVisibility: .visible
+        ) {
+            Button("Choose snapshot…") {
+                isConfirmingSnapshotImport = false
+                Task { @MainActor in
+                    isImportingSnapshot = true
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This replaces the library, playlists, queue, playback position, repeat/shuffle state, and portable playback settings. It does not import, delete, or replace downloads, account credentials, or other device-local data.")
+        }
+        .fileImporter(
+            isPresented: $isImportingSnapshot,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+            onCompletion: handleSnapshotImport
+        )
+        .sheet(item: $snapshotExport, onDismiss: {
+            cleanupSnapshotExport()
+        }) { export in
+            IOSActivityShareSheet(items: [export.url])
+        }
+        .alert(
+            "Snapshot export failed",
+            isPresented: Binding(
+                get: { snapshotExportError != nil },
+                set: { if !$0 { snapshotExportError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { snapshotExportError = nil }
+        } message: {
+            Text(snapshotExportError ?? "The travel snapshot could not be exported.")
+        }
+        .alert(
+            "Snapshot import failed",
+            isPresented: Binding(
+                get: { snapshotImportError != nil },
+                set: { if !$0 { snapshotImportError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { snapshotImportError = nil }
+        } message: {
+            Text(snapshotImportError ?? "The travel snapshot could not be imported.")
+        }
+        .alert(
+            "Snapshot imported",
+            isPresented: Binding(
+                get: { snapshotImportSummary != nil },
+                set: { if !$0 { snapshotImportSummary = nil } }
+            )
+        ) {
+            Button("Done", role: .cancel) { snapshotImportSummary = nil }
+        } message: {
+            Text(snapshotImportSummary?.message ?? "Portable state was replaced. Downloads and account credentials were left unchanged.")
+        }
+    }
+
+    private func prepareSnapshotExport() {
+        guard !isPreparingSnapshotExport, !isApplyingSnapshot else { return }
+        cleanupSnapshotExport()
+        isPreparingSnapshotExport = true
+        snapshotExportError = nil
+        Task { @MainActor in
+            do {
+                let url = try await store.exportTravelSnapshot()
+                snapshotExportURL = url
+                snapshotExport = TravelSnapshotExport(url: url)
+            } catch is CancellationError {
+                // A canceled export leaves no shareable file behind.
+            } catch {
+                snapshotExportError = error.localizedDescription
+            }
+            isPreparingSnapshotExport = false
+        }
+    }
+
+    private func handleSnapshotImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            if let cocoaError = error as? CocoaError, cocoaError.code == .userCancelled {
+                return
+            }
+            snapshotImportError = error.localizedDescription
+        case .success(let urls):
+            guard let url = urls.first else {
+                snapshotImportError = "No travel snapshot was selected."
+                return
+            }
+            snapshotImportError = nil
+            snapshotImportSummary = nil
+            isApplyingSnapshot = true
+            Task { @MainActor in
+                let hasSecurityScope = url.startAccessingSecurityScopedResource()
+                defer {
+                    if hasSecurityScope {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                    isApplyingSnapshot = false
+                }
+                do {
+                    try Task.checkCancellation()
+                    let data = try readTravelSnapshotData(from: url)
+                    try Task.checkCancellation()
+                    snapshotImportSummary = try await store.importTravelSnapshot(data: data)
+                } catch is CancellationError {
+                    // Picker cancellation and task cancellation are silent.
+                } catch {
+                    snapshotImportError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func readTravelSnapshotData(from url: URL) throws -> Data {
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+        guard values.isDirectory != true else {
+            throw ColorfulCoreBridgeError.core("Choose a travel snapshot JSON file, not a folder.")
+        }
+        guard let fileSize = values.fileSize else {
+            throw ColorfulCoreBridgeError.core("The snapshot file size could not be verified.")
+        }
+        guard fileSize <= ColorfulTravelSnapshotLimits.maxBytes else {
+            throw ColorfulCoreBridgeError.snapshotTooLarge
+        }
+
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        guard data.count <= ColorfulTravelSnapshotLimits.maxBytes else {
+            throw ColorfulCoreBridgeError.snapshotTooLarge
+        }
+        return data
+    }
+
+    private func cleanupSnapshotExport() {
+        let url = snapshotExportURL ?? snapshotExport?.url
+        snapshotExport = nil
+        snapshotExportURL = nil
+        if let url {
+            TravelSnapshotExport.removeTemporaryFile(at: url)
+        }
+    }
+}
+
+private struct TravelSnapshotExport: Identifiable {
+    let url: URL
+
+    var id: URL { url }
+
+    static func removeTemporaryFile(at url: URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let candidate = url
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard candidate.deletingLastPathComponent() == directory,
+              candidate.lastPathComponent.hasPrefix("colorful-travel-snapshot"),
+              candidate.pathExtension.lowercased() == "json" else {
+            return
+        }
+        try? FileManager.default.removeItem(at: candidate)
     }
 }
 

@@ -30,17 +30,31 @@ struct IOSOfflineExport: Identifiable {
 
 @MainActor
 final class IOSOfflineDownloadManager: NSObject, ObservableObject {
+    nonisolated static let backgroundSessionIdentifier = "sh.valerie.colorful.offline-audio"
+    private static weak var processOwner: IOSOfflineDownloadManager?
+
     @Published private(set) var progressByTrack = [CoreMediaID: Double]()
     @Published private(set) var message: String?
 
     private let store: PlaybackStore
     private let account: TidalAccountStore
+    private weak var owner: IOSOfflineDownloadManager?
+    private var ownerCancellables = Set<AnyCancellable>()
     private var session: AVAssetDownloadURLSession!
     private var tasksByTrack = [CoreMediaID: AVAssetDownloadTask]()
+    private var taskIDsByTrack = [CoreMediaID: Int]()
+    private var trackIDsByTask = [Int: CoreMediaID]()
     private var tracksByID = [CoreMediaID: CoreTrack]()
-    private var completedLocations = [Int: URL]()
+    private var pendingCompletedLocations = [Int: (id: CoreMediaID, location: URL)]()
     private var resolutionTasks = [CoreMediaID: Task<Void, Never>]()
     private var removedTracks = Set<CoreMediaID>()
+    private var cancelledTaskIDs = Set<Int>()
+    private var jobsByTrack = [CoreMediaID: CoreDownloadJob]()
+    private var startupTask: Task<Void, Never>?
+    private var delegateEventTail: Task<Void, Never>?
+    private var persistenceTail: Task<Void, Never>?
+    private var backgroundCompletionHandlers = [() -> Void]()
+    private var backgroundEventsDidFinish = false
     private var hasStarted = false
 
     init(store: PlaybackStore, account: TidalAccountStore) {
@@ -48,12 +62,27 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         self.account = account
         super.init()
 
+        if let existing = Self.processOwner {
+            owner = existing
+            progressByTrack = existing.progressByTrack
+            message = existing.message
+            existing.$progressByTrack
+                .sink { [weak self] value in self?.progressByTrack = value }
+                .store(in: &ownerCancellables)
+            existing.$message
+                .sink { [weak self] value in self?.message = value }
+                .store(in: &ownerCancellables)
+            return
+        }
+
+        Self.processOwner = self
         let configuration = URLSessionConfiguration.background(
-            withIdentifier: "sh.valerie.colorful.offline-audio"
+            withIdentifier: Self.backgroundSessionIdentifier
         )
         configuration.sessionSendsLaunchEvents = true
         configuration.isDiscretionary = false
         configuration.allowsCellularAccess = true
+        configuration.waitsForConnectivity = true
         session = AVAssetDownloadURLSession(
             configuration: configuration,
             assetDownloadDelegate: self,
@@ -62,36 +91,78 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
     }
 
     func start() {
+        if let owner {
+            owner.start()
+            return
+        }
         guard !hasStarted else { return }
         hasStarted = true
-        Task { [weak self] in
+        startupTask = Task { [weak self] in
             guard let self else { return }
-            await store.refreshFromCore()
-            attachBackgroundTasksAndRestore()
+            await refreshAndRestore()
+        }
+    }
+
+    func handleBackgroundEvents(
+        for identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        if let owner {
+            owner.handleBackgroundEvents(for: identifier, completionHandler: completionHandler)
+            return
+        }
+        guard identifier == Self.backgroundSessionIdentifier else {
+            completionHandler()
+            return
+        }
+        backgroundCompletionHandlers.append(completionHandler)
+        start()
+        if backgroundEventsDidFinish {
+            enqueueDelegateEvent { [weak self] in
+                guard let self else { return }
+                await finishBackgroundEventCycleIfReady()
+            }
         }
     }
 
     func job(for track: CoreTrack) -> CoreDownloadJob? {
-        store.downloadItems.first { $0.id == track.id }?.job
+        if let owner { return owner.job(for: track) }
+        guard !removedTracks.contains(track.id) else { return nil }
+        return jobsByTrack[track.id] ?? store.downloadItems.first { $0.id == track.id }?.job
     }
 
     func localURL(for track: CoreTrack) -> URL? {
+        if let owner { return owner.localURL(for: track) }
         guard let job = job(for: track), job.state == .complete,
-              let path = job.localPath, !path.isEmpty else { return nil }
-        return resolvedLocalURL(forStoredPath: path)
+              let path = job.localPath, !path.isEmpty,
+              let url = resolvedLocalURL(forStoredPath: path),
+              isPlayableOffline(at: url) else { return nil }
+        return url
     }
 
     func download(_ track: CoreTrack) {
+        if let owner {
+            owner.download(track)
+            return
+        }
         download([track])
     }
 
     func download(_ tracks: [CoreTrack]) {
+        if let owner {
+            owner.download(tracks)
+            return
+        }
         for track in tracks where track.id.provider.lowercased() == "tidal" {
             startDownload(track, preserveProgress: false)
         }
     }
 
     func pause(_ track: CoreTrack) {
+        if let owner {
+            owner.pause(track)
+            return
+        }
         resolutionTasks.removeValue(forKey: track.id)?.cancel()
         if let task = tasksByTrack[track.id] {
             task.suspend()
@@ -101,6 +172,10 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
     }
 
     func resume(_ track: CoreTrack) {
+        if let owner {
+            owner.resume(track)
+            return
+        }
         if let task = tasksByTrack[track.id] {
             task.resume()
             persist(track: track, state: .downloading)
@@ -111,21 +186,42 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
     }
 
     func remove(_ track: CoreTrack) {
+        if let owner {
+            owner.remove(track)
+            return
+        }
+        let storedLocalPath = job(for: track)?.localPath
         removedTracks.insert(track.id)
+        let pendingTaskIDs = pendingCompletedLocations.compactMap { taskID, pending in
+            pending.id == track.id ? taskID : nil
+        }
+        for taskID in pendingTaskIDs {
+            if let pending = pendingCompletedLocations.removeValue(forKey: taskID) {
+                try? FileManager.default.removeItem(at: pending.location)
+            }
+            cancelledTaskIDs.insert(taskID)
+        }
         resolutionTasks.removeValue(forKey: track.id)?.cancel()
-        tasksByTrack.removeValue(forKey: track.id)?.cancel()
+        if let task = tasksByTrack.removeValue(forKey: track.id) {
+            cancelledTaskIDs.insert(task.taskIdentifier)
+            task.cancel()
+            trackIDsByTask.removeValue(forKey: task.taskIdentifier)
+        }
+        taskIDsByTrack.removeValue(forKey: track.id)
         progressByTrack.removeValue(forKey: track.id)
-        if let path = job(for: track)?.localPath,
+        if let path = storedLocalPath,
            let localURL = resolvedLocalURL(forStoredPath: path) {
             try? FileManager.default.removeItem(at: localURL)
         }
         try? FileManager.default.removeItem(at: exportURL(for: track, extension: "m4a"))
         try? FileManager.default.removeItem(at: exportURL(for: track, extension: "flac"))
-        store.removeDownload(track.id)
+        jobsByTrack.removeValue(forKey: track.id)
+        enqueuePersistence(CoreRemoveDownloadCommand(id: track.id))
         message = "Removed the offline copy of \(track.title)."
     }
 
     func prepareShareableExport(for track: CoreTrack) async throws -> IOSOfflineExport {
+        if let owner { return try await owner.prepareShareableExport(for: track) }
         guard let localURL = localURL(for: track) else {
             throw IOSOfflineExportError.unavailable
         }
@@ -188,23 +284,37 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
     }
 
     func dismissMessage() {
+        if let owner {
+            owner.dismissMessage()
+            return
+        }
         message = nil
     }
 
     private func startDownload(_ track: CoreTrack, preserveProgress: Bool) {
         guard tasksByTrack[track.id] == nil,
               resolutionTasks[track.id] == nil else { return }
+        removedTracks.remove(track.id)
         if let local = localURL(for: track) {
             message = "\(track.title) is already available offline."
             _ = local
             return
         }
-        removedTracks.remove(track.id)
         tracksByID[track.id] = track
-        if job(for: track)?.state == .complete {
-            store.removeDownload(track.id)
+        if let previous = job(for: track) {
+            if let path = previous.localPath,
+               let localURL = resolvedLocalURL(forStoredPath: path) {
+                try? FileManager.default.removeItem(at: localURL)
+            }
+            jobsByTrack.removeValue(forKey: track.id)
+            enqueuePersistence(CoreRemoveDownloadCommand(id: track.id))
         }
-        persist(track: track, state: .queued, preserveProgress: preserveProgress)
+        persist(
+            track: track,
+            state: .queued,
+            preserveProgress: preserveProgress,
+            preserveLocalPath: false
+        )
         message = "Queued \(track.title) for offline playback."
 
         resolutionTasks[track.id] = Task { [weak self] in
@@ -227,6 +337,8 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
                 }
                 task.taskDescription = taskDescription(for: track.id)
                 tasksByTrack[track.id] = task
+                taskIDsByTrack[track.id] = task.taskIdentifier
+                trackIDsByTask[task.taskIdentifier] = track.id
                 resolutionTasks.removeValue(forKey: track.id)
                 persist(track: track, state: .downloading, preserveProgress: preserveProgress)
                 task.resume()
@@ -240,35 +352,82 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         }
     }
 
-    private func attachBackgroundTasksAndRestore() {
-        session.getAllTasks { [weak self] tasks in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                for case let task as AVAssetDownloadTask in tasks {
-                    guard let id = mediaID(from: task.taskDescription) else { continue }
-                    tasksByTrack[id] = task
-                    if let item = store.downloadItems.first(where: { $0.id == id }) {
-                        tracksByID[id] = item.track
-                    }
+    private func refreshAndRestore() async {
+        await store.refreshFromCore()
+        let firstTasks = await allBackgroundTasks()
+        restoreBackgroundTasks(firstTasks)
+        guard store.coreSnapshot == nil else { return }
+
+        // A background relaunch can race the first core open. Keep the session
+        // attached and retry once so pending completion locations are not lost
+        // just because the UI snapshot was not ready on the first pass.
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        guard !Task.isCancelled else { return }
+        await store.refreshFromCore()
+        let retryTasks = await allBackgroundTasks()
+        restoreBackgroundTasks(retryTasks)
+    }
+
+    private func allBackgroundTasks() async -> [URLSessionTask] {
+        await withCheckedContinuation { continuation in
+            session.getAllTasks { tasks in
+                continuation.resume(returning: tasks)
+            }
+        }
+    }
+
+    private func restoreBackgroundTasks(_ tasks: [URLSessionTask]) {
+        let items = store.downloadItems
+        let hasLoadedSnapshot = store.coreSnapshot != nil
+        jobsByTrack.removeAll(keepingCapacity: true)
+        for item in items {
+            jobsByTrack[item.id] = item.job
+        }
+
+        for case let task as AVAssetDownloadTask in tasks {
+            guard let id = mediaID(from: task.taskDescription) else {
+                task.cancel()
+                continue
+            }
+            guard !hasLoadedSnapshot || items.contains(where: { $0.id == id }) else {
+                task.cancel()
+                continue
+            }
+            tasksByTrack[id] = task
+            taskIDsByTrack[id] = task.taskIdentifier
+            trackIDsByTask[task.taskIdentifier] = id
+            if let item = items.first(where: { $0.id == id }) {
+                tracksByID[id] = item.track
+                if item.job.state != .complete,
+                   let path = item.job.localPath,
+                   let location = resolvedLocalURL(forStoredPath: path) {
+                    pendingCompletedLocations[task.taskIdentifier] = (id: id, location: location)
                 }
-                for item in store.downloadItems {
-                    switch item.job.state {
-                    case .queued, .resolving:
-                        startDownload(item.track, preserveProgress: true)
-                    case .downloading:
-                        if let task = tasksByTrack[item.id] {
-                            task.resume()
-                        } else {
-                            startDownload(item.track, preserveProgress: true)
-                        }
-                    case .complete:
-                        if localURL(for: item.track) == nil {
-                            store.removeDownload(item.id)
-                        }
-                    case .failed, .paused:
-                        break
-                    }
+            }
+        }
+
+        for item in items {
+            let restoredTask = tasksByTrack[item.id]
+            switch item.job.state {
+            case .queued, .resolving:
+                if let restoredTask {
+                    if restoredTask.state == .suspended { restoredTask.resume() }
+                    persist(track: item.track, state: .downloading, preserveProgress: true)
+                } else {
+                    startDownload(item.track, preserveProgress: true)
                 }
+            case .downloading:
+                if let restoredTask {
+                    if restoredTask.state == .suspended { restoredTask.resume() }
+                } else {
+                    startDownload(item.track, preserveProgress: true)
+                }
+            case .complete:
+                // Do not delete here. A location or completion callback may
+                // already be queued even when getAllTasks no longer lists it.
+                break
+            case .failed, .paused:
+                break
             }
         }
     }
@@ -279,22 +438,46 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         localURL: URL? = nil,
         size: UInt64? = nil,
         errorCode: String? = nil,
-        preserveProgress: Bool = true
+        preserveProgress: Bool = true,
+        preserveLocalPath: Bool = true
     ) {
         let previous = job(for: track)
         let downloaded = size ?? (preserveProgress ? previous?.bytesDownloaded ?? 0 : 0)
         let total = state == .complete ? downloaded : previous?.bytesTotal
+        let localPath = localURL.map(portableStoredPath)
+            ?? (preserveLocalPath ? previous?.localPath : nil)
         let job = CoreDownloadJob(
             mediaID: track.id,
             state: state,
-            localPath: localURL.map(portableStoredPath),
+            localPath: localPath,
             bytesDownloaded: downloaded,
             bytesTotal: total,
             sourceExpiresAtMs: nil,
             errorCode: errorCode,
             updatedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)
         )
-        store.saveDownload(track: track, job: job)
+        jobsByTrack[track.id] = job
+        enqueuePersistence(CoreSaveDownloadCommand(track: track, job: job))
+    }
+
+    private func enqueuePersistence<T: Encodable>(_ command: T) {
+        guard let data = try? JSONEncoder().encode(command),
+              let commandJSON = String(data: data, encoding: .utf8) else { return }
+        let previous = persistenceTail
+        persistenceTail = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            let succeeded = await store.core.dispatch(commandJSON: commandJSON)
+            await store.refreshFromCore()
+            if !succeeded {
+                message = "Could not save the offline download state."
+            }
+        }
+    }
+
+    private func awaitPersistenceBarrier() async {
+        let tail = persistenceTail
+        await tail?.value
     }
 
     private func taskDescription(for id: CoreMediaID) -> String {
@@ -306,37 +489,46 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         let path = url.standardizedFileURL.path
         guard path == home || path.hasPrefix(home + "/") else { return path }
         let relative = String(path.dropFirst(home.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return relative.isEmpty ? "~/" : "~/\(relative)"
+        // Apple documents saving the asset's path relative to the current
+        // container. This survives application-container UUID changes caused
+        // by reinstalling or moving a sideloaded app.
+        return relative
     }
 
     private func resolvedLocalURL(forStoredPath path: String) -> URL? {
         let fileManager = FileManager.default
-        let directURL = URL(fileURLWithPath: path).standardizedFileURL
-        if fileManager.fileExists(atPath: directURL.path) {
-            return directURL
-        }
-
         let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
         if path.hasPrefix("~/") {
             let candidate = home.appendingPathComponent(String(path.dropFirst(2))).standardizedFileURL
             return fileManager.fileExists(atPath: candidate.path) ? candidate : nil
         }
 
-        // App installs and sideloading containers can replace the absolute
-        // sandbox UUID while preserving Library/Documents. Rebase legacy paths
-        // onto the current home directory rather than discarding the job.
-        let components = directURL.pathComponents
-        for anchor in ["Library", "Documents", "tmp"] {
-            guard let index = components.lastIndex(of: anchor) else { continue }
-            let relativeComponents = components[index...]
-            let candidate = relativeComponents.reduce(home) { partial, component in
-                partial.appendingPathComponent(component)
-            }.standardizedFileURL
-            if fileManager.fileExists(atPath: candidate.path) {
-                return candidate
+        if path.hasPrefix("/") {
+            let directURL = URL(fileURLWithPath: path).standardizedFileURL
+            if fileManager.fileExists(atPath: directURL.path) {
+                return directURL
             }
+
+            // Legacy records stored an absolute path. Rebase the managed
+            // Library/Documents/tmp portion onto the current container.
+            let components = directURL.pathComponents
+            for anchor in ["Library", "Documents", "tmp"] {
+                guard let index = components.lastIndex(of: anchor) else { continue }
+                let relativeComponents = components[index...]
+                let candidate = relativeComponents.reduce(home) { partial, component in
+                    partial.appendingPathComponent(component)
+                }.standardizedFileURL
+                if fileManager.fileExists(atPath: candidate.path) {
+                    return candidate
+                }
+            }
+            return nil
         }
-        return nil
+
+        // New records use a container-relative path. Keep accepting the
+        // previous relative-to-home format for upgrades from older builds.
+        let candidate = home.appendingPathComponent(path).standardizedFileURL
+        return fileManager.fileExists(atPath: candidate.path) ? candidate : nil
     }
 
     private func mediaID(from description: String?) -> CoreMediaID? {
@@ -346,22 +538,18 @@ final class IOSOfflineDownloadManager: NSObject, ObservableObject {
         return CoreMediaID(provider: String(parts[0]), providerID: String(parts[1]))
     }
 
-    private func sizeOfItem(at url: URL) -> UInt64 {
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileAllocatedSizeKey, .totalFileAllocatedSizeKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: url,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
-        ) else {
-            let values = try? url.resourceValues(forKeys: keys)
-            return UInt64(max(0, values?.totalFileAllocatedSize ?? values?.fileAllocatedSize ?? 0))
-        }
-        var total: UInt64 = 0
-        for case let child as URL in enumerator {
-            guard let values = try? child.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
-            total += UInt64(max(0, values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0))
-        }
-        return total
+    private func allocatedSizeOfManagedPackage(at url: URL) -> UInt64 {
+        // The .movpkg contents are private to AVFoundation. Read metadata from
+        // the package root only; never enumerate or rewrite its internals.
+        let keys: Set<URLResourceKey> = [.fileAllocatedSizeKey, .totalFileAllocatedSizeKey]
+        let values = try? url.resourceValues(forKeys: keys)
+        return UInt64(max(0, values?.totalFileAllocatedSize ?? values?.fileAllocatedSize ?? 0))
+    }
+
+    private func isPlayableOffline(at url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        let asset = AVURLAsset(url: url)
+        return asset.assetCache?.isPlayableOffline == true
     }
 
     private func exportURL(for track: CoreTrack, extension fileExtension: String) -> URL {
@@ -571,33 +759,32 @@ extension IOSOfflineDownloadManager: AVAssetDownloadDelegate {
             partial + max(0, CMTimeGetSeconds(value.timeRangeValue.duration))
         }
         let progress = min(1, max(0, loaded / expected))
+        let taskID = assetDownloadTask.taskIdentifier
         let description = assetDownloadTask.taskDescription
-        Task { @MainActor [weak self] in
-            guard let self, let id = mediaID(from: description) else { return }
-            progressByTrack[id] = progress
+        MainActor.assumeIsolated { [weak self] in
+            self?.enqueueDelegateEvent { [weak self] in
+                guard let self,
+                      let id = idForTask(taskID, description: description),
+                      !removedTracks.contains(id),
+                      !cancelledTaskIDs.contains(taskID),
+                      taskIDsByTrack[id] == nil || taskIDsByTrack[id] == taskID else { return }
+                progressByTrack[id] = progress
+            }
         }
     }
 
     nonisolated func urlSession(
         _ session: URLSession,
         assetDownloadTask: AVAssetDownloadTask,
-        didFinishDownloadingTo location: URL
+        willDownloadTo location: URL
     ) {
         let taskID = assetDownloadTask.taskIdentifier
         let description = assetDownloadTask.taskDescription
-        Task { @MainActor [weak self] in
-            guard let self, let id = mediaID(from: description),
-                  let track = tracksByID[id] ?? store.downloadItems.first(where: { $0.id == id })?.track else { return }
-            // AVAssetDownloadURLSession owns this package. Copying a .movpkg in
-            // LiveContainer can make its tracks unreadable to AVFoundation, so
-            // keep the managed location that is already known to be playable.
-            completedLocations[taskID] = location
-            let size = sizeOfItem(at: location)
-            persist(track: track, state: .complete, localURL: location, size: size)
-            progressByTrack[id] = 1
-            message = "\(track.title) is ready offline."
-            Task { [weak account] in
-                await account?.prefetchLyrics(for: track)
+        MainActor.assumeIsolated { [weak self] in
+            self?.enqueueDelegateEvent { [weak self] in
+                guard let self else { return }
+                await awaitStartup()
+                handleManagedLocation(taskID: taskID, description: description, location: location)
             }
         }
     }
@@ -609,16 +796,170 @@ extension IOSOfflineDownloadManager: AVAssetDownloadDelegate {
     ) {
         let taskID = task.taskIdentifier
         let description = task.taskDescription
-        Task { @MainActor [weak self] in
-            guard let self, let id = mediaID(from: description) else { return }
-            tasksByTrack.removeValue(forKey: id)
-            if completedLocations.removeValue(forKey: taskID) != nil || removedTracks.remove(id) != nil {
-                return
+        MainActor.assumeIsolated { [weak self] in
+            self?.enqueueDelegateEvent { [weak self] in
+                guard let self else { return }
+                await awaitStartup()
+                handleTaskCompletion(taskID: taskID, description: description, error: error)
             }
-            guard let error,
-                  let track = tracksByID[id] ?? store.downloadItems.first(where: { $0.id == id })?.track else { return }
-            persist(track: track, state: .failed, errorCode: "transfer_failed", preserveProgress: true)
-            message = "Download failed for \(track.title): \(error.localizedDescription)"
         }
+    }
+
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        guard session.configuration.identifier == Self.backgroundSessionIdentifier else { return }
+        MainActor.assumeIsolated { [weak self] in
+            self?.enqueueDelegateEvent { [weak self] in
+                guard let self else { return }
+                await awaitStartup()
+                backgroundEventsDidFinish = true
+                await finishBackgroundEventCycleIfReady()
+            }
+        }
+    }
+}
+
+private extension IOSOfflineDownloadManager {
+    func enqueueDelegateEvent(_ operation: @escaping @MainActor () async -> Void) {
+        let previous = delegateEventTail
+        delegateEventTail = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await operation()
+        }
+    }
+
+    func awaitStartup() async {
+        start()
+        let task = startupTask
+        await task?.value
+    }
+
+    func idForTask(_ taskID: Int, description: String?) -> CoreMediaID? {
+        mediaID(from: description) ?? trackIDsByTask[taskID]
+    }
+
+    func handleManagedLocation(taskID: Int, description: String?, location: URL) {
+        guard let id = idForTask(taskID, description: description) else {
+            try? FileManager.default.removeItem(at: location)
+            return
+        }
+        guard !removedTracks.contains(id), !cancelledTaskIDs.contains(taskID) else {
+            pendingCompletedLocations.removeValue(forKey: taskID)
+            try? FileManager.default.removeItem(at: location)
+            return
+        }
+        if let currentTaskID = taskIDsByTrack[id], currentTaskID != taskID {
+            try? FileManager.default.removeItem(at: location)
+            return
+        }
+        guard let track = tracksByID[id]
+                ?? store.downloadItems.first(where: { $0.id == id })?.track,
+              job(for: track) != nil else {
+            try? FileManager.default.removeItem(at: location)
+            return
+        }
+
+        taskIDsByTrack[id] = taskID
+        trackIDsByTask[taskID] = id
+        tracksByID[id] = track
+        pendingCompletedLocations[taskID] = (id: id, location: location)
+        let state: CoreDownloadState = job(for: track)?.state == .paused ? .paused : .downloading
+        persist(track: track, state: state, localURL: location, preserveProgress: true)
+    }
+
+    func handleTaskCompletion(taskID: Int, description: String?, error: Error?) {
+        guard let id = idForTask(taskID, description: description) else {
+            pendingCompletedLocations.removeValue(forKey: taskID)
+            return
+        }
+
+        defer {
+            if taskIDsByTrack[id] == taskID {
+                tasksByTrack.removeValue(forKey: id)
+                taskIDsByTrack.removeValue(forKey: id)
+            }
+            trackIDsByTask.removeValue(forKey: taskID)
+        }
+
+        if cancelledTaskIDs.contains(taskID) || removedTracks.contains(id) {
+            if let pending = pendingCompletedLocations.removeValue(forKey: taskID) {
+                try? FileManager.default.removeItem(at: pending.location)
+            }
+            return
+        }
+        if let currentTaskID = taskIDsByTrack[id], currentTaskID != taskID {
+            if let pending = pendingCompletedLocations.removeValue(forKey: taskID) {
+                try? FileManager.default.removeItem(at: pending.location)
+            }
+            return
+        }
+        guard let track = tracksByID[id]
+                ?? store.downloadItems.first(where: { $0.id == id })?.track,
+              job(for: track) != nil else {
+            if let pending = pendingCompletedLocations.removeValue(forKey: taskID) {
+                try? FileManager.default.removeItem(at: pending.location)
+            }
+            return
+        }
+
+        if let error {
+            let location = pendingCompletedLocations.removeValue(forKey: taskID)?.location
+            persist(
+                track: track,
+                state: .failed,
+                localURL: location,
+                errorCode: "transfer_failed",
+                preserveProgress: true
+            )
+            message = "Download failed for \(track.title): \(error.localizedDescription)"
+            return
+        }
+
+        let storedLocation = job(for: track)?.localPath.flatMap {
+            resolvedLocalURL(forStoredPath: $0)
+        }
+        let location = pendingCompletedLocations.removeValue(forKey: taskID)?.location
+            ?? storedLocation
+        guard let location, isPlayableOffline(at: location) else {
+            jobsByTrack.removeValue(forKey: id)
+            enqueuePersistence(CoreRemoveDownloadCommand(id: id))
+            progressByTrack.removeValue(forKey: id)
+            message = "Removed an unavailable offline copy of \(track.title)."
+            return
+        }
+
+        let size = allocatedSizeOfManagedPackage(at: location)
+        persist(track: track, state: .complete, localURL: location, size: size)
+        progressByTrack[id] = 1
+        message = "\(track.title) is ready offline."
+        Task { [weak account] in
+            await account?.prefetchLyrics(for: track)
+        }
+    }
+
+    func reconcileCompletedRecordsAfterDelegateDrain() {
+        let pendingIDs = Set(pendingCompletedLocations.values.map(\.id))
+        for item in store.downloadItems where item.job.state == .complete {
+            guard !pendingIDs.contains(item.id), tasksByTrack[item.id] == nil else { continue }
+            guard localURL(for: item.track) == nil else { continue }
+            jobsByTrack.removeValue(forKey: item.id)
+            enqueuePersistence(CoreRemoveDownloadCommand(id: item.id))
+            progressByTrack.removeValue(forKey: item.id)
+        }
+    }
+
+    func finishBackgroundEventCycleIfReady() async {
+        guard backgroundEventsDidFinish, !backgroundCompletionHandlers.isEmpty else { return }
+
+        // Delegate callbacks are serialized ahead of this operation. The two
+        // barriers also include persistence queued while reconciliation runs.
+        await awaitPersistenceBarrier()
+        reconcileCompletedRecordsAfterDelegateDrain()
+        await awaitPersistenceBarrier()
+
+        let handlers = backgroundCompletionHandlers
+        backgroundCompletionHandlers.removeAll()
+        backgroundEventsDidFinish = false
+        handlers.forEach { $0() }
     }
 }

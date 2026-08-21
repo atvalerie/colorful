@@ -32,6 +32,24 @@
 namespace {
 constexpr qint64 CatalogCacheFreshMs = 15 * 60 * 1000;
 constexpr qsizetype MaximumCatalogCacheEntries = 128;
+constexpr qint64 MaximumTravelSnapshotBytes = 64 * 1024 * 1024;
+
+QString localTravelFilePath(const QUrl &fileUrl, QString *error)
+{
+    QString path;
+    if (fileUrl.isLocalFile()) path = fileUrl.toLocalFile();
+    else if (fileUrl.scheme().isEmpty()) path = fileUrl.toString();
+    else {
+        if (error) *error = QStringLiteral("Only local files can be used for travel snapshots");
+        return {};
+    }
+    path = QDir::cleanPath(path);
+    if (path.isEmpty() || !QFileInfo(path).isAbsolute()) {
+        if (error) *error = QStringLiteral("Choose an absolute local file path");
+        return {};
+    }
+    return path;
+}
 
 QString safeTrackPath(const QVariantMap &track)
 {
@@ -738,7 +756,7 @@ QJsonObject Backend::dispatchCore(const QJsonObject &command)
     return response.value(QStringLiteral("value")).toObject();
 }
 
-void Backend::refreshCoreSnapshot()
+void Backend::refreshCoreSnapshot(bool restorePlaybackPosition)
 {
     QString error;
     const auto response = m_core.snapshot(&error);
@@ -855,7 +873,7 @@ void Backend::refreshCoreSnapshot()
     m_shuffleEnabled = nextShuffleEnabled;
     const auto currentArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
     if (!currentArtworkUrl.isEmpty() && currentArtworkUrl != previousArtworkUrl) loadAccent(currentArtworkUrl);
-    if (currentWasChanged) {
+    if (currentWasChanged || restorePlaybackPosition) {
         m_resumePositionMs = playback.value(QStringLiteral("positionMs")).toInteger();
         m_displayPositionOverride = m_resumePositionMs;
         emit positionChanged();
@@ -867,6 +885,78 @@ void Backend::refreshCoreSnapshot()
     if (downloadsWereChanged) emit downloadsChanged();
     if (listenStatsWereChanged) emit listenStatsChanged();
     if (playbackOptionsWereChanged) emit playbackOptionsChanged();
+}
+
+void Backend::refreshPortableSettings()
+{
+    if (!m_core.isOpen()) return;
+
+    bool readFailed = false;
+    const auto readSetting = [this, &readFailed](const QString &key) {
+        QString error;
+        const auto value = m_core.setting(key, &error);
+        if (!error.isEmpty()) {
+            readFailed = true;
+            setStatus(QStringLiteral("Local engine: %1").arg(error));
+        }
+        return value;
+    };
+
+    const auto autoplayValue = readSetting(QStringLiteral("playback/autoplay"));
+    const auto qualityValue = readSetting(QStringLiteral("playback/streamQuality"));
+    const auto normalizationValue = readSetting(QStringLiteral("playback/normalization"));
+    const auto bandsValue = readSetting(QStringLiteral("playback/equalizerBands"));
+    const auto presetValue = readSetting(QStringLiteral("playback/equalizerPreset"));
+    if (readFailed) return;
+
+    const auto nextAutoplay = autoplayValue.isBool() ? autoplayValue.toBool() : true;
+    auto nextStreamQuality = qualityValue.toString(QStringLiteral("best"));
+    if (nextStreamQuality != QStringLiteral("best")
+        && nextStreamQuality != QStringLiteral("lossless")
+        && nextStreamQuality != QStringLiteral("high")) {
+        nextStreamQuality = QStringLiteral("best");
+    }
+    const auto nextNormalization = normalizationValue.isBool()
+        ? normalizationValue.toBool() : false;
+
+    QVariantList nextEqualizerBands;
+    const auto bandValues = bandsValue.toArray();
+    if (bandValues.size() == 10) {
+        for (const auto &value : bandValues)
+            nextEqualizerBands.append(std::clamp(value.toDouble(), -12.0, 12.0));
+    } else {
+        for (int index = 0; index < 10; ++index) nextEqualizerBands.append(0.0);
+    }
+    const auto nextEqualizerPreset = presetValue.toString(QStringLiteral("Flat"));
+    const bool autoplayChanged = m_autoplayEnabled != nextAutoplay;
+    const bool streamQualityChanged = m_streamQuality != nextStreamQuality;
+    const bool normalizationChanged = m_normalizationEnabled != nextNormalization;
+    const bool equalizerChanged = m_equalizerBands != nextEqualizerBands
+        || m_equalizerPreset != nextEqualizerPreset;
+
+    m_autoplayEnabled = nextAutoplay;
+    m_streamQuality = nextStreamQuality;
+    m_normalizationEnabled = nextNormalization;
+    m_equalizerBands = nextEqualizerBands;
+    m_equalizerPreset = nextEqualizerPreset;
+
+    QSettings settings;
+    settings.setValue(QStringLiteral("playback/autoplay"), m_autoplayEnabled);
+    settings.setValue(QStringLiteral("playback/streamQuality"), m_streamQuality);
+    settings.setValue(QStringLiteral("playback/normalization"), m_normalizationEnabled);
+    settings.setValue(QStringLiteral("playback/equalizerBands"), m_equalizerBands);
+    settings.setValue(QStringLiteral("playback/equalizerPreset"), m_equalizerPreset);
+
+    if (normalizationChanged) m_playback.setReplayGain(m_normalizationEnabled);
+    if (equalizerChanged) {
+        QList<double> gains;
+        gains.reserve(m_equalizerBands.size());
+        for (const auto &gain : std::as_const(m_equalizerBands)) gains.append(gain.toDouble());
+        m_playback.setEqualizer(gains);
+    }
+    if (autoplayChanged) emit autoplayEnabledChanged();
+    if (streamQualityChanged) emit streamQualityChanged();
+    if (normalizationChanged || equalizerChanged) emit audioProcessingChanged();
 }
 
 QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
@@ -3329,6 +3419,145 @@ void Backend::openDownloadsFolder()
 {
     QDir().mkpath(downloadsDirectory());
     QDesktopServices::openUrl(QUrl::fromLocalFile(downloadsDirectory()));
+}
+
+void Backend::exportTravelSnapshot(const QUrl &fileUrl)
+{
+    if (!m_core.isOpen()) {
+        notify(QStringLiteral("The local library is not ready yet"), QStringLiteral("error"));
+        return;
+    }
+
+    QString error;
+    auto path = localTravelFilePath(fileUrl, &error);
+    if (path.isEmpty()) {
+        notify(error, QStringLiteral("error"));
+        return;
+    }
+    const QFileInfo destinationInfo(path);
+    if (destinationInfo.exists() && destinationInfo.isDir()) {
+        notify(QStringLiteral("Choose a file, not a folder"), QStringLiteral("error"));
+        return;
+    }
+    if (destinationInfo.suffix().isEmpty()) path += QStringLiteral(".json");
+
+    const auto response = m_core.exportTravelSnapshot(&error);
+    if (!response.value(QStringLiteral("ok")).toBool()) {
+        notify(error.isEmpty() ? QStringLiteral("Could not export the travel snapshot") : error,
+               QStringLiteral("error"));
+        return;
+    }
+
+    const auto snapshot = response.value(QStringLiteral("value")).toObject();
+    if (snapshot.value(QStringLiteral("format")).toString()
+            != QStringLiteral("colorful-travel-snapshot")
+        || snapshot.value(QStringLiteral("version")).toInteger() != 1) {
+        notify(QStringLiteral("The core returned an unsupported travel snapshot"),
+               QStringLiteral("error"));
+        return;
+    }
+
+    const auto bytes = QJsonDocument(snapshot).toJson(QJsonDocument::Indented);
+    QSaveFile file(path);
+    file.setDirectWriteFallback(false);
+    if (!file.open(QIODevice::WriteOnly)
+        || file.write(bytes) != bytes.size()
+        || !file.commit()) {
+        notify(QStringLiteral("Could not write the travel snapshot: %1").arg(file.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+    notify(QStringLiteral("Travel snapshot exported to %1").arg(QDir::toNativeSeparators(path)),
+           QStringLiteral("success"));
+}
+
+void Backend::importTravelSnapshot(const QUrl &fileUrl)
+{
+    if (!m_core.isOpen()) {
+        notify(QStringLiteral("The local library is not ready yet"), QStringLiteral("error"));
+        return;
+    }
+
+    QString error;
+    const auto path = localTravelFilePath(fileUrl, &error);
+    if (path.isEmpty()) {
+        notify(error, QStringLiteral("error"));
+        return;
+    }
+    const QFileInfo sourceInfo(path);
+    if (!sourceInfo.exists() || !sourceInfo.isFile()) {
+        notify(QStringLiteral("Choose an existing travel snapshot file"), QStringLiteral("error"));
+        return;
+    }
+    if (sourceInfo.size() > MaximumTravelSnapshotBytes) {
+        notify(QStringLiteral("The travel snapshot is too large"), QStringLiteral("error"));
+        return;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        notify(QStringLiteral("Could not read the travel snapshot: %1").arg(file.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+    const auto sourceBytes = file.readAll();
+    if (file.error() != QFileDevice::NoError) {
+        notify(QStringLiteral("Could not read the travel snapshot: %1").arg(file.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const auto document = QJsonDocument::fromJson(sourceBytes, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        notify(QStringLiteral("The selected file is not valid JSON: %1")
+                   .arg(parseError.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+    const auto snapshot = document.object();
+    if (snapshot.value(QStringLiteral("format")).toString()
+            != QStringLiteral("colorful-travel-snapshot")
+        || snapshot.value(QStringLiteral("version")).toInteger() != 1) {
+        notify(QStringLiteral("This is not a supported colorful travel snapshot"),
+               QStringLiteral("error"));
+        return;
+    }
+
+    const auto compactJson = QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
+    const auto response = m_core.importTravelSnapshot(compactJson, &error);
+    if (!response.value(QStringLiteral("ok")).toBool()) {
+        notify(error.isEmpty() ? QStringLiteral("Could not import the travel snapshot") : error,
+               QStringLiteral("error"));
+        return;
+    }
+
+    m_manualSkipTimer.stop();
+    ++m_sourceGeneration;
+    m_automaticPlaybackRetryTrackId.clear();
+    m_automaticPlaybackRetryUsed = false;
+    clearPlaylistContinuation();
+    ++m_relatedGeneration;
+    m_relatedPending = false;
+    m_relatedContinueWhenReady = false;
+    m_relatedSeedEntryId = -1;
+    invalidatePreparedNext();
+    m_playback.clearSource();
+    m_playbackReady = false;
+    m_playingLocalSource = false;
+    m_resumePositionMs = 0;
+    m_displayPositionOverride = -1;
+    m_playbackError.clear();
+    setSourceResolving(false);
+    emit playbackConditionChanged();
+    refreshCoreSnapshot(true);
+    refreshPortableSettings();
+
+    const auto summary = response.value(QStringLiteral("value")).toObject();
+    notify(QStringLiteral("Imported %1 tracks and %2 playlists. Downloads and accounts stayed on this device.")
+               .arg(summary.value(QStringLiteral("trackCount")).toInteger())
+               .arg(summary.value(QStringLiteral("playlistCount")).toInteger()),
+           QStringLiteral("success"));
 }
 
 void Backend::playTrackAt(int index)

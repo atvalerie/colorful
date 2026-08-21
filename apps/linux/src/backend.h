@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QPointer>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantAnimation>
 #include <functional>
@@ -250,6 +251,8 @@ public:
     Q_INVOKABLE void removeUnfinishedDownloads();
     Q_INVOKABLE void setOfflineStorageLimitBytes(qint64 bytes);
     Q_INVOKABLE void openDownloadsFolder();
+    Q_INVOKABLE void exportTravelSnapshot(const QUrl &fileUrl);
+    Q_INVOKABLE void importTravelSnapshot(const QUrl &fileUrl);
     Q_INVOKABLE void loadTidalHub(bool refresh = false);
     Q_INVOKABLE void loadMoreTidal(const QString &section);
     Q_INVOKABLE void togglePlay();
@@ -398,7 +401,8 @@ private:
     void resetLyrics();
     bool openCore();
     QJsonObject dispatchCore(const QJsonObject &command);
-    void refreshCoreSnapshot();
+    void refreshCoreSnapshot(bool restorePlaybackPosition = false);
+    void refreshPortableSettings();
     static QJsonObject variantTrackToCore(const QVariantMap &track);
     static QVariantMap coreTrackToVariant(const QJsonObject &track);
     void loadAccent(const QString &artworkUrl);

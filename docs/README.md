@@ -29,6 +29,7 @@ This is the documentation hub for colorful. Use the sections below to find platf
 - [iOS architecture](ios-architecture.md) — SwiftUI, Rust, playback, provider, offline, and sync ownership.
 - [iOS builds](ios-builds.md) — Local Xcode builds and the optional Rust-core integration.
 - [iOS CI on hosted macOS](macos-ci.md) — Hosted workflow for unsigned simulator and device builds.
+- [iOS offline downloads](ios-offline.md) — Background relaunch, managed packages, sideload portability, and device validation.
 - [iOS parity matrix](ios-parity.md) — Desktop reference behavior, iOS targets, and priorities.
 - [iOS platform practices](ios-platform-practices.md) — Playback, audio-session, controls, queue, artwork, and reliability rules.
 - [iOS product baseline](ios-product.md) — Product direction, sequencing, and current non-goals for the native client.

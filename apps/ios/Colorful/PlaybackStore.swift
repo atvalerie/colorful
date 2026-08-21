@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 enum ColorfulTab: String, CaseIterable, Hashable {
@@ -33,6 +34,10 @@ final class PlaybackStore: ObservableObject {
 
     private var commandTask: Task<Void, Never>?
     private var pendingPlayingState: Bool?
+    private var travelSnapshotOperationActive = false
+    private var travelSnapshotOperationGeneration: UInt64 = 0
+    private var travelSnapshotWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
+    private var nextTravelSnapshotWaiterID: UInt64 = 0
 
     var effectiveIsPlaying: Bool {
         pendingPlayingState ?? isPlaying
@@ -122,7 +127,73 @@ final class PlaybackStore: ObservableObject {
         core = ColorfulCoreBridge()
     }
 
-    func refreshFromCore(adoptPosition: Bool = false) async {
+    @discardableResult
+    func refreshFromCore(adoptPosition: Bool = false) async -> Bool {
+        let generation = travelSnapshotOperationGeneration
+        await waitForTravelSnapshotOperation(generation: generation)
+        return await loadSnapshotIntoStore(adoptPosition: adoptPosition)
+    }
+
+    func exportTravelSnapshot() async throws -> URL {
+        let requestedGeneration = travelSnapshotOperationGeneration
+        await waitForTravelSnapshotOperation(generation: requestedGeneration)
+        try Task.checkCancellation()
+
+        travelSnapshotOperationGeneration &+= 1
+        travelSnapshotOperationActive = true
+        let commandsToDrain = commandTask
+        defer { finishTravelSnapshotOperation() }
+
+        await commandsToDrain?.value
+        try Task.checkCancellation()
+        let data = try await core.exportTravelSnapshot()
+        try Task.checkCancellation()
+        guard data.count <= ColorfulTravelSnapshotLimits.maxBytes else {
+            throw ColorfulCoreBridgeError.snapshotTooLarge
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("colorful-travel-snapshot", isDirectory: false)
+            .appendingPathExtension("json")
+        do {
+            try data.write(to: url, options: .atomic)
+            try Task.checkCancellation()
+            return url
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
+    }
+
+    func importTravelSnapshot(data: Data) async throws -> ColorfulTravelImportSummary {
+        guard data.count <= ColorfulTravelSnapshotLimits.maxBytes else {
+            throw ColorfulCoreBridgeError.snapshotTooLarge
+        }
+
+        let requestedGeneration = travelSnapshotOperationGeneration
+        await waitForTravelSnapshotOperation(generation: requestedGeneration)
+        try Task.checkCancellation()
+
+        travelSnapshotOperationGeneration &+= 1
+        travelSnapshotOperationActive = true
+        let commandsToDrain = commandTask
+        defer { finishTravelSnapshotOperation() }
+
+        await commandsToDrain?.value
+        try Task.checkCancellation()
+        let summary = try await core.importTravelSnapshot(data)
+        pendingPlayingState = nil
+
+        guard await loadSnapshotIntoStore(adoptPosition: true) else {
+            let reason = coreError ?? "The iOS view could not refresh its Rust-core snapshot."
+            throw ColorfulCoreBridgeError.core(
+                "The travel snapshot was imported, but the iOS view could not refresh: \(reason)"
+            )
+        }
+        return summary
+    }
+
+    private func loadSnapshotIntoStore(adoptPosition: Bool) async -> Bool {
         do {
             let snapshot = try await core.loadSnapshot()
             let previousEntryID = coreSnapshot?.queue.current
@@ -133,7 +204,7 @@ final class PlaybackStore: ObservableObject {
                 currentTrack = nil
                 isPlaying = false
                 pendingPlayingState = nil
-                return
+                return true
             }
 
             currentTrack = currentTrack(in: snapshot)
@@ -149,8 +220,10 @@ final class PlaybackStore: ObservableObject {
             if adoptPosition || previousEntryID != snapshot.queue.current {
                 positionMs = snapshot.playback.positionMs
             }
+            return true
         } catch {
             coreError = error.localizedDescription
+            return false
         }
     }
 
@@ -320,15 +393,41 @@ final class PlaybackStore: ObservableObject {
         }
 
         let previousTask = commandTask
-        commandTask = Task { [weak self] in
+        let commandGeneration = travelSnapshotOperationGeneration
+        commandTask = Task { @MainActor [weak self] in
+            await self?.waitForTravelSnapshotOperation(generation: commandGeneration)
             await previousTask?.value
             guard let self, !Task.isCancelled else { return }
             let succeeded = await self.core.dispatch(commandJSON: commandJSON)
             if !succeeded {
                 self.pendingPlayingState = nil
             }
-            await self.refreshFromCore()
+            _ = await self.loadSnapshotIntoStore(adoptPosition: false)
         }
+    }
+
+    private func waitForTravelSnapshotOperation(generation: UInt64) async {
+        guard travelSnapshotOperationActive,
+              generation >= travelSnapshotOperationGeneration else {
+            return
+        }
+
+        let waiterID = nextTravelSnapshotWaiterID
+        nextTravelSnapshotWaiterID &+= 1
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if !travelSnapshotOperationActive || generation < travelSnapshotOperationGeneration {
+                continuation.resume()
+            } else {
+                travelSnapshotWaiters[waiterID] = continuation
+            }
+        }
+    }
+
+    private func finishTravelSnapshotOperation() {
+        travelSnapshotOperationActive = false
+        let waiters = travelSnapshotWaiters.values
+        travelSnapshotWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     private func currentTrack(in snapshot: ColorfulCoreSnapshot) -> CoreTrack? {

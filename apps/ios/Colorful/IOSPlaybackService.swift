@@ -1,7 +1,13 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import OSLog
 import UIKit
+
+private let colorfulIOSPlaybackLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "sh.valerie.colorful",
+    category: "Playback"
+)
 
 @MainActor
 final class IOSPlaybackService: NSObject, ObservableObject {
@@ -293,6 +299,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 failedTrackID = track.id
                 failedQueueEntryID = queueEntryID
                 errorMessage = error.localizedDescription
+                colorfulIOSPlaybackLogger.error(
+                    "source resolution failed provider=\(provider, privacy: .public) track=\(track.id.providerID, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
                 store.pause()
             }
         }
@@ -323,15 +332,27 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             options[AVURLAssetHTTPUserAgentKey] = userAgent
         }
         options[AVURLAssetOverrideMIMETypeKey] = source.mimeType
-        // Provider-supplied cookies (e.g. from the WebView HLS resolver) must
-        // reach AVPlayer's segment requests via the shared cookie store.
-        if let cookieHeader = source.httpHeaders["Cookie"] {
-            let cookies = HTTPCookie.cookies(withResponseHeaderFields: [
-                "Set-Cookie": cookieHeader.replacingOccurrences(of: "; ", with: "\r\nSet-Cookie: "),
-            ], for: source.url)
-            let store = HTTPCookieStorage.shared
-            for cookie in cookies { store.setCookie(cookie) }
+        // AVFoundation has no supported arbitrary-header option. YouTube's
+        // direct source is probed with this same User-Agent and range shape;
+        // sources that still depend on browser-only Origin/Referer fail before
+        // an AVPlayerItem is installed.
+        // AVURLAsset does not reliably inherit cookies from process-wide
+        // storage. Pass URL-matching cookies explicitly so the HLS manifest
+        // and subsequent media requests use the same WebView session.
+        let cookies = HTTPCookieStorage.shared.cookies(for: source.url)
+        if let cookies, !cookies.isEmpty {
+            options[AVURLAssetHTTPCookiesKey] = cookies
         }
+        let queryKeys = Array(Set(
+            URLComponents(url: source.url, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name) ?? []
+        )).sorted().joined(separator: ",")
+        let host = source.url.host ?? ""
+        let headerNames = source.httpHeaders.keys.sorted().joined(separator: ",")
+        let hasPOT = queryKeys.split(separator: ",").contains("pot")
+        let hasUMP = queryKeys.split(separator: ",").contains("ump")
+        colorfulIOSPlaybackLogger.info(
+            "install youtube AVPlayer source track=\(track.id.providerID, privacy: .public) host=\(host, privacy: .public) mime=\(source.mimeType, privacy: .public) headers=\(headerNames, privacy: .public) cookies=\(cookies?.count ?? 0) queryKeys=[\(queryKeys)] pot=\(hasPOT) ump=\(hasUMP)"
+        )
         let asset = AVURLAsset(url: source.url, options: options)
         let item = AVPlayerItem(asset: asset)
         if source.mimeType.lowercased().contains("mpegurl") {
@@ -369,12 +390,19 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     self.itemReadinessTask?.cancel()
                     self.itemReadinessTask = nil
                     self.isBuffering = false
+                    colorfulIOSPlaybackLogger.info(
+                        "AVPlayer item ready track=\(track.id.providerID, privacy: .public)"
+                    )
                     self.applyPlaybackState()
                 case .failed:
+                    let message = self.playbackFailureMessage(for: item)
+                    colorfulIOSPlaybackLogger.error(
+                        "AVPlayer item failed track=\(track.id.providerID, privacy: .public) message=\(message, privacy: .public)"
+                    )
                     self.failInstalledItem(
                         track: track,
                         queueEntryID: queueEntryID,
-                        message: self.playbackFailureMessage(for: item)
+                        message: message
                     )
                 case .unknown:
                     break

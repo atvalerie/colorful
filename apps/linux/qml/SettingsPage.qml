@@ -6,6 +6,7 @@ import QtQuick.Layouts
 Item {
     id: root
     property int tab: 0
+    property url pendingTravelImportFile: ""
     readonly property var pages: [
         ["Accounts", "Provider connections"],
         ["Playback", "Queue and audio behavior"],
@@ -732,11 +733,39 @@ Item {
                         }
                     }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 72
+                        id: travelSnapshotCard
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: travelSnapshotColumn.implicitHeight + 28
+                        implicitHeight: travelSnapshotColumn.implicitHeight + 28
                         color: Qt.rgba(1, 1, 1, 0.018); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
-                        Column { anchors.fill: parent; anchors.margins: 14; spacing: 4
-                            Text { text: "Device sync is not enabled yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
-                            Text { width: parent.width; text: "Pairing, history sync, playback handoff, and desktop RPC relay controls will appear here."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
+                        Column {
+                            id: travelSnapshotColumn
+                            anchors.fill: parent; anchors.margins: 14; spacing: 8
+                            Text { text: "Travel snapshot"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text {
+                                width: parent.width
+                                text: "Move your library, playlists, queue, playback position, and selected playback settings between devices. Downloads and accounts stay on this device."
+                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                width: parent.width; spacing: 8
+                                ColorButton {
+                                    text: "Export JSON"
+                                    quiet: true
+                                    enabled: !colorful.busy
+                                    onClicked: travelExportDialog.open()
+                                }
+                                ColorButton {
+                                    text: "Import JSON"
+                                    enabled: !colorful.busy
+                                    onClicked: travelImportDialog.open()
+                                }
+                            }
+                            Text {
+                                width: parent.width
+                                text: "Import replaces portable state after confirmation."
+                                color: Qt.rgba(1, 1, 1, 0.3); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }
@@ -817,6 +846,48 @@ Item {
         onAccepted: {
             colorful.fixedAccent = selectedColor
             colorful.accentMode = "fixed"
+        }
+    }
+
+    FileDialog {
+        id: travelExportDialog
+        title: "Export a colorful travel snapshot"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["Colorful travel snapshots (*.json)", "All files (*)"]
+        onAccepted: colorful.exportTravelSnapshot(selectedFile)
+    }
+
+    FileDialog {
+        id: travelImportDialog
+        title: "Choose a colorful travel snapshot"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Colorful travel snapshots (*.json)", "All files (*)"]
+        onAccepted: {
+            root.pendingTravelImportFile = selectedFile
+            travelImportConfirm.open()
+        }
+    }
+
+    Dialog {
+        id: travelImportConfirm
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        title: "Replace portable state?"
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: {
+            colorful.importTravelSnapshot(root.pendingTravelImportFile)
+            root.pendingTravelImportFile = ""
+        }
+        onRejected: root.pendingTravelImportFile = ""
+        contentItem: ColumnLayout {
+            implicitWidth: 420
+            Text {
+                Layout.fillWidth: true
+                text: "This replaces the current library, playlists, queue, playback position, and portable playback settings. Downloads, provider accounts, history, and other device-local data stay here."
+                color: Qt.rgba(1, 1, 1, 0.65)
+                font.pixelSize: Math.round(12 * colorful.textScale)
+                wrapMode: Text.WordWrap
+            }
         }
     }
 }

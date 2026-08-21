@@ -44,8 +44,10 @@ Secret Service; Windows adds SMTC, WASAPI, and per-user DPAPI encryption.
 - action toasts, settings/storage/account views, qualified listening history,
   and Discord Rich Presence.
 
-Persistent device sync is not implemented yet; encrypted listening parties are
-an experimental desktop MVP. Linux packaging produces an AppImage and portable
+Live device sync is not implemented yet; encrypted listening parties are an
+experimental desktop MVP. Settings → Sync includes a manual travel snapshot
+flow for moving portable library and playback state between devices. Linux
+packaging produces an AppImage and portable
 AppDir archive with a compiled
 `colorful-provider`, so installed users do not need Bun or the source tree.
 
@@ -172,6 +174,15 @@ values are retained as standard tags when available.
 suppressing remote artwork/profile requests in QML, album-color extraction,
 MPRIS, Discord presence, and artwork for new downloads. Existing cached covers
 are not deleted.
+
+## Travel snapshots
+
+Open **Settings → Sync** to export a versioned JSON snapshot or import one from
+another device. The snapshot contains library membership, local playlists,
+queue order, current position, repeat and shuffle state, and selected playback
+settings. Import replaces that portable state after confirmation. Downloads,
+provider accounts, listening history, cache files, and signed playback URLs
+remain local to the device.
 
 ## Checks
 

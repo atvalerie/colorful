@@ -104,10 +104,16 @@ identities fail.
 
 ## Offline and background work
 
-Offline jobs remain durable in the core. The shell performs transfers with
-iOS-appropriate background networking and writes progress through the same
-download state/event boundary. Signed provider URLs must not be persisted as
-durable credentials; resumed jobs re-resolve fresh sources.
+Offline jobs remain durable in the core. The shell performs TIDAL HLS transfers
+with `AVAssetDownloadURLSession`, restores its background session after relaunch,
+and owns that session in an application-lifetime service created by the app
+delegate rather than a SwiftUI view. Delegate events and durable writes drain
+before UIKit's background-session completion handler is called. Completed
+packages are validated with `AVAssetCache.isPlayableOffline`; managed `.movpkg`
+contents stay under AVFoundation's ownership. Signed provider URLs must not be
+persisted as durable credentials; resumed jobs re-resolve fresh sources. See
+[the iOS offline download rules](ios-offline.md) for container portability,
+LiveContainer behavior, force-quit limits, and device validation.
 
 Background execution is capability-specific. Background audio is part of the
 music-player contract. General sync, catalog refresh, and download completion

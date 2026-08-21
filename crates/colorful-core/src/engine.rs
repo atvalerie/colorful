@@ -5,6 +5,7 @@ use crate::playback::{PlaybackState, RepeatMode};
 use crate::playlist::LocalPlaylist;
 use crate::queue::{PlaybackQueue, QueueEntryId, QueueSnapshot};
 use crate::storage::{Storage, StorageError};
+use crate::travel_snapshot::{TravelImportSummary, TravelSnapshot, TravelSnapshotError};
 use std::fmt;
 use std::path::Path;
 
@@ -108,6 +109,7 @@ pub enum EngineError {
     Storage(StorageError),
     MissingTrack(MediaId),
     InvalidListen,
+    InvalidTravelSnapshot(TravelSnapshotError),
 }
 
 impl fmt::Display for EngineError {
@@ -120,6 +122,7 @@ impl fmt::Display for EngineError {
                 id.provider, id.provider_id
             ),
             Self::InvalidListen => formatter.write_str("invalid listening-history event"),
+            Self::InvalidTravelSnapshot(error) => error.fmt(formatter),
         }
     }
 }
@@ -129,6 +132,12 @@ impl std::error::Error for EngineError {}
 impl From<StorageError> for EngineError {
     fn from(value: StorageError) -> Self {
         Self::Storage(value)
+    }
+}
+
+impl From<TravelSnapshotError> for EngineError {
+    fn from(value: TravelSnapshotError) -> Self {
+        Self::InvalidTravelSnapshot(value)
     }
 }
 
@@ -220,6 +229,28 @@ impl Engine {
 
     pub fn listen_stats(&self) -> EngineResult<ListenStats> {
         Ok(self.storage.listen_stats(None, 5)?)
+    }
+
+    pub fn export_travel_snapshot(&self) -> EngineResult<TravelSnapshot> {
+        Ok(self.storage.export_travel_snapshot()?)
+    }
+
+    pub fn import_travel_snapshot(
+        &mut self,
+        snapshot: &TravelSnapshot,
+    ) -> EngineResult<TravelImportSummary> {
+        snapshot.validate()?;
+        let queue = snapshot.queue()?;
+        let summary = self.storage.import_travel_snapshot(snapshot)?;
+        self.playback = PlaybackState {
+            current: queue.current().map(|entry| entry.media_id.clone()),
+            position_ms: snapshot.playback.position_ms,
+            playing: false,
+            repeat: snapshot.playback.repeat,
+            shuffle: queue.shuffle_enabled(),
+        };
+        self.queue = queue;
+        Ok(summary)
     }
 
     pub fn dispatch(&mut self, command: EngineCommand) -> EngineResult<Vec<EngineEvent>> {
