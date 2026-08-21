@@ -948,7 +948,7 @@ actor YouTubeMusicClient {
             "player response client=\(clientName) status=\(status) reason=\(reason) hls=\(hasHLS) formats=\(formats.count) audio=\(audio.count) direct=\(direct) ciphered=\(ciphered) potFormats=\(proofTokens) umpFormats=\(umpFormats)"
         )
         for format in audio.prefix(8) {
-            let itag = string(format["itag"])
+            let itag = number(format["itag"])
             let mimeType = string(format["mimeType"]).components(separatedBy: ";").first ?? ""
             let isDirect = !string(format["url"]).isEmpty
             let isCiphered = !string(format["signatureCipher"]).isEmpty || !string(format["cipher"]).isEmpty

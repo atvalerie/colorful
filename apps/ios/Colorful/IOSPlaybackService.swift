@@ -32,6 +32,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var notificationTokens = [NSObjectProtocol]()
     private var timeObserver: Any?
     private var sourceTask: Task<Void, Never>?
+    private var sourceResolutionGeneration: UInt64 = 0
+    private var sourceResolutionInFlight = false
     private var itemReadinessTask: Task<Void, Never>?
     private var itemStatusCancellable: AnyCancellable?
     private var activeTrackID: CoreMediaID?
@@ -103,6 +105,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     func stop() {
         finishListeningSession()
+        sourceResolutionGeneration &+= 1
+        sourceResolutionInFlight = false
         sourceTask?.cancel()
         sourceTask = nil
         itemReadinessTask?.cancel()
@@ -184,6 +188,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     func retryCurrentTrack() {
         guard store.currentTrack != nil else { return }
+        sourceResolutionGeneration &+= 1
+        sourceResolutionInFlight = false
         sourceTask?.cancel()
         itemReadinessTask?.cancel()
         itemStatusCancellable = nil
@@ -201,6 +207,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private func synchronize() {
         guard let track = store.currentTrack else {
             finishListeningSession()
+            sourceResolutionGeneration &+= 1
+            sourceResolutionInFlight = false
             sourceTask?.cancel()
             itemReadinessTask?.cancel()
             itemStatusCancellable = nil
@@ -235,6 +243,11 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             applyPlaybackState()
             return
         }
+        if activeTrackID == track.id,
+           activeQueueEntryID == queueEntryID,
+           sourceResolutionInFlight {
+            return
+        }
 
         let startsAtBeginning = activeTrackID != nil
             && (activeTrackID != track.id || activeQueueEntryID != queueEntryID)
@@ -255,8 +268,16 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         failedQueueEntryID = nil
         isBuffering = store.effectiveIsPlaying
         errorMessage = nil
+        sourceResolutionGeneration &+= 1
+        let resolutionGeneration = sourceResolutionGeneration
+        sourceResolutionInFlight = true
         sourceTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if self.sourceResolutionGeneration == resolutionGeneration {
+                    self.sourceResolutionInFlight = false
+                }
+            }
             do {
                 if let localURL = downloads.localURL(for: track) {
                     guard !Task.isCancelled,

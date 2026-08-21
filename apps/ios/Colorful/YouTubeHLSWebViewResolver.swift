@@ -1,6 +1,22 @@
 import Foundation
+import OSLog
 import UIKit
 import WebKit
+
+private let colorfulYouTubeWebViewLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "sh.valerie.colorful",
+    category: "YouTube"
+)
+
+private func colorfulYouTubeWebViewInfo(_ message: String) {
+    colorfulYouTubeWebViewLogger.info("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "YouTube", message: message)
+}
+
+private func colorfulYouTubeWebViewError(_ message: String) {
+    colorfulYouTubeWebViewLogger.error("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "YouTube", message: message)
+}
 
 struct YouTubeWebHLSResolution: @unchecked Sendable {
     let manifestURL: URL
@@ -41,6 +57,7 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         continuation: CheckedContinuation<YouTubeWebHLSResolution, Error>
     ) {
         finishCurrent(with: .failure(CancellationError()))
+        colorfulYouTubeWebViewInfo("webview HLS start video=\(videoID)")
 
         let controller = WKUserContentController()
         controller.addUserScript(WKUserScript(
@@ -81,6 +98,7 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         timeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 18_000_000_000)
             guard !Task.isCancelled, self?.activeRequestID == requestID else { return }
+            colorfulYouTubeWebViewError("webview HLS timeout video=\(videoID)")
             self?.finishCurrent(with: .failure(YouTubeMusicClientError.invalidResponse(
                 "YouTube did not expose an iOS HLS stream for this track."
             )))
@@ -116,6 +134,7 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
             return
         }
 
+        colorfulYouTubeWebViewInfo("webview HLS candidate \(sourceDescriptor(url))")
         isFinishing = true
         Task { @MainActor [weak self] in
             // Let WebKit start the media request first. This establishes the
@@ -140,6 +159,14 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
 
     private func finishCurrent(with result: Result<YouTubeWebHLSResolution, Error>) {
         guard let continuation else { return }
+        switch result {
+        case .success(let resolution):
+            colorfulYouTubeWebViewInfo("webview HLS success \(sourceDescriptor(resolution.manifestURL)) cookies=\(resolution.cookies.count)")
+        case .failure(let error):
+            if !(error is CancellationError) {
+                colorfulYouTubeWebViewError("webview HLS failed error=\(error.localizedDescription)")
+            }
+        }
         timeoutTask?.cancel()
         timeoutTask = nil
 
@@ -163,19 +190,30 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        colorfulYouTubeWebViewInfo("webview HLS navigation finished")
         webView.evaluateJavaScript("window.__colorfulProbeHLS && window.__colorfulProbeHLS();")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         guard !isFinishing else { return }
+        colorfulYouTubeWebViewError("webview HLS provisional navigation failed error=\(error.localizedDescription)")
         finishCurrent(with: .failure(error))
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard !isFinishing else { return }
+        colorfulYouTubeWebViewError("webview HLS content process terminated")
         finishCurrent(with: .failure(YouTubeMusicClientError.invalidResponse(
             "The iOS YouTube playback session stopped before HLS was ready."
         )))
+    }
+
+    private func sourceDescriptor(_ url: URL) -> String {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let keys = Array(Set(items.map(\.name))).sorted().joined(separator: ",")
+        let hasPOT = items.contains { $0.name == "pot" && !($0.value ?? "").isEmpty }
+        let host = url.host ?? ""
+        return "host=\(host) queryKeys=[\(keys)] pot=\(hasPOT)"
     }
 
     private static let probeScript = #"""

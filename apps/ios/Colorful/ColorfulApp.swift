@@ -83,7 +83,7 @@ final class ColorfulDiagnostics: @unchecked Sendable {
             }
         }
         if let valueExpression = try? NSRegularExpression(
-            pattern: #"(?i)(poToken|visitorData|authorization|cookie|token|signature|sig|lsig|pot|ump|n)=\S+"#
+            pattern: #"(?i)(poToken|visitorData|authorization|cookie|token|signature|sig|lsig|pot|ump|n)=((?!(?:true|false)(?:\s|$))\S+)"#
         ) {
             let range = NSRange(result.startIndex..<result.endIndex, in: result)
             result = valueExpression.stringByReplacingMatches(
