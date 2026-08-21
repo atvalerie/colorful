@@ -80,6 +80,12 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         webView.customUserAgent = userAgent
         webView.navigationDelegate = self
 
+        // WebKit will navigate an unattached, zero-sized view, but it is not
+        // required to start media playback or expose the media requests from
+        // that view. Keep a small, transparent view in the active app window
+        // while resolving so the page has a live media presentation context.
+        attachToActiveWindow(webView)
+
         self.webView = webView
         self.continuation = continuation
         activeRequestID = requestID
@@ -117,6 +123,25 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
     private func cancel(requestID: UUID) {
         guard activeRequestID == requestID else { return }
         finishCurrent(with: .failure(CancellationError()))
+    }
+
+    private func attachToActiveWindow(_ webView: WKWebView) {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+        let windows = scenes.flatMap(\.windows)
+        guard let window = windows.first(where: { $0.isKeyWindow && !$0.isHidden })
+                ?? windows.first(where: { !$0.isHidden }) else {
+            colorfulYouTubeWebViewError("webview media host unavailable")
+            return
+        }
+
+        webView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        webView.alpha = 0.01
+        webView.isHidden = false
+        webView.isUserInteractionEnabled = false
+        window.addSubview(webView)
+        colorfulYouTubeWebViewInfo("webview media host attached")
     }
 
     private func accept(candidate rawValue: String) {
@@ -186,6 +211,7 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
             "document.querySelectorAll('video').forEach(function(video) { video.pause(); });"
         )
         webView?.stopLoading()
+        webView?.removeFromSuperview()
         webView?.navigationDelegate = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: Self.messageName)
         webView = nil
@@ -198,6 +224,12 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == Self.messageName, let candidate = message.body as? String else { return }
+        if candidate.hasPrefix("__colorful_state__") {
+            colorfulYouTubeWebViewInfo(
+                "webview media state \(candidate.dropFirst("__colorful_state__".count))"
+            )
+            return
+        }
         accept(candidate: candidate)
     }
 
@@ -245,6 +277,28 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
             || normalized.includes("/videoplayback")) {
           try { window.webkit.messageHandlers.colorfulHLS.postMessage(normalized); } catch (_) {}
         }
+      };
+
+      let lastState = "";
+      const postState = (phase, video, playState) => {
+        try {
+          const mediaError = video && video.error ? video.error.code : 0;
+          const state = [
+            "phase=" + phase,
+            "visibility=" + document.visibilityState,
+            "videos=" + document.querySelectorAll("video").length,
+            "paused=" + (video ? video.paused : "none"),
+            "readyState=" + (video ? video.readyState : "none"),
+            "networkState=" + (video ? video.networkState : "none"),
+            "hasSrc=" + (video ? Boolean(video.currentSrc || video.src) : false),
+            "muted=" + (video ? video.muted : "none"),
+            "errorCode=" + mediaError,
+            "play=" + (playState || "not-attempted")
+          ].join(" ");
+          if (state === lastState) return;
+          lastState = state;
+          window.webkit.messageHandlers.colorfulHLS.postMessage("__colorful_state__" + state);
+        } catch (_) {}
       };
 
       const inspectText = (text) => {
@@ -333,8 +387,21 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
           post(video.src);
           video.muted = true;
           video.playsInline = true;
-          if (video.paused) video.play().catch(() => {});
+          if (video.paused && !video.__colorfulPlayAttempted) {
+            video.__colorfulPlayAttempted = true;
+            const playPromise = video.play();
+            if (playPromise && playPromise.then) {
+              playPromise.then(() => postState("play-resolved", video, "resolved"))
+                .catch((error) => postState(
+                  "play-rejected-" + (error && error.name ? error.name : "unknown"),
+                  video,
+                  "rejected"
+                ));
+            }
+          }
+          postState("probe", video);
         });
+        if (!document.querySelector("video")) postState("probe", null);
       };
 
       window.setInterval(window.__colorfulProbeHLS, 250);
