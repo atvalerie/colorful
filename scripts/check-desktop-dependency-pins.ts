@@ -22,9 +22,8 @@ const mpvVersionCommit = pins.mpv.sourceVersion.match(/-g([0-9a-f]{7,40})$/)?.[1
 if (!mpvVersionCommit || !pins.mpv.sourceCommit.startsWith(mpvVersionCommit)) {
   failures.push("mpv.sourceVersion must identify mpv.sourceCommit");
 }
-if (!/^\d+\.\d+\.\d+$/.test(pins.mpv.clientApiVersion) ||
-    !/^\d+\.\d+\.\d+$/.test(pins.mpv.minimumClientApi)) {
-  failures.push("mpv client API pins must be three-part versions");
+if (!/^\d+\.\d+\.\d+$/.test(pins.mpv.minimumClientApi)) {
+  failures.push("mpv.minimumClientApi must be a three-part version");
 }
 if (!pins.windows.mpv.url.includes(pins.mpv.sourceCommit.slice(0, 10))) {
   failures.push("the Windows libmpv archive must identify the shared mpv source commit");

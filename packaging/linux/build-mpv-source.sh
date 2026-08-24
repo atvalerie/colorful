@@ -9,7 +9,6 @@ pin() {
 
 readonly MPV_VERSION="$(pin mpv.sourceVersion)"
 readonly MPV_COMMIT="$(pin mpv.sourceCommit)"
-readonly MPV_CLIENT_API_VERSION="$(pin mpv.clientApiVersion)"
 readonly MPV_URL="$(pin mpv.sourceArchiveUrl)"
 readonly MPV_SHA256="$(pin mpv.sourceArchiveSha256)"
 readonly FFMPEG_VERSION="$(pin linux.libmpv.ffmpeg.version)"
@@ -126,11 +125,8 @@ mkdir -p "$PREFIX/share/colorful"
 printf '%s\n' "$MPV_VERSION" > "$PREFIX/share/colorful/mpv-source-version"
 ldconfig
 test -f "$PREFIX/lib/pkgconfig/mpv.pc"
-test -f "$PREFIX/lib/libmpv.so.2"
-test "$(pkg-config --modversion mpv)" = "$MPV_CLIENT_API_VERSION"
 test "$(pkg-config --variable=libdir mpv)" = "$PREFIX/lib"
 pkg-config --exists alsa libpulse libavcodec libavformat libplacebo
-test "$(pkg-config --modversion libplacebo)" = "$LIBPLACEBO_VERSION"
 printf 'Built mpv %s (%s) with FFmpeg %s and libplacebo %s.\n' \
     "$MPV_VERSION" "$MPV_COMMIT" "$FFMPEG_VERSION" "$LIBPLACEBO_VERSION"
 

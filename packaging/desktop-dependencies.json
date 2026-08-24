@@ -18,7 +18,6 @@
     "sourceVersion": "0.41.0-910-g24c1cc52a",
     "sourceArchiveUrl": "https://github.com/mpv-player/mpv/archive/24c1cc52a36aa779010193a01d6ed13f902981f7.tar.gz",
     "sourceArchiveSha256": "015338b1d56225a5499f1bdcbab4f132b70ebee113c271bceead57f6820afbe2",
-    "clientApiVersion": "2.5.0",
     "minimumClientApi": "2.0.0",
     "minimumCompatible": "0.34.0"
   },
