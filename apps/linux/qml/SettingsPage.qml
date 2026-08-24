@@ -862,6 +862,52 @@ Item {
                             elide: Text.ElideRight
                         }
                     }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: updatesColumn.implicitHeight + 30
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        ColumnLayout {
+                            id: updatesColumn
+                            anchors.fill: parent; anchors.margins: 15; spacing: 8
+                            Text { text: "Updates"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
+                            Text {
+                                Layout.fillWidth: true
+                                text: updater.channel === "preview" ? "Preview follows development releases and may change more often." : "Stable receives tagged releases intended for everyday use."
+                                color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                            Row {
+                                Layout.fillWidth: true; spacing: 0
+                                Rectangle {
+                                    width: stableChannelText.implicitWidth + 28; height: 36
+                                    color: updater.channel === "stable" ? Qt.rgba(1, 1, 1, 0.075) : stableChannelHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                    border.width: 1; border.color: updater.channel === "stable" ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                    Text { id: stableChannelText; anchors.centerIn: parent; text: "Stable"; color: "#f5f5f5"; font.bold: updater.channel === "stable"; font.pixelSize: Math.round(11 * colorful.textScale) }
+                                    HoverHandler { id: stableChannelHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: if (updater.channel !== "stable") updater.channel = "stable" }
+                                }
+                                Rectangle {
+                                    width: previewChannelText.implicitWidth + 28; height: 36
+                                    color: updater.channel === "preview" ? Qt.rgba(1, 1, 1, 0.075) : previewChannelHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                    border.width: 1; border.color: updater.channel === "preview" ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                    Text { id: previewChannelText; anchors.centerIn: parent; text: "Preview"; color: "#f5f5f5"; font.bold: updater.channel === "preview"; font.pixelSize: Math.round(11 * colorful.textScale) }
+                                    HoverHandler { id: previewChannelHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: if (updater.channel !== "preview") updater.channel = "preview" }
+                                }
+                            }
+                            Text {
+                                visible: updater.channel === "preview"
+                                Layout.fillWidth: true
+                                text: "Preview builds can include unfinished changes. Switch back to Stable at any time; returning may install an older version."
+                                color: Qt.rgba(1, 0.72, 0.38, 0.82); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                            Text {
+                                visible: Boolean((updater.release || {}).downgrade)
+                                Layout.fillWidth: true
+                                text: "A Stable release is available to return from this Preview build."
+                                color: Qt.rgba(1, 1, 1, 0.5); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
                     AccountCard {
                         Layout.fillWidth: true
                         title: "Build identity"

@@ -1867,7 +1867,8 @@ ApplicationWindow {
             spacing: 12
 
             Text {
-                text: "colorful " + ((updater.release || {}).version || "") + " is available"
+                text: (updater.release && updater.release.downgrade ? "Return to Stable: " : "colorful ")
+                      + ((updater.release || {}).version || "") + " is available"
                 color: window.ink
                 font.weight: Font.Bold
                 font.pixelSize: Math.round(22 * colorful.textScale)
@@ -1941,7 +1942,8 @@ ApplicationWindow {
                     }
                 }
                 ColorButton {
-                    text: updater.canInstall ? "Install update"
+                    text: (updater.release || {}).downgrade ? "Return to Stable"
+                                            : updater.canInstall ? "Install update"
                                             : ((updater.release || {}).assetName ? "Download update"
                                                                                : "Open release")
                     enabled: updater.state === "available"
