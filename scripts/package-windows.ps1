@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$pins = Get-Content (Join-Path $repoRoot 'packaging\desktop-dependencies.json') -Raw | ConvertFrom-Json
 if (-not $NoBuild) {
     & (Join-Path $PSScriptRoot 'build-windows-qt.ps1') -Configuration $Configuration
 }
@@ -62,16 +63,19 @@ Copy-Item $providerData $stage -Recurse -Force
 Copy-Item (Join-Path $repoRoot 'LICENSE') $stage -Force
 Copy-Item (Join-Path $repoRoot 'README.md') $stage -Force
 Copy-Item (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') $stage -Force
+Copy-Item (Join-Path $repoRoot 'packaging\desktop-dependencies.json') `
+    (Join-Path $stage 'BUILD_DEPENDENCIES.json') -Force
 
 $qtRoot = $env:COLORFUL_QT_ROOT
 if (-not $qtRoot) {
-    $qtRoot = Get-ChildItem (Join-Path $env:USERPROFILE 'Qt') -Directory -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending |
-        ForEach-Object { Join-Path $_.FullName 'msvc2022_64' } |
-        Where-Object { Test-Path (Join-Path $_ 'bin\windeployqt.exe') } |
-        Select-Object -First 1
+    $qtRoot = Join-Path $env:USERPROFILE "Qt\$($pins.toolchains.qt)\msvc2022_64"
 }
 if (-not $qtRoot) { throw 'Qt for MSVC was not found. Set COLORFUL_QT_ROOT.' }
+$qmake = Join-Path $qtRoot 'bin\qmake.exe'
+$qtVersion = if (Test-Path $qmake) { (& $qmake -query QT_VERSION).Trim() } else { '' }
+if ($qtVersion -ne $pins.toolchains.qt) {
+    throw "Qt $($pins.toolchains.qt) is required for packaging; found '$qtVersion' at $qtRoot."
+}
 $deploy = Join-Path $qtRoot 'bin\windeployqt.exe'
 $deployArgs = @('--dir', $stage, '--qmldir', (Join-Path $repoRoot 'apps\linux\qml'), '--compiler-runtime')
 $deployArgs += if ($Configuration -eq 'Release') { '--release' } else { '--debug' }

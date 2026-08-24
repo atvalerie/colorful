@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ubuntu:22.04
+FROM ubuntu:22.04@sha256:b060fffe8e1561c9c3e6dea6db487b900100fc26830b9ea2ec966c151ab4c020
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG QT_VERSION=6.8.3
 ARG AQT_VERSION=3.3.0
 ARG CMAKE_VERSION=3.31.6
-ARG RUST_VERSION=1.97.0
+ARG RUST_VERSION=1.97.1
 ARG BUN_VERSION=1.3.14
+ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -86,6 +87,7 @@ RUN curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
 RUN curl --fail --location --retry 3 \
         "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" \
         -o /tmp/bun.zip \
+    && echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum --check --strict - \
     && unzip -q /tmp/bun.zip -d /tmp/bun \
     && install -Dm755 /tmp/bun/bun-linux-x64/bun /opt/bun/bin/bun \
     && rm -rf /tmp/bun /tmp/bun.zip \

@@ -88,7 +88,7 @@ if(WIN32)
     set(MPV_VERSION "Windows bundle")
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
+    pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv>=0.34.0)
     add_library(colorful-mpv ALIAS PkgConfig::MPV)
 endif()
 

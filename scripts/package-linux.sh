@@ -63,6 +63,8 @@ install -Dm755 "$ffmpeg" "$appdir/usr/bin/ffmpeg"
 install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
 install -Dm644 "$repo_dir/LICENSE" "$appdir/usr/share/doc/colorful/LICENSE"
 install -Dm644 "$repo_dir/THIRD_PARTY_NOTICES.md" "$appdir/usr/share/doc/colorful/THIRD_PARTY_NOTICES.md"
+install -Dm644 "$repo_dir/packaging/desktop-dependencies.json" \
+  "$appdir/usr/share/doc/colorful/BUILD_DEPENDENCIES.json"
 
 export QML_SOURCES_PATHS="$repo_dir/apps/linux/qml"
 export EXTRA_PLATFORM_PLUGINS="libqoffscreen.so"
@@ -148,6 +150,8 @@ install -Dm755 "$build_dir/colorful-provider" "$appdir/usr/bin/colorful-provider
 install -Dm755 "$ffmpeg" "$appdir/usr/bin/ffmpeg"
 install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
 install -Dm644 "$target_dir/release/libcolorful_core.so" "$appdir/usr/lib/libcolorful_core.so"
+install -Dm644 "$repo_dir/packaging/desktop-dependencies.json" \
+  "$appdir/usr/share/doc/colorful/BUILD_DEPENDENCIES.json"
 install -Dm755 "$script_dir/AppRun-linux" "$appdir/AppRun"
 
 "$script_dir/check-linux-deps.sh" bundle "$appdir"

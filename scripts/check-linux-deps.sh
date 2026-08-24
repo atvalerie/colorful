@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(cd -- "$script_dir/.." && pwd)"
+manifest="$repo_dir/packaging/desktop-dependencies.json"
+pin() {
+  python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); [value := value[key] for key in sys.argv[2].split(".")]; print(value)' \
+    "$manifest" "$1"
+}
+
 mode="${1:-build}"
 shift || true
 
@@ -9,7 +17,7 @@ missing() { echo "missing: $*" >&2; failures=$((failures + 1)); }
 need_command() { command -v "$1" >/dev/null 2>&1 || missing "$1"; }
 
 if [[ "$mode" == build ]]; then
-  for command in cargo bun cmake ninja pkg-config git timeout appstreamcli; do need_command "$command"; done
+  for command in cargo bun cmake ninja pkg-config git timeout appstreamcli python3; do need_command "$command"; done
   for package in Qt6Core Qt6Gui Qt6Quick Qt6QuickControls2 Qt6Network Qt6DBus mpv; do
     pkg-config --exists "$package" 2>/dev/null || missing "pkg-config module $package"
   done
@@ -17,8 +25,13 @@ if [[ "$mode" == build ]]; then
   if ((failures)); then exit 1; fi
   qmake="$(command -v qmake6 || command -v qmake || true)"
   [[ -n "$qmake" ]] || missing "Qt 6 qmake"
-  if [[ -n "$qmake" ]] && ! "$qmake" -query QT_VERSION | grep -q '^6\.'; then
-    missing "Qt 6 qmake (found $qmake for Qt $("$qmake" -query QT_VERSION))"
+  expected_qt="$(pin toolchains.qt)"
+  if [[ -n "$qmake" ]] && [[ "$("$qmake" -query QT_VERSION)" != "$expected_qt" ]]; then
+    missing "Qt $expected_qt qmake (found $qmake for Qt $("$qmake" -query QT_VERSION))"
+  fi
+  expected_mpv_min="$(pin linux.mpv.minimumCompatible)"
+  if ! pkg-config --atleast-version="$expected_mpv_min" mpv; then
+    missing "mpv >= $expected_mpv_min (found $(pkg-config --modversion mpv 2>/dev/null || echo none))"
   fi
   if ((failures)); then exit 1; fi
   echo "Linux build dependencies are ready"
@@ -62,15 +75,24 @@ for binary in colorful-linux colorful-provider ffmpeg ffprobe; do
   [[ -x "$appdir/usr/bin/$binary" ]] || missing "bundled executable $binary"
 done
 [[ -f "$appdir/usr/lib/libcolorful_core.so" ]] || missing "libcolorful_core.so"
+find "$appdir/usr/lib" -maxdepth 1 -type f -name 'libmpv.so*' -print -quit | grep -q . || missing "bundled libmpv runtime"
+[[ -f "$appdir/usr/share/doc/colorful/BUILD_DEPENDENCIES.json" ]] || missing "build dependency manifest"
 
 for plugin in platforms/libqxcb.so platforms/libqoffscreen.so \
-  xcbglintegrations/libqxcb-glx-integration.so xcbglintegrations/libqxcb-egl-integration.so; do
+  xcbglintegrations/libqxcb-glx-integration.so xcbglintegrations/libqxcb-egl-integration.so \
+  imageformats/libqjpeg.so imageformats/libqwebp.so imageformats/libqsvg.so; do
   [[ -f "$appdir/usr/plugins/$plugin" ]] || missing "Qt plugin $plugin"
 done
+find "$appdir/usr/plugins/tls" -maxdepth 1 -type f -name '*.so' -print -quit | grep -q . || missing "Qt TLS backend"
 [[ -d "$appdir/usr/qml/QtQuick" ]] || missing "bundled QtQuick QML module"
 
 if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffmpeg" -version >/dev/null 2>&1; then
   echo "bundled ffmpeg failed its runtime smoke test" >&2
+  failures=$((failures + 1))
+fi
+expected_ffmpeg="$(pin linux.ffmpeg.version)"
+if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffmpeg" -version 2>&1 | head -1 | grep -Fq "$expected_ffmpeg"; then
+  echo "bundled ffmpeg does not match pin $expected_ffmpeg" >&2
   failures=$((failures + 1))
 fi
 if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffprobe" -version >/dev/null 2>&1; then
@@ -98,8 +120,11 @@ for file in "$appdir/usr/bin/colorful-linux" "$appdir/usr/lib/libcolorful_core.s
 done
 
 required_glibc="$(objdump -T "${elf_files[@]}" 2>/dev/null | grep -o 'GLIBC_[0-9][0-9.]*' | sort -Vu | tail -1 || true)"
+required_glibcxx="$(objdump -T "${elf_files[@]}" 2>/dev/null | grep -o 'GLIBCXX_[0-9][0-9.]*' | sort -Vu | tail -1 || true)"
+required_cxxabi="$(objdump -T "${elf_files[@]}" 2>/dev/null | grep -o 'CXXABI_[0-9][0-9.]*' | sort -Vu | tail -1 || true)"
 echo "ELF files audited: ${#elf_files[@]}"
 echo "Highest required glibc symbol: ${required_glibc:-none}"
+echo "Highest required libstdc++ symbols: ${required_glibcxx:-none}, ${required_cxxabi:-none}"
 if [[ -n "${COLORFUL_MAX_GLIBC:-}" && -n "$required_glibc" ]]; then
   required_version="${required_glibc#GLIBC_}"
   if [[ "$(printf '%s\n%s\n' "$required_version" "$COLORFUL_MAX_GLIBC" | sort -V | tail -1)" != "$COLORFUL_MAX_GLIBC" ]]; then

@@ -12,6 +12,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$pins = Get-Content (Join-Path $repoRoot 'packaging\desktop-dependencies.json') -Raw | ConvertFrom-Json
 
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -36,14 +37,15 @@ foreach ($line in $environmentLines) {
 }
 
 if (-not $QtRoot) {
-    $qtCandidates = Get-ChildItem (Join-Path $env:USERPROFILE 'Qt') -Directory -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending |
-        ForEach-Object { Join-Path $_.FullName 'msvc2022_64' } |
-        Where-Object { Test-Path (Join-Path $_ 'bin\windeployqt.exe') }
-    $QtRoot = $qtCandidates | Select-Object -First 1
+    $QtRoot = Join-Path $env:USERPROFILE "Qt\$($pins.toolchains.qt)\msvc2022_64"
 }
 if (-not $QtRoot -or -not (Test-Path (Join-Path $QtRoot 'bin\windeployqt.exe'))) {
     throw 'Qt 6 for MSVC 2022 x64 was not found. Set COLORFUL_QT_ROOT to its msvc2022_64 directory.'
+}
+$qmake = Join-Path $QtRoot 'bin\qmake.exe'
+$qtVersion = if (Test-Path $qmake) { (& $qmake -query QT_VERSION).Trim() } else { '' }
+if ($qtVersion -ne $pins.toolchains.qt) {
+    throw "Qt $($pins.toolchains.qt) is required; found '$qtVersion' at $QtRoot."
 }
 if (-not $MpvRoot) {
     $MpvRoot = Join-Path $env:USERPROFILE 'colorful-deps\mpv'
@@ -66,8 +68,13 @@ if (-not $cargo) {
         $cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue
     }
 }
+
 if (-not $cargo) {
     throw 'Rust Cargo was not found. Install Rust with rustup or set CARGO_HOME and RUSTUP_HOME.'
+}
+$rustVersion = (& $cargo.Source --version).Trim()
+if ($rustVersion -notmatch "cargo $([regex]::Escape($pins.toolchains.rust))(?:\s|$)") {
+    throw "Cargo $($pins.toolchains.rust) is required by rust-toolchain.toml; found '$rustVersion'."
 }
 
 $profile = if ($Configuration -eq 'Release') { 'release' } else { 'debug' }
@@ -99,6 +106,17 @@ if (-not $bunPath) {
     if (Test-Path $bundledBun) { $bunPath = $bundledBun }
 }
 if (-not $bunPath) { throw 'Bun was not found; it is required to compile the Windows provider host.' }
+$bunVersion = (& $bunPath --version).Trim()
+if ($bunVersion -ne $pins.toolchains.bun) {
+    throw "Bun $($pins.toolchains.bun) is required; found '$bunVersion'."
+}
+
+$pythonScripts = Join-Path $env:USERPROFILE 'colorful-deps\python\Scripts'
+$cmake = Join-Path $pythonScripts 'cmake.exe'
+if (-not (Test-Path $cmake)) {
+    throw 'The pinned CMake installation was not found. Run scripts\provision-windows-qt.ps1 first.'
+}
+$env:Path = "$pythonScripts;$env:Path"
 
 Push-Location $repoRoot
 try {
@@ -117,7 +135,7 @@ try {
         throw "Rust did not produce the colorful-core DLL and import library in $coreDirectory."
     }
 
-    & cmake.exe `
+    & $cmake `
         '-S' '.\apps\linux' `
         '-B' $buildDirectory `
         '-G' 'Ninja' `
@@ -127,7 +145,7 @@ try {
         "-DCOLORFUL_CORE_LIBRARY=$coreLibrary" `
         "-DCOLORFUL_CORE_IMPORT_LIBRARY=$coreImportLibrary"
     if ($LASTEXITCODE -ne 0) { throw "Qt configure failed with exit code $LASTEXITCODE." }
-    & cmake.exe --build $buildDirectory --parallel
+    & $cmake --build $buildDirectory --parallel
     if ($LASTEXITCODE -ne 0) { throw "Qt build failed with exit code $LASTEXITCODE." }
 
     $providerExecutable = Join-Path $buildDirectory 'colorful-provider.exe'
