@@ -33,6 +33,7 @@ permissions:
 env:
   COLORFUL_BUILD_CHANNEL: dev
   COLORFUL_BUILD_NUMBER: ${{ github.run_number }}
+  COLORFUL_MPV_MODE: official
 
 jobs:
   quality:

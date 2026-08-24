@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  COLORFUL_MPV_MODE: official
+
 jobs:
   validate:
     name: Validate release version

@@ -28,6 +28,7 @@ docker run --rm \
   --user "$(id -u):$(id -g)" \
   --env "COLORFUL_BUILD_CHANNEL=${COLORFUL_BUILD_CHANNEL:-release}" \
   --env "COLORFUL_BUILD_NUMBER=${COLORFUL_BUILD_NUMBER:-}" \
+  --env "COLORFUL_MPV_MODE=${COLORFUL_MPV_MODE:-compatibility}" \
   --volume "$repo_dir:/workspace" \
   --workdir /workspace \
   "$image"

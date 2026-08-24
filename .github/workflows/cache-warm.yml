@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+env:
+  COLORFUL_MPV_MODE: official
+
 jobs:
   rust:
     name: Warm Rust test cache

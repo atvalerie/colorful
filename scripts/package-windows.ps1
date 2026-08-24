@@ -16,6 +16,13 @@ if (-not $NoBuild) {
 $buildDirectory = Join-Path $repoRoot 'build\windows-qt'
 $executable = Join-Path $buildDirectory 'colorful.exe'
 if (-not (Test-Path $executable)) { throw "colorful.exe was not found at $executable" }
+$buildInfo = Join-Path $buildDirectory 'generated\buildinfo_generated.h'
+if ($env:COLORFUL_MPV_MODE -eq 'official') {
+    if (-not (Test-Path $buildInfo) -or
+        -not (Select-String -Path $buildInfo -SimpleMatch $pins.mpv.sourceVersion -Quiet)) {
+        throw "Generated build metadata does not contain official libmpv $($pins.mpv.sourceVersion)."
+    }
+}
 
 $version = (Get-Content (Join-Path $repoRoot 'VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') {

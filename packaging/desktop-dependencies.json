@@ -5,12 +5,21 @@
     "qt": "6.8.3",
     "aqtinstall": "3.3.0",
     "cmake": "3.31.6",
+    "meson": "1.7.0",
     "ninja": "1.12.1",
     "rust": "1.97.1",
     "bun": "1.3.14",
     "python": "3.13.15",
     "py7zr": "1.1.3",
     "innoSetup": "6.7.1"
+  },
+  "mpv": {
+    "sourceRepo": "https://github.com/mpv-player/mpv.git",
+    "sourceCommit": "24c1cc52a36aa779010193a01d6ed13f902981f7",
+    "sourceVersion": "0.41.0-910-g24c1cc52a",
+    "sourceArchiveUrl": "https://github.com/mpv-player/mpv/archive/24c1cc52a36aa779010193a01d6ed13f902981f7.tar.gz",
+    "sourceArchiveSha256": "015338b1d56225a5499f1bdcbab4f132b70ebee113c271bceead57f6820afbe2",
+    "minimumCompatible": "0.34.0"
   },
   "windows": {
     "python": {
@@ -22,7 +31,6 @@
       "sha256": "fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6"
     },
     "mpv": {
-      "version": "0.41.0-910-g24c1cc52a",
       "asset": "mpv-dev-x86_64-20260729-git-24c1cc52a3.7z",
       "url": "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-07-29-24c1cc52a3/mpv-dev-x86_64-20260729-git-24c1cc52a3.7z",
       "sha256": "3fe91aa366a9e5b1c43add2a8e14ce952c97fbc11ac7b32041d62fce298ed9c8"
@@ -44,10 +52,24 @@
     "bun": {
       "sha256": "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
     },
-    "mpv": {
-      "plannedSourceTarget": "0.41.0",
-      "minimumCompatible": "0.34.0",
-      "note": "The Ubuntu 22.04 compatibility builder remains on distro libmpv until its pinned FFmpeg/libplacebo source layer is validated. Runtime command compatibility is tested down to 0.34."
+    "libmpv": {
+      "prefix": "/opt/colorful-mpv",
+      "ffmpeg": {
+        "version": "6.1.6",
+        "url": "https://ffmpeg.org/releases/ffmpeg-6.1.6.tar.xz",
+        "sha256": "d4fcb164028dd3beee5d92c0ac72e46aac6973c75ea12dc14de07bf8f407370a"
+      },
+      "libplacebo": {
+        "version": "7.360.1",
+        "commit": "cee9b076f2c63104ccfd497fa79c39a867293ec4",
+        "url": "https://github.com/haasn/libplacebo/archive/cee9b076f2c63104ccfd497fa79c39a867293ec4.tar.gz",
+        "sha256": "6f8fa218cbafd8e5f50b8a82d918e1d8bbb92f9f980820bc0b34d92e9b79e484"
+      },
+      "fastFloat": {
+        "commit": "97b54ca9e75f5303507699d27c6b4f4efe4641a1",
+        "url": "https://github.com/fastfloat/fast_float/archive/97b54ca9e75f5303507699d27c6b4f4efe4641a1.tar.gz",
+        "sha256": "2b132274539286e41f37857cac22aa8441d21bd86d55de825a3342b149f66801"
+      }
     },
     "linuxdeploy": {
       "version": "1-alpha-20251107-1",

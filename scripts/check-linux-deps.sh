@@ -21,7 +21,7 @@ if [[ "$mode" == build ]]; then
   for package in Qt6Core Qt6Gui Qt6Quick Qt6QuickControls2 Qt6Network Qt6DBus mpv; do
     pkg-config --exists "$package" 2>/dev/null || missing "pkg-config module $package"
   done
-  for command in ffmpeg ffprobe secret-tool; do need_command "$command"; done
+  need_command secret-tool
   if ((failures)); then exit 1; fi
   qmake="$(command -v qmake6 || command -v qmake || true)"
   [[ -n "$qmake" ]] || missing "Qt 6 qmake"
@@ -29,9 +29,14 @@ if [[ "$mode" == build ]]; then
   if [[ -n "$qmake" ]] && [[ "$("$qmake" -query QT_VERSION)" != "$expected_qt" ]]; then
     missing "Qt $expected_qt qmake (found $qmake for Qt $("$qmake" -query QT_VERSION))"
   fi
-  expected_mpv_min="$(pin linux.mpv.minimumCompatible)"
+  expected_mpv_min="$(pin mpv.minimumCompatible)"
   if ! pkg-config --atleast-version="$expected_mpv_min" mpv; then
     missing "mpv >= $expected_mpv_min (found $(pkg-config --modversion mpv 2>/dev/null || echo none))"
+  fi
+  if [[ "${COLORFUL_MPV_MODE:-compatibility}" == official ]]; then
+    expected_mpv="$(pin mpv.sourceVersion)"
+    actual_mpv="$(pkg-config --modversion mpv 2>/dev/null || echo none)"
+    [[ "$actual_mpv" == "$expected_mpv" ]] || missing "mpv exactly $expected_mpv for an official build (found $actual_mpv)"
   fi
   if ((failures)); then exit 1; fi
   echo "Linux build dependencies are ready"

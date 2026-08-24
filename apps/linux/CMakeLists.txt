@@ -69,8 +69,22 @@ if(UNIX AND NOT APPLE)
     find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
 endif()
 
+set(COLORFUL_MPV_MODE "compatibility" CACHE STRING
+    "libmpv validation mode: compatibility or official")
+set_property(CACHE COLORFUL_MPV_MODE PROPERTY STRINGS compatibility official)
+set(COLORFUL_EXPECTED_MPV_VERSION "" CACHE STRING
+    "Exact libmpv version required for official builds")
+if(NOT COLORFUL_MPV_MODE MATCHES "^(compatibility|official)$")
+    message(FATAL_ERROR "COLORFUL_MPV_MODE must be compatibility or official")
+endif()
+if(COLORFUL_MPV_MODE STREQUAL "official" AND NOT COLORFUL_EXPECTED_MPV_VERSION)
+    message(FATAL_ERROR "Official builds must set COLORFUL_EXPECTED_MPV_VERSION")
+endif()
+
 if(WIN32)
     set(COLORFUL_MPV_ROOT "" CACHE PATH "Root of a Windows libmpv development package")
+    set(COLORFUL_MPV_VERSION "unverified-windows-sdk" CACHE STRING
+        "Version identity of the Windows libmpv development package")
     find_path(MPV_INCLUDE_DIR mpv/client.h
         HINTS "${COLORFUL_MPV_ROOT}/include")
     find_library(MPV_LIBRARY NAMES mpv libmpv mpv-2
@@ -85,12 +99,18 @@ if(WIN32)
         IMPORTED_LOCATION "${MPV_LIBRARY}"
         INTERFACE_INCLUDE_DIRECTORIES "${MPV_INCLUDE_DIR}"
     )
-    set(MPV_VERSION "Windows bundle")
+    set(MPV_VERSION "${COLORFUL_MPV_VERSION}")
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv>=0.34.0)
     add_library(colorful-mpv ALIAS PkgConfig::MPV)
 endif()
+if(COLORFUL_MPV_MODE STREQUAL "official"
+        AND NOT MPV_VERSION STREQUAL COLORFUL_EXPECTED_MPV_VERSION)
+    message(FATAL_ERROR
+        "Official builds require libmpv ${COLORFUL_EXPECTED_MPV_VERSION}; found ${MPV_VERSION}")
+endif()
+message(STATUS "libmpv ${MPV_VERSION} (${COLORFUL_MPV_MODE} mode)")
 
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file(

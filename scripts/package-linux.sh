@@ -39,6 +39,13 @@ appdir="$dist_dir/$artifact.AppDir"
 
 "$script_dir/check-linux-deps.sh" build
 "$script_dir/build-linux.sh" --release
+expected_mpv="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["mpv"]["sourceVersion"])' "$repo_dir/packaging/desktop-dependencies.json")"
+buildinfo="$build_dir/generated/buildinfo_generated.h"
+if [[ "${COLORFUL_MPV_MODE:-compatibility}" == official ]] \
+    && ! grep -Fq "$expected_mpv" "$buildinfo"; then
+  echo "generated build metadata does not contain official mpv $expected_mpv" >&2
+  exit 1
+fi
 mkdir -p "$build_dir" "$dist_dir" "$tools_dir"
 bun "$repo_dir/scripts/build-provider.ts" "$build_dir/colorful-provider"
 
@@ -125,7 +132,10 @@ export NO_STRIP=1
 # than relying on rewritten RPATHs.
 while IFS= read -r -d '' destination; do
   relative="${destination#"$appdir/usr/lib/"}"
-  source_file="/usr/lib/$relative"
+  source_file="${COLORFUL_MPV_PREFIX:-/opt/colorful-mpv}/lib/$relative"
+  if [[ ! -f "$source_file" ]]; then
+    source_file="/usr/lib/$relative"
+  fi
   if [[ ! -f "$source_file" ]]; then
     source_file="$(ldconfig -p 2>/dev/null | awk -v name="$(basename "$destination")" \
       '$1 == name && /x86-64/ {print $NF; exit}')"

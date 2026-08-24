@@ -121,7 +121,7 @@ if (-not (Test-Path $qtPlatformRoot)) {
 $mpvRuntime = Join-Path $mpvRoot 'bin\mpv-2.dll'
 $mpvReady = (Test-Path (Join-Path $mpvRoot 'include\mpv\client.h')) -and `
     (Test-Path $mpvRuntime) -and ((Get-Item $mpvRuntime).Length -gt 10MB) -and `
-    (Test-PinMarker $mpvRoot $pins.windows.mpv.version)
+    (Test-PinMarker $mpvRoot $pins.mpv.sourceVersion)
 if (-not $mpvReady) {
     if (Test-Path $mpvRoot) { Remove-Item $mpvRoot -Recurse -Force }
     $archive = Join-Path $env:TEMP $pins.windows.mpv.asset
@@ -147,7 +147,7 @@ if (-not $mpvReady) {
     New-Item -ItemType Directory -Path (Join-Path $mpvRoot 'lib') -Force | Out-Null
     Copy-Item (Join-Path $clientHeader.Directory.FullName '*') (Join-Path $mpvRoot 'include\mpv') -Recurse -Force
     Copy-Item $runtime.FullName (Join-Path $mpvRoot 'bin\mpv-2.dll') -Force
-    Set-PinMarker $mpvRoot $pins.windows.mpv.version
+    Set-PinMarker $mpvRoot $pins.mpv.sourceVersion
 }
 
 $importLibrary = Join-Path $mpvRoot 'lib\mpv.lib'

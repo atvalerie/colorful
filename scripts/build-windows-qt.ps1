@@ -4,6 +4,8 @@ param(
     [string]$Configuration = 'Debug',
     [string]$QtRoot = $env:COLORFUL_QT_ROOT,
     [string]$MpvRoot = $env:COLORFUL_MPV_ROOT,
+    [ValidateSet('compatibility', 'official')]
+    [string]$MpvMode = $env:COLORFUL_MPV_MODE,
     [string]$BuildDirectory
 )
 
@@ -13,6 +15,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pins = Get-Content (Join-Path $repoRoot 'packaging\desktop-dependencies.json') -Raw | ConvertFrom-Json
+if (-not $MpvMode) { $MpvMode = 'compatibility' }
 
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -52,6 +55,15 @@ if (-not $MpvRoot) {
 }
 if (-not (Test-Path (Join-Path $MpvRoot 'include\mpv\client.h'))) {
     throw "A libmpv development bundle was not found at $MpvRoot. Set COLORFUL_MPV_ROOT."
+}
+$mpvPinMarker = Join-Path $MpvRoot '.colorful-pin'
+$mpvVersion = if (Test-Path $mpvPinMarker) {
+    (Get-Content $mpvPinMarker -Raw).Trim()
+} else {
+    'unverified-windows-sdk'
+}
+if ($MpvMode -eq 'official' -and $mpvVersion -ne $pins.mpv.sourceVersion) {
+    throw "Official builds require libmpv $($pins.mpv.sourceVersion); found '$mpvVersion' at $MpvRoot. Run scripts\provision-windows-qt.ps1."
 }
 
 $cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue
@@ -142,6 +154,9 @@ try {
         "-DCMAKE_BUILD_TYPE=$Configuration" `
         "-DCMAKE_PREFIX_PATH=$QtRoot" `
         "-DCOLORFUL_MPV_ROOT=$MpvRoot" `
+        "-DCOLORFUL_MPV_MODE=$MpvMode" `
+        "-DCOLORFUL_EXPECTED_MPV_VERSION=$($pins.mpv.sourceVersion)" `
+        "-DCOLORFUL_MPV_VERSION=$mpvVersion" `
         "-DCOLORFUL_CORE_LIBRARY=$coreLibrary" `
         "-DCOLORFUL_CORE_IMPORT_LIBRARY=$coreImportLibrary"
     if ($LASTEXITCODE -ne 0) { throw "Qt configure failed with exit code $LASTEXITCODE." }
