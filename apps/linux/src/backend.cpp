@@ -1191,6 +1191,8 @@ void Backend::providerHostStarted()
     DebugLog::write(u"provider", QStringLiteral("process started after %1 ms")
                                       .arg(m_providerStartClock.isValid() ? m_providerStartClock.elapsed() : 0));
     request(QStringLiteral("status"), {}, [this](const QJsonObject &message) {
+        DebugLog::write(u"provider", QStringLiteral("status resolved after %1 ms")
+                                          .arg(m_providerStartClock.isValid() ? m_providerStartClock.elapsed() : 0));
         setProviderStatusResolved(true);
         if (!message.value(QStringLiteral("ok")).toBool()) return;
         const auto data = message.value(QStringLiteral("data")).toObject();

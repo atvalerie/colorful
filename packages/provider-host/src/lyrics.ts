@@ -1,12 +1,5 @@
 import type { BrowseClient, TrackSummary } from "./browse";
 import { youtubeMusicLyrics } from "./youtube-music";
-import { detect } from "tinyld";
-import { romanize as romanizeHangul } from "es-hangul";
-import hanja from "hanja";
-import { pinyin } from "pinyin-pro";
-import romanizeThai from "@dehoist/romanize-thai";
-import Kuroshiro from "kuroshiro";
-import KuromojiAnalyzer from "kuroshiro-analyzer-kuromoji";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
@@ -22,7 +15,20 @@ type JapaneseToken = {
   basic_form?: string;
 };
 
-let japaneseKuromoji: Promise<KuromojiAnalyzer> | null = null;
+type JapaneseAnalyzer = { parse(value: string): Promise<unknown[]> };
+type JapaneseRuntime = {
+  analyzer: JapaneseAnalyzer;
+  kanaToRomaji(value: string, system?: "nippon" | "passport" | "hepburn"): string;
+};
+
+let japaneseKuromoji: Promise<JapaneseRuntime> | null = null;
+let tinyLd: Promise<typeof import("tinyld")> | null = null;
+let koreanRomanizer: Promise<{
+  romanize: typeof import("es-hangul")["romanize"];
+  translate: typeof import("hanja")["default"]["translate"];
+}> | null = null;
+let chineseRomanizer: Promise<typeof import("pinyin-pro")["pinyin"]> | null = null;
+let thaiRomanizer: Promise<typeof import("@dehoist/romanize-thai")["default"]> | null = null;
 
 function japaneseDictionaryPath(): string {
   const configured = process.env.COLORFUL_KUROMOJI_DICT?.trim();
@@ -36,19 +42,62 @@ function japaneseDictionaryPath(): string {
   return found;
 }
 
-function japanese(): Promise<KuromojiAnalyzer> {
+function japanese(): Promise<JapaneseRuntime> {
   if (!japaneseKuromoji) {
     japaneseKuromoji = (async () => {
+      const [{ default: Kuroshiro }, { default: KuromojiAnalyzer }] = await Promise.all([
+        import("kuroshiro"),
+        import("kuroshiro-analyzer-kuromoji"),
+      ]);
       const analyzer = new KuromojiAnalyzer({ dictPath: japaneseDictionaryPath() });
       const converter = new Kuroshiro();
       await converter.init(analyzer);
-      return analyzer;
+      return { analyzer, kanaToRomaji: Kuroshiro.Util.kanaToRomaji };
     })().catch((error) => {
       japaneseKuromoji = null;
       throw error;
     });
   }
   return japaneseKuromoji;
+}
+
+async function detectLanguage(value: string): Promise<string | null> {
+  try {
+    tinyLd ??= import("tinyld").catch((error) => {
+      tinyLd = null;
+      throw error;
+    });
+    const result = (await tinyLd).detect(value);
+    return typeof result === "string" ? result.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function korean() {
+  koreanRomanizer ??= Promise.all([import("es-hangul"), import("hanja")])
+    .then(([hangul, hanja]) => ({ romanize: hangul.romanize, translate: hanja.default.translate }))
+    .catch((error) => {
+      koreanRomanizer = null;
+      throw error;
+    });
+  return koreanRomanizer;
+}
+
+async function chinese() {
+  chineseRomanizer ??= import("pinyin-pro").then((module) => module.pinyin).catch((error) => {
+    chineseRomanizer = null;
+    throw error;
+  });
+  return chineseRomanizer;
+}
+
+async function thai() {
+  thaiRomanizer ??= import("@dehoist/romanize-thai").then((module) => module.default).catch((error) => {
+    thaiRomanizer = null;
+    throw error;
+  });
+  return thaiRomanizer;
 }
 
 export type LyricLine = {
@@ -109,15 +158,6 @@ function plainLines(value: string): LyricLine[] {
   return value.split(/\r?\n/).map((text) => ({ startMs: null, text: text.trim() }));
 }
 
-function likelyLanguage(value: string): string | null {
-  try {
-    const result = detect(value);
-    return typeof result === "string" ? result.toLowerCase() : null;
-  } catch {
-    return null;
-  }
-}
-
 function tidyRomanization(value: string): string {
   return value.replace(/\s+/g, " ").replace(/\s+([,!?;:.])/g, "$1").trim();
 }
@@ -161,7 +201,8 @@ function patchJapaneseTokens(rawTokens: JapaneseToken[]): JapaneseToken[] {
 }
 
 async function romanizeJapanese(value: string): Promise<string> {
-  const rawTokens = await (await japanese()).parse(value) as JapaneseToken[];
+  const runtime = await japanese();
+  const rawTokens = await runtime.analyzer.parse(value) as JapaneseToken[];
   const tokens = patchJapaneseTokens(rawTokens);
   const groups: string[] = [];
   const punctuation: Record<string, string> = {
@@ -174,7 +215,7 @@ async function romanizeJapanese(value: string): Promise<string> {
     const source = punctuation[token.surface_form]
       ?? token.pronunciation ?? token.reading ?? token.surface_form;
     const text = token.pos === "記号"
-      ? source : Kuroshiro.Util.kanaToRomaji(source, "hepburn");
+      ? source : runtime.kanaToRomaji(source, "hepburn");
     if (!text) continue;
     const closesPunctuation = token.pos === "記号"
       && /^(?:[」』）］】、。,.!?;:])$/u.test(token.surface_form);
@@ -193,7 +234,6 @@ async function romanizeJapanese(value: string): Promise<string> {
 
 async function romanizeLine(value: string): Promise<string> {
   if (!value.trim() || !/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u.test(value)) return value;
-  const language = likelyLanguage(value);
   const hasThai = /\p{Script=Thai}/u.test(value);
   const hasHangul = /\p{Script=Hangul}/u.test(value);
   const hasKana = /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(value);
@@ -203,18 +243,29 @@ async function romanizeLine(value: string): Promise<string> {
       const segmenter = typeof Intl.Segmenter === "function"
         ? new Intl.Segmenter("th", { granularity: "word" }) : null;
       const words = segmenter ? [...segmenter.segment(value)].map((part) => part.segment) : [value];
+      const romanizeThai = await thai();
       const converted = words.map((word) => romanizeThai(word)).join("");
       return typeof converted === "string" ? converted : value;
     }
-    if (hasHangul || (hasHan && (language === "ko" || language === "kor"))) {
-      return romanizeHangul(hanja.translate(value, "SUBSTITUTION"));
+    if (hasHangul) {
+      const { romanize, translate } = await korean();
+      return romanize(translate(value, "SUBSTITUTION"));
     }
-    if (hasKana || (hasHan && (language === "ja" || language === "jpn")))
+    if (hasKana)
       return await romanizeJapanese(value);
-    if (hasHan || language === "zh" || language === "zho" || language === "chi")
+    if (hasHan) {
+      const language = await detectLanguage(value);
+      if (language === "ko" || language === "kor") {
+        const { romanize, translate } = await korean();
+        return romanize(translate(value, "SUBSTITUTION"));
+      }
+      if (language === "ja" || language === "jpn")
+        return await romanizeJapanese(value);
+      const pinyin = await chinese();
       return tidyRomanization(pinyin(value, {
         toneType: "none", type: "string", nonZh: "consecutive",
       }));
+    }
   } catch {
     // Optional enhancement: preserve the source line if a detector/dictionary fails.
   }
