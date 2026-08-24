@@ -175,6 +175,10 @@ suppressing remote artwork/profile requests in QML, album-color extraction,
 MPRIS, Discord presence, and artwork for new downloads. Existing cached covers
 are not deleted.
 
+Settings → Storage can choose a local download folder. New downloads use the
+selected folder; completed files remain where they were created. The default
+is the platform application-data `offline` directory.
+
 ## Travel snapshots
 
 Open **Settings → Sync** to export a versioned JSON snapshot or import one from

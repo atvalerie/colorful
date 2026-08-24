@@ -57,6 +57,9 @@ class Backend final : public QObject
     Q_PROPERTY(QVariantList downloads READ downloads NOTIFY downloadsChanged)
     Q_PROPERTY(qint64 offlineStorageUsed READ offlineStorageUsed NOTIFY downloadsChanged)
     Q_PROPERTY(qint64 offlineStorageLimitBytes READ offlineStorageLimitBytes WRITE setOfflineStorageLimitBytes NOTIFY offlineStorageLimitChanged)
+    Q_PROPERTY(QString downloadDirectory READ downloadDirectory NOTIFY downloadDirectoryChanged)
+    Q_PROPERTY(QUrl downloadDirectoryUrl READ downloadDirectoryUrl NOTIFY downloadDirectoryChanged)
+    Q_PROPERTY(bool downloadDirectoryIsDefault READ downloadDirectoryIsDefault NOTIFY downloadDirectoryChanged)
     Q_PROPERTY(QVariantMap tidalHub READ tidalHub NOTIFY tidalHubChanged)
     Q_PROPERTY(bool tidalHubLoading READ tidalHubLoading NOTIFY tidalHubChanged)
     Q_PROPERTY(bool tidalMoreLoading READ tidalMoreLoading NOTIFY tidalHubChanged)
@@ -136,6 +139,9 @@ public:
     QVariantList downloads() const { return m_downloads; }
     qint64 offlineStorageUsed() const;
     qint64 offlineStorageLimitBytes() const { return m_offlineStorageLimitBytes; }
+    QString downloadDirectory() const;
+    QUrl downloadDirectoryUrl() const;
+    bool downloadDirectoryIsDefault() const { return m_downloadDirectory.isEmpty(); }
     QVariantMap tidalHub() const { return m_tidalHub; }
     bool tidalHubLoading() const { return m_tidalHubLoading; }
     bool tidalMoreLoading() const { return m_tidalMoreLoading; }
@@ -251,6 +257,8 @@ public:
     Q_INVOKABLE void removeUnfinishedDownloads();
     Q_INVOKABLE void setOfflineStorageLimitBytes(qint64 bytes);
     Q_INVOKABLE void openDownloadsFolder();
+    Q_INVOKABLE void setDownloadDirectory(const QUrl &directoryUrl);
+    Q_INVOKABLE void resetDownloadDirectory();
     Q_INVOKABLE void exportTravelSnapshot(const QUrl &fileUrl);
     Q_INVOKABLE void importTravelSnapshot(const QUrl &fileUrl);
     Q_INVOKABLE void loadTidalHub(bool refresh = false);
@@ -307,6 +315,7 @@ signals:
     void playlistPickerRequested();
     void downloadsChanged();
     void offlineStorageLimitChanged();
+    void downloadDirectoryChanged();
     void tidalHubChanged();
     void currentTrackChanged();
     void lyricsChanged();
@@ -396,6 +405,7 @@ private:
     QString downloadArtworkPath(const QVariantMap &track) const;
     void downloadArtwork(const QVariantMap &track);
     QString downloadsDirectory() const;
+    QString defaultDownloadsDirectory() const;
     void requestRelated(bool continueWhenReady);
     QString lyricsCacheKey(const QVariantMap &track) const;
     void resetLyrics();
@@ -479,6 +489,7 @@ private:
     bool m_removeActiveDownload = false;
     bool m_pauseDownloadForQuota = false;
     qint64 m_offlineStorageLimitBytes = 0;
+    QString m_downloadDirectory;
     bool m_playingLocalSource = false;
     QVariantMap m_tidalHub;
     bool m_tidalHubLoading = false;

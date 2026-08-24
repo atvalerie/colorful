@@ -53,6 +53,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1 -NoBuild
 The old C#/WinUI prototype remains in this directory as an archived experiment,
 but the standard Windows scripts now target the Qt client.
 
+Settings → Storage can choose a local download folder. New downloads use the
+selected folder; completed files remain where they were created. The default
+is the per-user application-data `offline` directory.
+
 ## Distributable builds
 
 Create a clean Release build and no-install ZIP with:

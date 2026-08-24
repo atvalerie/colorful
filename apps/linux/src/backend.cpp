@@ -23,6 +23,7 @@
 #include <QSettings>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QTemporaryFile>
 #include <QUrl>
 #include <QUuid>
 #include <algorithm>
@@ -49,6 +50,22 @@ QString localTravelFilePath(const QUrl &fileUrl, QString *error)
         return {};
     }
     return path;
+}
+
+bool ensureWritableDirectory(const QString &path, QString *error)
+{
+    if (path.isEmpty() || !QDir().mkpath(path) || !QFileInfo(path).isDir()) {
+        if (error) *error = QStringLiteral("Could not create the selected download folder");
+        return false;
+    }
+    QTemporaryFile probe(QDir(path).filePath(QStringLiteral(".colorful-write-test-XXXXXX")));
+    probe.setAutoRemove(true);
+    if (!probe.open()) {
+        if (error) *error = QStringLiteral("The selected download folder is not writable");
+        return false;
+    }
+    probe.close();
+    return true;
 }
 
 QString safeTrackPath(const QVariantMap &track)
@@ -176,6 +193,12 @@ Backend::Backend(QObject *parent)
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
     m_soundcloudOriginalDownloads = settings.value(QStringLiteral("downloads/soundcloudOriginal"), false).toBool();
+    const auto configuredDownloadDirectory = settings.value(QStringLiteral("storage/downloadDirectory")).toString().trimmed();
+    if (!configuredDownloadDirectory.isEmpty()) {
+        const auto normalized = QDir::cleanPath(QDir::fromNativeSeparators(configuredDownloadDirectory));
+        if (QFileInfo(normalized).isAbsolute()) m_downloadDirectory = normalized;
+        else settings.remove(QStringLiteral("storage/downloadDirectory"));
+    }
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
     m_onboardingCompleted = settings.value(QStringLiteral("ui/onboardingCompleted"), false).toBool();
     m_partyDiagnosticsEnabled = settings.value(QStringLiteral("debug/partyDiagnostics"), false).toBool();
@@ -929,7 +952,7 @@ void Backend::refreshPortableSettings()
     }
     const auto nextEqualizerPreset = presetValue.toString(QStringLiteral("Flat"));
     const bool autoplayChanged = m_autoplayEnabled != nextAutoplay;
-    const bool streamQualityChanged = m_streamQuality != nextStreamQuality;
+    const bool streamQualityWasChanged = m_streamQuality != nextStreamQuality;
     const bool normalizationChanged = m_normalizationEnabled != nextNormalization;
     const bool equalizerChanged = m_equalizerBands != nextEqualizerBands
         || m_equalizerPreset != nextEqualizerPreset;
@@ -955,7 +978,7 @@ void Backend::refreshPortableSettings()
         m_playback.setEqualizer(gains);
     }
     if (autoplayChanged) emit autoplayEnabledChanged();
-    if (streamQualityChanged) emit streamQualityChanged();
+    if (streamQualityWasChanged) emit streamQualityChanged();
     if (normalizationChanged || equalizerChanged) emit audioProcessingChanged();
 }
 
@@ -2608,10 +2631,25 @@ void Backend::enqueueLocalPlaylist(const QString &id)
     }
 }
 
-QString Backend::downloadsDirectory() const
+QString Backend::defaultDownloadsDirectory() const
 {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
         .filePath(QStringLiteral("offline"));
+}
+
+QString Backend::downloadsDirectory() const
+{
+    return m_downloadDirectory.isEmpty() ? defaultDownloadsDirectory() : m_downloadDirectory;
+}
+
+QString Backend::downloadDirectory() const
+{
+    return downloadsDirectory();
+}
+
+QUrl Backend::downloadDirectoryUrl() const
+{
+    return QUrl::fromLocalFile(downloadDirectory());
 }
 
 QString Backend::downloadPath(const QVariantMap &track, bool partial) const
@@ -3213,6 +3251,7 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
         removeDownloadWorkingFiles(track);
         QFile::remove(finalPath);
         QFile::remove(downloadArtworkPath(track));
+        QFile::remove(track.value(QStringLiteral("coverLocalPath")).toString());
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                          {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
@@ -3292,6 +3331,7 @@ void Backend::removeDownload(const QString &trackId, const QString &provider)
         removeDownloadWorkingFiles(track);
         QFile::remove(downloadPath(track, false));
         QFile::remove(downloadArtworkPath(track));
+        QFile::remove(track.value(QStringLiteral("coverLocalPath")).toString());
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                          {QStringLiteral("providerId"), trackId}}}});
@@ -3318,6 +3358,7 @@ void Backend::removeDownload(const QString &trackId, const QString &provider)
     QFile::remove(existing.value(QStringLiteral("localPath")).toString());
     removeDownloadWorkingFiles(existing);
     QFile::remove(downloadArtworkPath(existing));
+    QFile::remove(existing.value(QStringLiteral("coverLocalPath")).toString());
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                   {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), existing.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                      {QStringLiteral("providerId"), trackId}}}});
@@ -3334,6 +3375,7 @@ void Backend::removeCompletedDownloads()
         QFile::remove(track.value(QStringLiteral("localPath")).toString());
         removeDownloadWorkingFiles(track);
         QFile::remove(downloadArtworkPath(track));
+        QFile::remove(track.value(QStringLiteral("coverLocalPath")).toString());
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{
                           {QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
@@ -3417,8 +3459,78 @@ void Backend::setPartyDiagnosticsEnabled(bool enabled)
 
 void Backend::openDownloadsFolder()
 {
-    QDir().mkpath(downloadsDirectory());
-    QDesktopServices::openUrl(QUrl::fromLocalFile(downloadsDirectory()));
+    QString directoryError;
+    if (!ensureWritableDirectory(downloadsDirectory(), &directoryError)) {
+        notify(directoryError, QStringLiteral("error"));
+        return;
+    }
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(downloadsDirectory())))
+        notify(QStringLiteral("Could not open the download folder"), QStringLiteral("error"));
+}
+
+void Backend::setDownloadDirectory(const QUrl &directoryUrl)
+{
+    if (directoryUrl.isEmpty() || !directoryUrl.isLocalFile()) {
+        notify(QStringLiteral("Choose a local download folder"), QStringLiteral("error"));
+        return;
+    }
+    const auto rawPath = directoryUrl.toLocalFile();
+    if (rawPath.isEmpty() || !QFileInfo(rawPath).isAbsolute()) {
+        notify(QStringLiteral("Choose an absolute local download folder"), QStringLiteral("error"));
+        return;
+    }
+    const auto path = QDir::cleanPath(rawPath);
+    if (!m_activeDownloadTrack.isEmpty() || !m_downloadQueue.isEmpty()
+        || m_downloadProcess.state() != QProcess::NotRunning || m_downloadReply) {
+        notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+               QStringLiteral("warning"));
+        return;
+    }
+    for (const auto &value : std::as_const(m_downloads)) {
+        if (value.toMap().value(QStringLiteral("downloadState")).toString() != QStringLiteral("complete")) {
+            notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+                   QStringLiteral("warning"));
+            return;
+        }
+    }
+    QString directoryError;
+    if (!ensureWritableDirectory(path, &directoryError)) {
+        notify(directoryError, QStringLiteral("error"));
+        return;
+    }
+    if (path == downloadsDirectory()) return;
+    m_downloadDirectory = path;
+    QSettings().setValue(QStringLiteral("storage/downloadDirectory"), m_downloadDirectory);
+    emit downloadDirectoryChanged();
+    notify(QStringLiteral("New downloads will use %1").arg(QDir::toNativeSeparators(path)),
+           QStringLiteral("success"));
+}
+
+void Backend::resetDownloadDirectory()
+{
+    if (!m_activeDownloadTrack.isEmpty() || !m_downloadQueue.isEmpty()
+        || m_downloadProcess.state() != QProcess::NotRunning || m_downloadReply) {
+        notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+               QStringLiteral("warning"));
+        return;
+    }
+    for (const auto &value : std::as_const(m_downloads)) {
+        if (value.toMap().value(QStringLiteral("downloadState")).toString() != QStringLiteral("complete")) {
+            notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+                   QStringLiteral("warning"));
+            return;
+        }
+    }
+    QString directoryError;
+    if (!ensureWritableDirectory(defaultDownloadsDirectory(), &directoryError)) {
+        notify(directoryError.replace(QStringLiteral("selected"), QStringLiteral("default")),
+               QStringLiteral("error"));
+        return;
+    }
+    m_downloadDirectory.clear();
+    QSettings().remove(QStringLiteral("storage/downloadDirectory"));
+    emit downloadDirectoryChanged();
+    notify(QStringLiteral("New downloads will use the default folder"), QStringLiteral("success"));
 }
 
 void Backend::exportTravelSnapshot(const QUrl &fileUrl)

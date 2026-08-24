@@ -619,17 +619,29 @@ Item {
                     Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
                     Text { Layout.fillWidth: true; text: "Offline files are private application data. They contain playable audio and do not depend on an expiring manifest after completion."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 126
+                        Layout.fillWidth: true; Layout.preferredHeight: storageFolderColumn.implicitHeight + 32
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
-                        RowLayout {
-                            anchors.fill: parent; anchors.margins: 16; spacing: 18
+                        ColumnLayout {
+                            id: storageFolderColumn
+                            anchors.fill: parent; anchors.margins: 16; spacing: 8
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 3
+                                Text { text: "Download folder"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                Text { Layout.fillWidth: true; text: colorful.downloadDirectory; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideMiddle }
+                                Text { Layout.fillWidth: true; text: "New downloads use this folder. Existing completed downloads stay where they are."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 8
+                                ColorButton { text: "Choose folder…"; quiet: true; onClicked: downloadFolderDialog.open() }
+                                ColorButton { text: "Open folder"; quiet: true; onClicked: colorful.openDownloadsFolder() }
+                                ColorButton { text: "Use default"; quiet: true; enabled: !colorful.downloadDirectoryIsDefault; onClicked: colorful.resetDownloadDirectory() }
+                            }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 3
                                 Text { text: root.formatStorage(colorful.offlineStorageUsed); color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(22 * colorful.textScale) }
                                 Text { text: colorful.downloads.length + " offline " + (colorful.downloads.length === 1 ? "entry" : "entries"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
                                 Text { text: colorful.offlineStorageLimitBytes > 0 ? "Limit: " + root.formatStorage(colorful.offlineStorageLimitBytes) : "No storage limit"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
                             }
-                            ColorButton { text: "Open folder"; quiet: true; onClicked: colorful.openDownloadsFolder() }
                         }
                     }
                     Text { text: "Offline storage limit"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
@@ -855,6 +867,13 @@ Item {
         fileMode: FileDialog.SaveFile
         nameFilters: ["Colorful travel snapshots (*.json)", "All files (*)"]
         onAccepted: colorful.exportTravelSnapshot(selectedFile)
+    }
+
+    FolderDialog {
+        id: downloadFolderDialog
+        title: "Choose the download folder"
+        currentFolder: colorful.downloadDirectoryUrl
+        onAccepted: colorful.setDownloadDirectory(selectedFolder)
     }
 
     FileDialog {
