@@ -2,6 +2,7 @@
 #include "debuglog.h"
 
 #include <QMetaObject>
+#include <QRegularExpression>
 #include <QSet>
 #include <algorithm>
 #include <cmath>
@@ -48,6 +49,18 @@ QString mpvStringList(const QStringList &values)
         escaped.append(value);
     }
     return mpvFixedString(escaped.join(QLatin1Char(',')));
+}
+
+bool loadfileSupportsIndex(const QString &version)
+{
+    static const QRegularExpression pattern(QStringLiteral("(?:^|\\s)(\\d+)\\.(\\d+)(?:\\.|$)"));
+    const auto match = pattern.match(version);
+    if (!match.hasMatch()) return false;
+    bool majorOk = false;
+    bool minorOk = false;
+    const auto major = match.captured(1).toInt(&majorOk);
+    const auto minor = match.captured(2).toInt(&minorOk);
+    return majorOk && minorOk && (major > 0 || minor >= 38);
 }
 }
 
@@ -99,7 +112,11 @@ LinuxPlayback::LinuxPlayback(QObject *parent)
         return;
     }
     mpv_request_log_messages(m_mpv, "warn");
-    DebugLog::write(u"mpv", u"libmpv initialized");
+    const auto mpvVersion = version();
+    m_loadfileSupportsIndex = loadfileSupportsIndex(mpvVersion);
+    DebugLog::write(u"mpv", QStringLiteral("libmpv initialized version=%1 loadfileIndex=%2")
+                                .arg(mpvVersion.isEmpty() ? QStringLiteral("unknown") : mpvVersion)
+                                .arg(m_loadfileSupportsIndex));
 
     mpv_observe_property(m_mpv, PositionProperty, "time-pos", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_mpv, DurationProperty, "duration", MPV_FORMAT_DOUBLE);
@@ -175,9 +192,16 @@ void LinuxPlayback::setSource(const QUrl &source, qint64 startPositionMs, bool a
     const auto options = QStringLiteral("pause=yes,start=%1,%2")
         .arg(m_positionMs / 1000.0, 0, 'f', 3)
         .arg(playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer, httpHeaders)).toUtf8();
-    const char *arguments[] = {"loadfile", uri.constData(), "replace", "-1", options.constData(), nullptr};
     m_loadRequestId = m_nextRequestId++;
-    command(arguments, m_loadRequestId);
+    if (m_loadfileSupportsIndex) {
+        const char *arguments[] = {"loadfile", uri.constData(), "replace", "-1",
+                                   options.constData(), nullptr};
+        command(arguments, m_loadRequestId);
+    } else {
+        const char *arguments[] = {"loadfile", uri.constData(), "replace",
+                                   options.constData(), nullptr};
+        command(arguments, m_loadRequestId);
+    }
 }
 
 void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> replayGainDb,
@@ -198,9 +222,16 @@ void LinuxPlayback::prepareNextSource(const QUrl &source, std::optional<double> 
     m_prepareTimer.restart();
     const auto uri = source.toEncoded();
     const auto options = playbackOptions(replayGainDb, peakAmplitude, userAgent, referrer, httpHeaders).toUtf8();
-    const char *arguments[] = {"loadfile", uri.constData(), "append", "-1", options.constData(), nullptr};
     m_prepareRequestId = m_nextRequestId++;
-    command(arguments, m_prepareRequestId);
+    if (m_loadfileSupportsIndex) {
+        const char *arguments[] = {"loadfile", uri.constData(), "append", "-1",
+                                   options.constData(), nullptr};
+        command(arguments, m_prepareRequestId);
+    } else {
+        const char *arguments[] = {"loadfile", uri.constData(), "append",
+                                   options.constData(), nullptr};
+        command(arguments, m_prepareRequestId);
+    }
 }
 
 void LinuxPlayback::clearPreparedNext()
