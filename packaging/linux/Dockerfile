@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ubuntu:22.04@sha256:b060fffe8e1561c9c3e6dea6db487b900100fc26830b9ea2ec966c151ab4c020
+FROM ubuntu:22.04@sha256:b060fffe8e1561c9c3e6dea6db487b900100fc26830b9ea2ec966c151ab4c020 AS colorful-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG QT_VERSION=6.8.3
@@ -68,12 +68,27 @@ RUN apt-get update \
 
 RUN python3 -m pip install --no-cache-dir "meson==$MESON_VERSION"
 
-# Build the exact mpv commit represented by the pinned Windows binary. Its
-# linked FFmpeg/libplacebo sources are independently checksum-pinned too.
+FROM colorful-base AS colorful-ffmpeg
+
 COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json
 COPY packaging/linux/build-mpv-source.sh /tmp/build-mpv-source.sh
-RUN bash /tmp/build-mpv-source.sh \
+RUN bash /tmp/build-mpv-source.sh ffmpeg \
     && rm -f /tmp/build-mpv-source.sh /tmp/desktop-dependencies.json
+
+FROM colorful-base AS colorful-libplacebo
+COPY --from=colorful-ffmpeg /opt/colorful-mpv /opt/colorful-mpv
+COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json
+COPY packaging/linux/build-mpv-source.sh /tmp/build-mpv-source.sh
+RUN bash /tmp/build-mpv-source.sh libplacebo \
+    && rm -f /tmp/build-mpv-source.sh /tmp/desktop-dependencies.json
+
+FROM colorful-libplacebo AS colorful-mpv
+COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json
+COPY packaging/linux/build-mpv-source.sh /tmp/build-mpv-source.sh
+RUN bash /tmp/build-mpv-source.sh mpv \
+    && rm -f /tmp/build-mpv-source.sh /tmp/desktop-dependencies.json
+
+FROM colorful-mpv AS final
 
 RUN python3 -m pip install --no-cache-dir \
         "aqtinstall==$AQT_VERSION" \

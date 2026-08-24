@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ $# -ne 1 ]]; then
+    echo "usage: $0 ffmpeg|libplacebo|mpv" >&2
+    exit 2
+fi
+phase="$1"
+case "$phase" in
+    ffmpeg|libplacebo|mpv) ;;
+    *)
+        echo "usage: $0 ffmpeg|libplacebo|mpv" >&2
+        exit 2
+        ;;
+esac
+
 manifest="${COLORFUL_DEPENDENCY_MANIFEST:-/tmp/desktop-dependencies.json}"
 pin() {
     python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); [value := value[key] for key in sys.argv[2].split(".")]; print(value)' \
@@ -39,95 +52,104 @@ extract_archive() {
 }
 
 rm -rf "$WORK_ROOT"
-mkdir -p "$WORK_ROOT/downloads" "$WORK_ROOT/ffmpeg/source" \
-    "$WORK_ROOT/libplacebo/source" "$WORK_ROOT/mpv/source"
+trap 'rm -rf "$WORK_ROOT"' EXIT
+mkdir -p "$WORK_ROOT/downloads"
 
-download_verified "$FFMPEG_URL" "$FFMPEG_SHA256" "$WORK_ROOT/downloads/ffmpeg.tar.xz"
-download_verified "$LIBPLACEBO_URL" "$LIBPLACEBO_SHA256" "$WORK_ROOT/downloads/libplacebo.tar.gz"
-download_verified "$FAST_FLOAT_URL" "$FAST_FLOAT_SHA256" "$WORK_ROOT/downloads/fast-float.tar.gz"
-download_verified "$MPV_URL" "$MPV_SHA256" "$WORK_ROOT/downloads/mpv.tar.gz"
+build_ffmpeg() {
+    mkdir -p "$WORK_ROOT/ffmpeg/source"
+    download_verified "$FFMPEG_URL" "$FFMPEG_SHA256" "$WORK_ROOT/downloads/ffmpeg.tar.xz"
+    extract_archive "$WORK_ROOT/downloads/ffmpeg.tar.xz" "$WORK_ROOT/ffmpeg/source"
+    pushd "$WORK_ROOT/ffmpeg/source" >/dev/null
+    ./configure \
+        --prefix="$PREFIX" \
+        --libdir="$PREFIX/lib" \
+        --enable-shared \
+        --disable-static \
+        --enable-pic \
+        --disable-autodetect \
+        --enable-gnutls \
+        --disable-programs \
+        --disable-doc \
+        --disable-debug
+    make -j"$JOBS"
+    make install
+    popd >/dev/null
+}
 
-extract_archive "$WORK_ROOT/downloads/ffmpeg.tar.xz" "$WORK_ROOT/ffmpeg/source"
-extract_archive "$WORK_ROOT/downloads/libplacebo.tar.gz" "$WORK_ROOT/libplacebo/source"
-extract_archive "$WORK_ROOT/downloads/mpv.tar.gz" "$WORK_ROOT/mpv/source"
-extract_archive "$WORK_ROOT/downloads/fast-float.tar.gz" \
-    "$WORK_ROOT/libplacebo/source/3rdparty/fast_float"
+build_libplacebo() {
+    mkdir -p "$WORK_ROOT/libplacebo/source"
+    download_verified "$LIBPLACEBO_URL" "$LIBPLACEBO_SHA256" "$WORK_ROOT/downloads/libplacebo.tar.gz"
+    download_verified "$FAST_FLOAT_URL" "$FAST_FLOAT_SHA256" "$WORK_ROOT/downloads/fast-float.tar.gz"
+    extract_archive "$WORK_ROOT/downloads/libplacebo.tar.gz" "$WORK_ROOT/libplacebo/source"
+    extract_archive "$WORK_ROOT/downloads/fast-float.tar.gz" \
+        "$WORK_ROOT/libplacebo/source/3rdparty/fast_float"
+    grep -Fq "$LIBPLACEBO_COMMIT" <<<"$LIBPLACEBO_URL"
+    grep -Fq "$FAST_FLOAT_COMMIT" <<<"$FAST_FLOAT_URL"
 
-grep -Fq "$MPV_COMMIT" <<<"$MPV_URL"
-grep -Fq "$LIBPLACEBO_COMMIT" <<<"$LIBPLACEBO_URL"
-grep -Fq "$FAST_FLOAT_COMMIT" <<<"$FAST_FLOAT_URL"
+    export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+    export LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}"
+    pushd "$WORK_ROOT/libplacebo/source" >/dev/null
+    meson setup build \
+        --prefix="$PREFIX" \
+        --libdir=lib \
+        --buildtype=release \
+        -Dtests=false \
+        -Ddemos=false \
+        -Dvulkan=disabled \
+        -Dopengl=disabled \
+        -Dglslang=disabled \
+        -Dshaderc=disabled \
+        -Dlcms=disabled
+    meson compile -C build -j "$JOBS"
+    meson install -C build
+    popd >/dev/null
+}
 
-# Build shared FFmpeg libraries for libmpv. The standalone ffmpeg/ffprobe
-# binaries bundled by package-linux.sh remain independently pinned there.
-pushd "$WORK_ROOT/ffmpeg/source" >/dev/null
-./configure \
-    --prefix="$PREFIX" \
-    --libdir="$PREFIX/lib" \
-    --enable-shared \
-    --disable-static \
-    --enable-pic \
-    --disable-autodetect \
-    --enable-gnutls \
-    --disable-programs \
-    --disable-doc \
-    --disable-debug
-make -j"$JOBS"
-make install
-popd >/dev/null
+build_mpv() {
+    mkdir -p "$WORK_ROOT/mpv/source"
+    download_verified "$MPV_URL" "$MPV_SHA256" "$WORK_ROOT/downloads/mpv.tar.gz"
+    extract_archive "$WORK_ROOT/downloads/mpv.tar.gz" "$WORK_ROOT/mpv/source"
+    grep -Fq "$MPV_COMMIT" <<<"$MPV_URL"
 
-# Make the freshly installed FFmpeg libraries discoverable by libplacebo and
-# then by mpv, even though the private prefix is outside pkg-config defaults.
-export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-export LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}"
+    export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+    export LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}"
+    pushd "$WORK_ROOT/mpv/source" >/dev/null
+    printf '%s\n' "$MPV_VERSION" > MPV_VERSION
+    meson setup build \
+        --prefix="$PREFIX" \
+        --libdir=lib \
+        --buildtype=release \
+        -Ddefault_library=shared \
+        -Dlibmpv=true \
+        -Dcplayer=false \
+        -Dbuild-date=false \
+        -Dalsa=enabled \
+        -Dpulse=enabled \
+        -Dpipewire=disabled \
+        -Dgl=disabled \
+        -Dvulkan=disabled \
+        -Dx11=disabled \
+        -Dwayland=disabled \
+        -Degl=disabled
+    meson compile -C build -j "$JOBS"
+    meson install -C build
+    popd >/dev/null
+}
 
-pushd "$WORK_ROOT/libplacebo/source" >/dev/null
-meson setup build \
-    --prefix="$PREFIX" \
-    --libdir=lib \
-    --buildtype=release \
-    -Dtests=false \
-    -Ddemos=false \
-    -Dvulkan=disabled \
-    -Dopengl=disabled \
-    -Dglslang=disabled \
-    -Dshaderc=disabled \
-    -Dlcms=disabled
-meson compile -C build -j "$JOBS"
-meson install -C build
-popd >/dev/null
+case "$phase" in
+    ffmpeg) build_ffmpeg ;;
+    libplacebo) build_libplacebo ;;
+    mpv) build_mpv ;;
+esac
 
-# mpv itself is shared-library enabled. This produces the official libmpv
-# ABI (libmpv.so.2) and installs mpv.pc for pkg-config consumers.
-pushd "$WORK_ROOT/mpv/source" >/dev/null
-printf '%s\n' "$MPV_VERSION" > MPV_VERSION
-meson setup build \
-    --prefix="$PREFIX" \
-    --libdir=lib \
-    --buildtype=release \
-    -Ddefault_library=shared \
-    -Dlibmpv=true \
-    -Dcplayer=false \
-    -Dbuild-date=false \
-    -Dalsa=enabled \
-    -Dpulse=enabled \
-    -Dpipewire=disabled \
-    -Dgl=disabled \
-    -Dvulkan=disabled \
-    -Dx11=disabled \
-    -Dwayland=disabled \
-    -Degl=disabled
-meson compile -C build -j "$JOBS"
-meson install -C build
-popd >/dev/null
-
-printf '%s\n' "$PREFIX/lib" > /etc/ld.so.conf.d/colorful-mpv.conf
-mkdir -p "$PREFIX/share/colorful"
-printf '%s\n' "$MPV_VERSION" > "$PREFIX/share/colorful/mpv-source-version"
-ldconfig
-test -f "$PREFIX/lib/pkgconfig/mpv.pc"
-test "$(pkg-config --variable=libdir mpv)" = "$PREFIX/lib"
-pkg-config --exists alsa libpulse libavcodec libavformat libplacebo
-printf 'Built mpv %s (%s) with FFmpeg %s and libplacebo %s.\n' \
-    "$MPV_VERSION" "$MPV_COMMIT" "$FFMPEG_VERSION" "$LIBPLACEBO_VERSION"
-
-rm -rf "$WORK_ROOT"
+if [[ "$phase" == mpv ]]; then
+    printf '%s\n' "$PREFIX/lib" > /etc/ld.so.conf.d/colorful-mpv.conf
+    mkdir -p "$PREFIX/share/colorful"
+    printf '%s\n' "$MPV_VERSION" > "$PREFIX/share/colorful/mpv-source-version"
+    ldconfig
+    test -f "$PREFIX/lib/pkgconfig/mpv.pc"
+    test "$(pkg-config --variable=libdir mpv)" = "$PREFIX/lib"
+    pkg-config --exists alsa libpulse libavcodec libavformat libplacebo
+    printf 'Built mpv %s (%s) with FFmpeg %s and libplacebo %s.\n' \
+        "$MPV_VERSION" "$MPV_COMMIT" "$FFMPEG_VERSION" "$LIBPLACEBO_VERSION"
+fi
