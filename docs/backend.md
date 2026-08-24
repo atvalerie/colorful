@@ -9,7 +9,8 @@ The first service is `services/colorful-relay`. It provides:
 
 - short-lived opaque mailboxes for encrypted store-and-forward operations;
 - short-lived party session allocation with separate host and guest
-  capabilities; and
+  capabilities;
+- host-authenticated, one-use public Discord join tickets; and
 - a binary WebSocket relay for ciphertext when LAN or direct P2P connectivity
   is unavailable.
 
@@ -58,6 +59,7 @@ Public web links and private capabilities are different things.
 ```text
 https://colorful.valerie.sh/share/<public-id>
 https://colorful.valerie.sh/party/<session-id>#<guest-capability>
+https://colorful.valerie.sh/discord/join#v1.<ticket-lookup>.<bootstrap-key>
 ```
 
 The HTTPS page may explain colorful and offer an install/download fallback.
@@ -65,6 +67,15 @@ It must not put a party or mailbox capability in a query string or server-side
 HTML. The fragment is not sent in the HTTP request, so the landing service
 cannot store or log the capability. A client-side page may turn the fragment
 into a `colorful://` launch after an explicit user click.
+
+The Discord Join Party ticket is a 90-second, one-use wrapper around the
+encrypted party invite bootstrap. The host authenticates issuance with the
+party host capability. On redemption, the client sends only `ticketLookup` to
+`POST /v1/party-join-tickets/redeem`; the relay returns the session and
+encrypted bootstrap ciphertext, while `bootstrapKey` remains in the URL
+fragment and is used locally. The relay stores only a digest of the lookup and
+deletes the ticket before returning it, so replay fails. Hosts issue these
+tickets only when using `https://colorful.valerie.sh` as the relay.
 
 For a public track share, any title/artwork/provider metadata shown in the
 preview is an intentional public disclosure and must be generated from a
@@ -79,8 +90,8 @@ insertion, capability separation, binary WebSocket forwarding, request/frame
 limits, and health checks.
 
 Not implemented: mDNS/LAN transport, ICE/STUN, TURN, QUIC, robust reconnects,
-party clock correction and post-kick key rotation,
-durable encrypted mailbox storage, public share pages, and client integration.
+durable encrypted mailbox storage, public share pages, and native Discord
+Ask-to-Join (which needs authenticated RPC or Discord Social SDK integration).
 The Rust core supplies encrypted host-authoritative party frames and queue
 suggestion contracts, and the Qt desktop connects them to the binary WebSocket
 relay; see [parties.md](parties.md).

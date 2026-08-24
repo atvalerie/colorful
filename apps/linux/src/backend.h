@@ -97,6 +97,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool partyDiagnosticsEnabled READ partyDiagnosticsEnabled WRITE setPartyDiagnosticsEnabled NOTIFY partyDiagnosticsEnabledChanged)
     Q_PROPERTY(bool discordPresenceEnabled READ discordPresenceEnabled WRITE setDiscordPresenceEnabled NOTIFY discordSettingsChanged)
     Q_PROPERTY(bool discordTrackButtonEnabled READ discordTrackButtonEnabled WRITE setDiscordTrackButtonEnabled NOTIFY discordSettingsChanged)
+    Q_PROPERTY(bool discordPartyButtonEnabled READ discordPartyButtonEnabled WRITE setDiscordPartyButtonEnabled NOTIFY discordSettingsChanged)
     Q_PROPERTY(QVariantList equalizerBands READ equalizerBands NOTIFY audioProcessingChanged)
     Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
@@ -182,6 +183,7 @@ public:
     bool partyDiagnosticsEnabled() const { return m_partyDiagnosticsEnabled; }
     bool discordPresenceEnabled() const { return m_discordPresenceEnabled; }
     bool discordTrackButtonEnabled() const { return m_discordTrackButtonEnabled; }
+    bool discordPartyButtonEnabled() const { return m_discordPartyButtonEnabled; }
     QVariantList equalizerBands() const { return m_equalizerBands; }
     QString equalizerPreset() const { return m_equalizerPreset; }
     QVariantMap listenStats() const { return m_listenStats; }
@@ -197,6 +199,8 @@ public:
     void seekParty(qint64 positionMs);
     void setPartyPlaybackRate(double rate);
     void leavePartyPlayback();
+    void setDiscordPartyState(bool active, const QString &partyId, int partySize,
+                              const QString &joinPartyUrl = {});
 
     Q_INVOKABLE void startLogin();
     Q_INVOKABLE void openVerificationUrl();
@@ -296,6 +300,7 @@ public:
     Q_INVOKABLE void setPartyDiagnosticsEnabled(bool enabled);
     Q_INVOKABLE void setDiscordPresenceEnabled(bool enabled);
     Q_INVOKABLE void setDiscordTrackButtonEnabled(bool enabled);
+    Q_INVOKABLE void setDiscordPartyButtonEnabled(bool enabled);
     Q_INVOKABLE void setEqualizerBand(int index, double gainDb);
     Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
     Q_INVOKABLE void setAccentMode(const QString &mode);
@@ -578,6 +583,11 @@ private:
     bool m_partyDiagnosticsEnabled = false;
     bool m_discordPresenceEnabled = true;
     bool m_discordTrackButtonEnabled = true;
+    bool m_discordPartyButtonEnabled = true;
+    bool m_discordPartyActive = false;
+    QString m_discordPartyId;
+    int m_discordPartySize = 0;
+    QString m_discordJoinPartyUrl;
     bool m_partyPlaybackActive = false;
     QVariantMap m_partyTrack;
     QVariantMap m_partyPreparedTrack;

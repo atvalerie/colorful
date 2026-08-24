@@ -14,6 +14,40 @@ namespace {
 constexpr int PartyProtocolVersion = 2;
 constexpr qsizetype MaxPendingPartyBytes = 4 * 1024 * 1024;
 constexpr qsizetype MaxPendingPartyFrames = 512;
+constexpr qint64 PublicJoinTicketLifetimeMs = 90'000;
+constexpr qint64 PublicJoinTicketRefreshLeadMs = 30'000;
+constexpr int PublicJoinTicketRetryMs = 15'000;
+
+QString canonicalPublicJoinTicket(const QString &fragment)
+{
+    static const QRegularExpression valid(QStringLiteral("^v1\\.[A-Za-z0-9_-]{43}\\.[A-Za-z0-9_-]{43}$"));
+    if (!valid.match(fragment).hasMatch()) return {};
+    const auto parts = fragment.split(QLatin1Char('.'));
+    for (int i = 1; i < parts.size(); ++i) {
+        const auto bytes = QByteArray::fromBase64(parts.at(i).toLatin1(), QByteArray::Base64UrlEncoding);
+        if (bytes.size() != 32
+            || QString::fromLatin1(bytes.toBase64(QByteArray::Base64UrlEncoding
+                                                   | QByteArray::OmitTrailingEquals)) != parts.at(i))
+            return {};
+    }
+    return fragment;
+}
+
+QString publicJoinTicketLookup(const QString &ticket)
+{
+    const auto parts = ticket.split(QLatin1Char('.'));
+    return parts.size() == 3 ? parts.at(1) : QString{};
+}
+
+bool isPublicPartyRelay(const QString &baseUrl)
+{
+    const QUrl url(baseUrl);
+    return url.isValid() && url.scheme() == QStringLiteral("https")
+        && url.host() == QStringLiteral("colorful.valerie.sh")
+        && url.port() == -1 && url.userInfo().isEmpty()
+        && (url.path().isEmpty() || url.path() == QStringLiteral("/"))
+        && url.query().isEmpty() && url.fragment().isEmpty();
+}
 
 QString partySessionFromUrl(const QUrl &url)
 {
@@ -82,6 +116,12 @@ PartyClient::PartyClient(Backend *backend, QObject *parent)
     connect(&m_clockSampler, &QTimer::timeout, this, &PartyClient::sendClockPing);
     m_driftController.setInterval(250);
     connect(&m_driftController, &QTimer::timeout, this, &PartyClient::correctPlayback);
+    m_publicTicketTimer.setSingleShot(true);
+    connect(&m_publicTicketTimer, &QTimer::timeout, this, &PartyClient::refreshPublicJoinTicket);
+    connect(backend, &Backend::discordSettingsChanged, this, [this] {
+        refreshPublicJoinTicket();
+        publishDiscordPartyState();
+    });
     connect(backend, &Backend::currentTrackChanged, this, [this] {
         if (m_role == QStringLiteral("host") && !m_applyingRemote) {
             ++m_generation;
@@ -183,6 +223,9 @@ void PartyClient::createParty(const QString &displayName, const QString &relayBa
         const auto hostCap = party.value(QStringLiteral("hostCapability")).toString();
         const auto guestCap = party.value(QStringLiteral("guestCapability")).toString();
         const auto expires = party.value(QStringLiteral("expiresAtMs")).toInteger();
+        m_relaySessionId = session;
+        m_relayHostCapability = hostCap;
+        m_expiresAtMs = expires;
         const auto value = dispatchCore({
             {QStringLiteral("command"), QStringLiteral("create")},
             {QStringLiteral("display_name"), displayName.trimmed()},
@@ -192,6 +235,7 @@ void PartyClient::createParty(const QString &displayName, const QString &relayBa
             {QStringLiteral("relay_guest_capability"), guestCap},
         });
         if (value.isEmpty()) return;
+        m_inviteFragment = value.value(QStringLiteral("fragment")).toString();
         m_shareUrl = QStringLiteral("https://colorful.valerie.sh/party/%1#%2")
                          .arg(session, value.value(QStringLiteral("fragment")).toString());
         applyResult(value);
@@ -199,23 +243,123 @@ void PartyClient::createParty(const QString &displayName, const QString &relayBa
         m_hostClock.start();
         publishQueue();
         publishCurrentTrack();
+        publishDiscordPartyState();
+        refreshPublicJoinTicket();
     });
+}
+
+QString PartyClient::publicJoinTicketFromUrl(const QUrl &url)
+{
+    const bool custom = url.scheme() == QStringLiteral("colorful")
+        && url.host() == QStringLiteral("discord") && url.path() == QStringLiteral("/join");
+    const bool landing = url.scheme() == QStringLiteral("https")
+        && url.host() == QStringLiteral("colorful.valerie.sh")
+        && url.path() == QStringLiteral("/discord/join");
+    if ((!custom && !landing) || !url.userInfo().isEmpty() || url.port() != -1
+        || !url.query(QUrl::FullyEncoded).isEmpty()
+        || url.fragment(QUrl::FullyEncoded).contains(QLatin1Char('%'))) return {};
+    return canonicalPublicJoinTicket(url.fragment(QUrl::FullyEncoded));
 }
 
 bool PartyClient::handlePartyLink(const QString &link)
 {
     const QUrl url(link);
+    if (!publicJoinTicketFromUrl(url).isEmpty()) {
+        emit joinLinkReceived(link);
+        return true;
+    }
+    if ((url.scheme() == QStringLiteral("colorful") && url.host() == QStringLiteral("discord"))
+        || (url.scheme() == QStringLiteral("https") && url.host() == QStringLiteral("colorful.valerie.sh")
+            && url.path() == QStringLiteral("/discord/join"))) return false;
     if (partySessionFromUrl(url).isEmpty() || url.fragment(QUrl::FullyEncoded).isEmpty()) return false;
     emit joinLinkReceived(link);
     return true;
+}
+
+void PartyClient::joinPartyWithFragment(const QString &session, const QString &fragment,
+                                        const QString &displayName)
+{
+    if (session.isEmpty() || fragment.isEmpty()) {
+        emit notification(QStringLiteral("Could not open that party invite"), QStringLiteral("error"));
+        return;
+    }
+    m_relaySessionId = session;
+    const auto value = dispatchCore({
+        {QStringLiteral("command"), QStringLiteral("join")},
+        {QStringLiteral("display_name"), displayName.trimmed()},
+        {QStringLiteral("relay_session_id"), session},
+        {QStringLiteral("fragment"), fragment},
+        {QStringLiteral("now_ms"), QDateTime::currentMSecsSinceEpoch()},
+    });
+    if (value.isEmpty()) return;
+    applyResult(value);
+    connectRelay(m_relayBaseUrl, session, value.value(QStringLiteral("relayCapability")).toString());
+    m_clockSampler.start();
+    m_driftController.start();
 }
 
 void PartyClient::joinParty(const QString &link, const QString &displayName,
                             const QString &relayBaseUrl)
 {
     if (m_active || displayName.trimmed().isEmpty()) return;
+    if (m_joinTicketRedemptionInFlight) {
+        emit notification(QStringLiteral("A party invite is already being redeemed"), QStringLiteral("error"));
+        return;
+    }
     const QUrl url(link);
+    const auto ticket = publicJoinTicketFromUrl(url);
     const auto session = partySessionFromUrl(url);
+    if (!ticket.isEmpty()) {
+        QUrl base(relayBaseUrl.trimmed());
+        if (!base.isValid() || (base.scheme() != QStringLiteral("http")
+                                && base.scheme() != QStringLiteral("https"))) {
+            emit notification(QStringLiteral("The party link or relay URL is invalid"), QStringLiteral("error"));
+            return;
+        }
+        m_relayBaseUrl = base.toString(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment);
+        QNetworkRequest request(QUrl(m_relayBaseUrl + QStringLiteral("/v1/party-join-tickets/redeem")));
+        request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+        auto *reply = m_network.post(request, QJsonDocument(QJsonObject{{QStringLiteral("ticketLookup"), publicJoinTicketLookup(ticket)}})
+                                             .toJson(QJsonDocument::Compact));
+        m_joinTicketRedemptionInFlight = true;
+        const auto requestGeneration = ++m_ticketGeneration;
+        QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
+        connect(reply, &QNetworkReply::finished, this, [this, reply, displayName, ticket, requestGeneration] {
+            const auto body = reply->readAll();
+            const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const auto networkError = reply->error();
+            reply->deleteLater();
+            if (requestGeneration != m_ticketGeneration) return;
+            m_joinTicketRedemptionInFlight = false;
+            if (networkError != QNetworkReply::NoError || status != 200) {
+                emit notification(QStringLiteral("Could not redeem that party invite"), QStringLiteral("error"));
+                return;
+            }
+            const auto object = QJsonDocument::fromJson(body).object();
+            if (object.value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion) {
+                emit notification(QStringLiteral("This relay requires a different Colorful version"), QStringLiteral("error"));
+                return;
+            }
+            const auto redeemedSession = object.value(QStringLiteral("sessionId")).toString();
+            const auto bootstrap = object.value(QStringLiteral("bootstrapCiphertext")).toString();
+            if (redeemedSession.isEmpty() || bootstrap.isEmpty()) {
+                emit notification(QStringLiteral("Could not redeem that party invite"), QStringLiteral("error"));
+                return;
+            }
+            const auto value = dispatchCore({
+                {QStringLiteral("command"), QStringLiteral("unwrap_invite_ticket")},
+                {QStringLiteral("ticket"), ticket},
+                {QStringLiteral("bootstrap_ciphertext"), bootstrap},
+                {QStringLiteral("relay_session_id"), redeemedSession},
+            }, false);
+            if (value.isEmpty()) {
+                emit notification(QStringLiteral("Could not open that party invite"), QStringLiteral("error"));
+                return;
+            }
+            joinPartyWithFragment(redeemedSession, value.value(QStringLiteral("fragment")).toString(), displayName);
+        });
+        return;
+    }
     if (session.isEmpty()) {
         emit notification(QStringLiteral("That is not a colorful party link"), QStringLiteral("error"));
         return;
@@ -278,16 +422,37 @@ void PartyClient::applyResult(const QJsonObject &value)
         leave();
         return;
     }
+    const bool joinsWereEnabled = m_joinEnabled;
     if (value.contains(QStringLiteral("role"))) m_role = value.value(QStringLiteral("role")).toString();
     if (value.contains(QStringLiteral("expiresAtMs")))
         m_expiresAtMs = value.value(QStringLiteral("expiresAtMs")).toInteger();
-    if (value.contains(QStringLiteral("fragment")) && !m_shareUrl.isEmpty()) {
-        QUrl refreshed(m_shareUrl);
-        refreshed.setFragment(value.value(QStringLiteral("fragment")).toString(), QUrl::DecodedMode);
-        m_shareUrl = refreshed.toString(QUrl::FullyEncoded);
+    bool inviteRotated = false;
+    if (value.contains(QStringLiteral("fragment"))) {
+        const auto fragment = value.value(QStringLiteral("fragment")).toString();
+        inviteRotated = !fragment.isEmpty() && fragment != m_inviteFragment;
+        if (!fragment.isEmpty()) m_inviteFragment = fragment;
+        if (!fragment.isEmpty() && !m_shareUrl.isEmpty()) {
+            QUrl refreshed(m_shareUrl);
+            refreshed.setFragment(fragment, QUrl::DecodedMode);
+            m_shareUrl = refreshed.toString(QUrl::FullyEncoded);
+        }
     }
     m_active = true;
     updateState(value.value(QStringLiteral("state")).toObject());
+    const bool ticketBecameInvalid = m_role == QStringLiteral("host")
+        && (inviteRotated || !m_joinEnabled);
+    if (ticketBecameInvalid) {
+        ++m_ticketGeneration;
+        m_publicTicketTimer.stop();
+        m_publicTicketRequestInFlight = false;
+        m_publicJoinTicket.clear();
+        m_publicJoinTicketLookup.clear();
+        m_publicJoinTicketExpiresAtMs = 0;
+    }
+    publishDiscordPartyState();
+    if (m_role == QStringLiteral("host")
+        && (inviteRotated || (!joinsWereEnabled && m_joinEnabled)))
+        refreshPublicJoinTicket();
     const auto outbound = value.value(QStringLiteral("outbound")).toArray();
     for (const auto &frame : outbound) {
         const auto bytes = QJsonDocument(frame.toObject()).toJson(QJsonDocument::Compact);
@@ -306,6 +471,117 @@ void PartyClient::applyResult(const QJsonObject &value)
     if (value.value(QStringLiteral("event")).isObject())
         applyRemoteEvent(value.value(QStringLiteral("event")).toObject());
     emit stateChanged();
+}
+
+void PartyClient::publishDiscordPartyState()
+{
+    const bool partyActive = m_active && !m_relaySessionId.isEmpty();
+    QString joinUrl;
+    if (partyActive && m_role == QStringLiteral("host") && m_joinEnabled
+        && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled()
+        && m_publicJoinTicketExpiresAtMs > QDateTime::currentMSecsSinceEpoch()
+        && canonicalPublicJoinTicket(m_publicJoinTicket) == m_publicJoinTicket) {
+        joinUrl = QStringLiteral("https://colorful.valerie.sh/discord/join#%1")
+                      .arg(m_publicJoinTicket);
+    }
+    m_backend->setDiscordPartyState(partyActive, m_relaySessionId,
+                                    qMax(1, m_participants.size()), joinUrl);
+}
+
+void PartyClient::refreshPublicJoinTicket()
+{
+    const auto now = QDateTime::currentMSecsSinceEpoch();
+    const bool eligible = m_active && m_role == QStringLiteral("host") && m_joinEnabled
+        && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled()
+        && !m_relaySessionId.isEmpty() && !m_relayHostCapability.isEmpty()
+        && !m_inviteFragment.isEmpty() && isPublicPartyRelay(m_relayBaseUrl)
+        && m_expiresAtMs >= now + 5'000;
+    if (!eligible) {
+        if (!m_publicJoinTicket.isEmpty() || m_publicTicketRequestInFlight) ++m_ticketGeneration;
+        m_publicTicketTimer.stop();
+        m_publicTicketRequestInFlight = false;
+        m_publicJoinTicket.clear();
+        m_publicJoinTicketLookup.clear();
+        m_publicJoinTicketExpiresAtMs = 0;
+        publishDiscordPartyState();
+        return;
+    }
+    if (m_publicTicketRequestInFlight) return;
+    if (!m_publicJoinTicket.isEmpty()
+        && m_publicJoinTicketExpiresAtMs > now + PublicJoinTicketRefreshLeadMs) {
+        m_publicTicketTimer.start(int(m_publicJoinTicketExpiresAtMs - now
+                                      - PublicJoinTicketRefreshLeadMs));
+        publishDiscordPartyState();
+        return;
+    }
+
+    const auto wrapped = dispatchCore({
+        {QStringLiteral("command"), QStringLiteral("wrap_invite_ticket")},
+        {QStringLiteral("fragment"), m_inviteFragment},
+        {QStringLiteral("relay_session_id"), m_relaySessionId},
+    }, false);
+    const auto ticket = wrapped.value(QStringLiteral("ticket")).toString();
+    const auto ticketLookup = wrapped.value(QStringLiteral("ticketLookup")).toString();
+    const auto bootstrap = wrapped.value(QStringLiteral("bootstrapCiphertext")).toString();
+    if (canonicalPublicJoinTicket(ticket) != ticket
+        || publicJoinTicketLookup(ticket) != ticketLookup || bootstrap.isEmpty()) {
+        m_publicJoinTicket.clear();
+        m_publicJoinTicketLookup.clear();
+        m_publicJoinTicketExpiresAtMs = 0;
+        publishDiscordPartyState();
+        m_publicTicketTimer.start(PublicJoinTicketRetryMs);
+        return;
+    }
+
+    const auto expiresAtMs = qMin(now + PublicJoinTicketLifetimeMs, m_expiresAtMs);
+    if (expiresAtMs < now + 5'000) return;
+    const auto sessionId = m_relaySessionId;
+    const auto requestGeneration = ++m_ticketGeneration;
+    QNetworkRequest request(QUrl(m_relayBaseUrl
+                                 + QStringLiteral("/v1/party-sessions/%1/join-tickets")
+                                       .arg(sessionId)));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ")
+                                           + m_relayHostCapability.toUtf8());
+    const QJsonObject requestBody{
+        {QStringLiteral("ticketLookup"), ticketLookup},
+        {QStringLiteral("expiresAtMs"), expiresAtMs},
+        {QStringLiteral("bootstrapCiphertext"), bootstrap},
+    };
+    auto *reply = m_network.post(request, QJsonDocument(requestBody).toJson(QJsonDocument::Compact));
+    m_publicTicketRequestInFlight = true;
+    QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, requestGeneration, sessionId, ticket, ticketLookup, expiresAtMs] {
+        const auto body = reply->readAll();
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto networkError = reply->error();
+        reply->deleteLater();
+        if (requestGeneration != m_ticketGeneration) return;
+        m_publicTicketRequestInFlight = false;
+        const auto object = QJsonDocument::fromJson(body).object();
+        const bool stillEligible = m_active && m_role == QStringLiteral("host")
+            && m_joinEnabled && m_relaySessionId == sessionId
+            && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled();
+        if (!stillEligible || networkError != QNetworkReply::NoError || status != 201
+            || object.value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion
+            || object.value(QStringLiteral("expiresAtMs")).toInteger() != expiresAtMs) {
+            m_publicJoinTicket.clear();
+            m_publicJoinTicketLookup.clear();
+            m_publicJoinTicketExpiresAtMs = 0;
+            publishDiscordPartyState();
+            if (stillEligible) m_publicTicketTimer.start(PublicJoinTicketRetryMs);
+            return;
+        }
+        m_publicJoinTicket = ticket;
+        m_publicJoinTicketLookup = ticketLookup;
+        m_publicJoinTicketExpiresAtMs = expiresAtMs;
+        publishDiscordPartyState();
+        const auto delay = qMax<qint64>(5'000, expiresAtMs
+                                                  - QDateTime::currentMSecsSinceEpoch()
+                                                  - PublicJoinTicketRefreshLeadMs);
+        m_publicTicketTimer.start(int(delay));
+    });
 }
 
 void PartyClient::flushOutbound()
@@ -739,6 +1015,17 @@ void PartyClient::kick(const QString &participantId)
 
 void PartyClient::leave()
 {
+    ++m_ticketGeneration;
+    m_publicTicketTimer.stop();
+    m_publicJoinTicket.clear();
+    m_publicJoinTicketLookup.clear();
+    m_publicJoinTicketExpiresAtMs = 0;
+    m_relaySessionId.clear();
+    m_relayHostCapability.clear();
+    m_inviteFragment.clear();
+    m_publicTicketRequestInFlight = false;
+    m_joinTicketRedemptionInFlight = false;
+    m_backend->setDiscordPartyState(false, {}, 0, {});
     if (m_active && m_role != QStringLiteral("host") && m_socket.connected()) {
         const auto value = dispatchCore({{QStringLiteral("command"), QStringLiteral("leave")}}, false);
         for (const auto &frame : value.value(QStringLiteral("outbound")).toArray())

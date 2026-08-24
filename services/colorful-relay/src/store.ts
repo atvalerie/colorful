@@ -5,6 +5,10 @@ import {
   MAX_MAILBOXES,
   MAX_MAILBOX_MESSAGES,
   MAX_MESSAGE_BYTES,
+  MAX_JOIN_TICKETS_PER_PARTY,
+  MAX_JOIN_TICKET_TTL_MS,
+  MIN_JOIN_TICKET_TTL_MS,
+  MAX_TOTAL_JOIN_TICKET_BYTES,
   MAX_PARTY_TTL_SECONDS,
   MAX_PARTY_SESSIONS,
   MAX_TOTAL_MAILBOX_BYTES,
@@ -12,6 +16,8 @@ import {
   clampTtl,
   randomToken,
   sha256,
+  validJoinTicketLookup,
+  validJoinTicketBootstrap,
   validMessageId,
 } from "./protocol";
 import type { MailboxDescriptor, MailboxMessageView, PartyDescriptor, PartyRole } from "./protocol";
@@ -45,6 +51,15 @@ interface PartySession {
   guestCapabilityDigest: string;
   createdAtMs: number;
   expiresAtMs: number;
+  joinTicketDigests: Set<string>;
+}
+
+interface JoinTicket {
+  ticketDigest: string;
+  sessionId: string;
+  expiresAtMs: number;
+  bootstrapCiphertext: string;
+  bootstrapBytes: number;
 }
 
 export class OpaqueRelayStore {
@@ -54,6 +69,8 @@ export class OpaqueRelayStore {
   private partiesCreated = 0;
   private queuedMessages = 0;
   private queuedBytes = 0;
+  private readonly joinTicketsByDigest = new Map<string, JoinTicket>();
+  private joinTicketBytes = 0;
 
   public async createMailbox(ttlSeconds?: unknown): Promise<MailboxDescriptor> {
     this.cleanup();
@@ -88,9 +105,74 @@ export class OpaqueRelayStore {
       guestCapabilityDigest: await sha256(guestCapability),
       createdAtMs: now,
       expiresAtMs,
+      joinTicketDigests: new Set(),
     });
     this.partiesCreated += 1;
     return { sessionId, hostCapability, guestCapability, expiresAtMs };
+  }
+
+  public async issueJoinTicket(
+    sessionId: string,
+    capability: string,
+    ticketLookup: unknown,
+    expiresAtMs: unknown,
+    bootstrapCiphertext: unknown,
+  ): Promise<{ expiresAtMs: number }> {
+    const party = this.parties.get(sessionId);
+    if (!party) throw new StoreError("not_found");
+    if (party.expiresAtMs <= Date.now()) {
+      this.deleteParty(sessionId);
+      throw new StoreError("expired");
+    }
+    const digest = await sha256(capability);
+    if (digest !== party.hostCapabilityDigest) throw new StoreError("not_found");
+    if (!validJoinTicketLookup(ticketLookup) || !validJoinTicketBootstrap(bootstrapCiphertext))
+      throw new StoreError("invalid");
+    if (typeof expiresAtMs !== "number" || !Number.isSafeInteger(expiresAtMs))
+      throw new StoreError("invalid");
+    const now = Date.now();
+    const minimumExpiry = Math.min(now + MIN_JOIN_TICKET_TTL_MS, party.expiresAtMs);
+    const maximumExpiry = Math.min(now + MAX_JOIN_TICKET_TTL_MS, party.expiresAtMs);
+    if (expiresAtMs < minimumExpiry || expiresAtMs > maximumExpiry)
+      throw new StoreError("invalid");
+    this.removeExpiredJoinTickets(party, now);
+    if (party.joinTicketDigests.size >= MAX_JOIN_TICKETS_PER_PARTY) throw new StoreError("quota");
+    const bootstrapBytes = new TextEncoder().encode(bootstrapCiphertext).byteLength;
+    if (this.joinTicketBytes + bootstrapBytes > MAX_TOTAL_JOIN_TICKET_BYTES) throw new StoreError("quota");
+    const ticketDigest = await sha256(ticketLookup);
+    if (this.joinTicketsByDigest.has(ticketDigest))
+      throw new StoreError("conflict");
+    const entry = {
+      ticketDigest,
+      sessionId,
+      expiresAtMs,
+      bootstrapCiphertext,
+      bootstrapBytes,
+    } satisfies JoinTicket;
+    party.joinTicketDigests.add(ticketDigest);
+    this.joinTicketsByDigest.set(ticketDigest, entry);
+    this.joinTicketBytes += bootstrapBytes;
+    return { expiresAtMs };
+  }
+
+  public async redeemJoinTicket(
+    ticketLookup: unknown,
+  ): Promise<{ sessionId: string; bootstrapCiphertext: string }> {
+    if (!validJoinTicketLookup(ticketLookup))
+      throw new StoreError("invalid");
+    const ticketDigest = await sha256(ticketLookup);
+    const now = Date.now();
+    const entry = this.joinTicketsByDigest.get(ticketDigest);
+    if (!entry) throw new StoreError("not_found");
+    const party = this.parties.get(entry.sessionId);
+    if (!party || party.expiresAtMs <= now || entry.expiresAtMs <= now) {
+      if (party && party.expiresAtMs <= now) this.deleteParty(entry.sessionId);
+      else this.removeJoinTicket(entry);
+      throw new StoreError("not_found");
+    }
+    // Delete before returning so concurrent redemption attempts cannot reuse it.
+    this.removeJoinTicket(entry);
+    return { sessionId: entry.sessionId, bootstrapCiphertext: entry.bootstrapCiphertext };
   }
 
   public async putMessage(
@@ -166,7 +248,7 @@ export class OpaqueRelayStore {
     const party = this.parties.get(sessionId);
     if (!party) throw new StoreError("not_found");
     if (party.expiresAtMs <= Date.now()) {
-      this.parties.delete(sessionId);
+      this.deleteParty(sessionId);
       throw new StoreError("expired");
     }
     const digest = await sha256(capability);
@@ -190,7 +272,8 @@ export class OpaqueRelayStore {
       this.removeExpiredMessages(mailbox, now);
     }
     for (const [id, party] of this.parties)
-      if (party.expiresAtMs <= now) this.parties.delete(id);
+      if (party.expiresAtMs <= now) this.deleteParty(id);
+      else this.removeExpiredJoinTickets(party, now);
   }
 
   public publicStats(): {
@@ -232,5 +315,32 @@ export class OpaqueRelayStore {
         this.queuedBytes -= message.ciphertext.byteLength;
       }
     }
+  }
+
+  private removeExpiredJoinTickets(party: PartySession, now: number): void {
+    for (const digest of party.joinTicketDigests) {
+      const ticket = this.joinTicketsByDigest.get(digest);
+      if (ticket && ticket.expiresAtMs <= now) this.removeJoinTicket(ticket);
+      else if (!ticket) party.joinTicketDigests.delete(digest);
+    }
+  }
+
+  private deleteParty(sessionId: string): void {
+    const party = this.parties.get(sessionId);
+    if (party) {
+      for (const digest of [...party.joinTicketDigests]) {
+        const ticket = this.joinTicketsByDigest.get(digest);
+        if (ticket) this.removeJoinTicket(ticket);
+        else party.joinTicketDigests.delete(digest);
+      }
+    }
+    this.parties.delete(sessionId);
+  }
+
+  private removeJoinTicket(ticket: JoinTicket): void {
+    if (!this.joinTicketsByDigest.delete(ticket.ticketDigest)) return;
+    const party = this.parties.get(ticket.sessionId);
+    party?.joinTicketDigests.delete(ticket.ticketDigest);
+    this.joinTicketBytes -= ticket.bootstrapBytes;
   }
 }

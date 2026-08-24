@@ -24,7 +24,10 @@ public:
                 qint64 positionMs,
                 qint64 durationMs,
                 bool playing,
-                const QString &trackUrl = {});
+                const QString &trackUrl = {},
+                const QString &partyId = {},
+                int partySize = 0,
+                const QString &joinPartyUrl = {});
     void clear();
 
     // Kept pure so the activity contract can be tested without a Discord
@@ -37,7 +40,10 @@ public:
                                      qint64 durationMs,
                                      bool playing,
                                      const QString &trackUrl,
-                                     bool trackButtonEnabled);
+                                     bool trackButtonEnabled,
+                                     const QString &partyId = {},
+                                     int partySize = 0,
+                                     const QString &joinPartyUrl = {});
 
 private:
     enum class Opcode : quint32 { Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4 };
@@ -48,6 +54,7 @@ private:
     void handleReadyRead();
     void handleFrame(Opcode opcode, const QByteArray &payload);
     void publishDesiredActivity();
+    void rebuildButtons();
     void clearActivityForProcess(qint64 processId);
     bool flushActivity(int timeoutMs);
     void writeFrame(Opcode opcode, const QJsonObject &payload);
@@ -69,4 +76,7 @@ private:
     bool m_shuttingDown = false;
     bool m_unavailableLogged = false;
     QString m_trackUrl;
+    QString m_partyId;
+    int m_partySize = 0;
+    QString m_joinPartyUrl;
 };

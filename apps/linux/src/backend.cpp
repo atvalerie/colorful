@@ -204,6 +204,7 @@ Backend::Backend(QObject *parent)
     m_partyDiagnosticsEnabled = settings.value(QStringLiteral("debug/partyDiagnostics"), false).toBool();
     m_discordPresenceEnabled = settings.value(QStringLiteral("discord/presenceEnabled"), true).toBool();
     m_discordTrackButtonEnabled = settings.value(QStringLiteral("discord/trackButtonEnabled"), true).toBool();
+    m_discordPartyButtonEnabled = settings.value(QStringLiteral("discord/partyButtonEnabled"), true).toBool();
     m_discordPresence.setTrackButtonEnabled(m_discordTrackButtonEnabled);
     m_discordPresence.setEnabled(m_discordPresenceEnabled);
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
@@ -3523,6 +3524,25 @@ void Backend::setDiscordTrackButtonEnabled(bool enabled)
     emit discordSettingsChanged();
 }
 
+void Backend::setDiscordPartyButtonEnabled(bool enabled)
+{
+    if (m_discordPartyButtonEnabled == enabled) return;
+    m_discordPartyButtonEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/partyButtonEnabled"), enabled);
+    updateDiscordPresence();
+    emit discordSettingsChanged();
+}
+
+void Backend::setDiscordPartyState(bool active, const QString &partyId, int partySize,
+                                   const QString &joinPartyUrl)
+{
+    m_discordPartyActive = active;
+    m_discordPartyId = active ? partyId.trimmed() : QString{};
+    m_discordPartySize = active ? std::clamp(partySize, 0, 64) : 0;
+    m_discordJoinPartyUrl = active && m_discordPartyButtonEnabled ? joinPartyUrl : QString{};
+    updateDiscordPresence();
+}
+
 void Backend::openDownloadsFolder()
 {
     QString directoryError;
@@ -4515,7 +4535,10 @@ void Backend::updateDiscordPresence()
         m_playback.position(),
         duration(),
         playing(),
-        discordTrackUrl(track));
+        discordTrackUrl(track),
+        m_discordPartyActive ? m_discordPartyId : QString{},
+        m_discordPartyActive ? m_discordPartySize : 0,
+        m_discordPartyActive ? m_discordJoinPartyUrl : QString{});
 }
 
 QString Backend::trackKey(const QVariantMap &track) const

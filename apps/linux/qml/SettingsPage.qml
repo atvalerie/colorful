@@ -457,9 +457,11 @@ Item {
                     Text { text: "Integrations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
                     Text { text: "Choose what colorful shares through the running Discord desktop client."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 166
+                        Layout.fillWidth: true; implicitHeight: discordIntegrationsColumn.implicitHeight + 30
+                        Layout.preferredHeight: implicitHeight
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         Column {
+                            id: discordIntegrationsColumn
                             anchors.fill: parent; anchors.margins: 15; spacing: 12
                             Item {
                                 width: parent.width; height: 54
@@ -479,6 +481,27 @@ Item {
                                     Rectangle { width: 16; height: 16; y: 3; x: colorful.discordPresenceEnabled ? parent.width - width - 3 : 3; color: colorful.discordPresenceEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
                                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                                     TapHandler { onTapped: colorful.discordPresenceEnabled = !colorful.discordPresenceEnabled }
+                                }
+                            }
+                            Item {
+                                width: parent.width; height: 70
+                                opacity: colorful.discordPresenceEnabled ? 1 : 0.42
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 18
+                                    anchors.right: partyButtonSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "Join Party button"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Let friends join your active listening party from Discord."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: partyButtonSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22; enabled: colorful.discordPresenceEnabled
+                                    color: colorful.discordPartyButtonEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordPartyButtonEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordPartyButtonEnabled ? parent.width - width - 3 : 3; color: colorful.discordPartyButtonEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordPartyButtonEnabled = !colorful.discordPartyButtonEnabled }
                                 }
                             }
                             Item {

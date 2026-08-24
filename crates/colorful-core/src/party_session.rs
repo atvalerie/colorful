@@ -23,11 +23,18 @@ const MAX_NAME_BYTES: usize = 64;
 const MAX_WIRE_BYTES: usize = 128 * 1024;
 const MAX_SESSION_OPERATIONS: usize = 65_536;
 const MAX_RECEIVED_NONCES: usize = 65_536;
+const MAX_RELAY_SESSION_ID_BYTES: usize = 256;
+const MAX_TICKET_BYTES: usize = KEY_BYTES;
+const MAX_TICKET_COMPONENT_TEXT_BYTES: usize = 43;
+const MAX_TICKET_TEXT_BYTES: usize =
+    3 + MAX_TICKET_COMPONENT_TEXT_BYTES + 1 + MAX_TICKET_COMPONENT_TEXT_BYTES;
+const MAX_BOOTSTRAP_CIPHERTEXT_BYTES: usize = 24 + 4096 + 16;
 const EVENT_DOMAIN: &[u8] = b"colorful.party.event.v2";
 const JOIN_DOMAIN: &[u8] = b"colorful.party.join.v2";
 const COMMAND_DOMAIN: &[u8] = b"colorful.party.command.v2";
 const FRAME_DOMAIN: &[u8] = b"colorful.party.frame.v2";
 const REKEY_DOMAIN: &[u8] = b"colorful.party.rekey.v2";
+const DISCORD_TICKET_DOMAIN: &[u8] = b"colorful.discord.ticket.v1";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -322,6 +329,194 @@ pub struct PartyInvite {
     host_signing_public_key: [u8; KEY_BYTES],
     party_key: Zeroizing<[u8; KEY_BYTES]>,
     key_epoch: u64,
+}
+
+/// An ephemeral relay ticket and the encrypted invite bootstrap sent with it.
+///
+/// `ticket` is `v1.<lookup>.<bootstrapKey>`. Only `ticket_lookup` is sent to
+/// the relay; callers must not persist or log the combined ticket or bootstrap
+/// key. The relay session binds key derivation and authenticated encryption to
+/// the session that created it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartyTicketBootstrap {
+    pub ticket: String,
+    pub ticket_lookup: String,
+    pub bootstrap_ciphertext: String,
+}
+
+/// Wrap an existing party invite fragment for a relay session.
+pub fn wrap_party_invite_fragment(
+    fragment: &str,
+    relay_session_id: &str,
+) -> Result<PartyTicketBootstrap, PartyError> {
+    validate_ticket_session_id(relay_session_id)?;
+    let fragment_bytes = validate_ticket_fragment(fragment)?;
+    let ticket_lookup = random_array::<MAX_TICKET_BYTES>()?;
+    let bootstrap_key = random_array::<MAX_TICKET_BYTES>()?;
+    let ticket_lookup = URL_SAFE_NO_PAD.encode(ticket_lookup);
+    let bootstrap_key_text = URL_SAFE_NO_PAD.encode(bootstrap_key);
+    let ticket = format!("v1.{ticket_lookup}.{bootstrap_key_text}");
+    let key = ticket_key(&bootstrap_key, relay_session_id)?;
+    let nonce = random_array::<NONCE_BYTES>()?;
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let ciphertext = cipher
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &fragment_bytes,
+                aad: &ticket_aad(relay_session_id),
+            },
+        )
+        .map_err(|_| PartyError::InvalidTicket)?;
+    let mut envelope = Vec::with_capacity(NONCE_BYTES + ciphertext.len());
+    envelope.extend_from_slice(&nonce);
+    envelope.extend_from_slice(&ciphertext);
+    Ok(PartyTicketBootstrap {
+        ticket,
+        ticket_lookup,
+        bootstrap_ciphertext: URL_SAFE_NO_PAD.encode(envelope),
+    })
+}
+
+/// Unwrap an invite fragment from a relay ticket bootstrap.
+///
+/// All malformed, cross-session, wrong-ticket, and tampered inputs collapse to
+/// `PartyError::InvalidTicket` so callers cannot use this as an oracle.
+pub fn unwrap_party_invite_fragment(
+    ticket: &str,
+    bootstrap_ciphertext: &str,
+    relay_session_id: &str,
+) -> Result<String, PartyError> {
+    validate_ticket_session_id(relay_session_id)?;
+    let parsed_ticket = decode_ticket(ticket)?;
+    if bootstrap_ciphertext.is_empty()
+        || bootstrap_ciphertext.len() > encoded_len(MAX_BOOTSTRAP_CIPHERTEXT_BYTES)
+    {
+        return Err(PartyError::InvalidTicket);
+    }
+    let envelope = URL_SAFE_NO_PAD
+        .decode(bootstrap_ciphertext)
+        .map_err(|_| PartyError::InvalidTicket)?;
+    if envelope.len() < NONCE_BYTES + 16 || envelope.len() > MAX_BOOTSTRAP_CIPHERTEXT_BYTES {
+        return Err(PartyError::InvalidTicket);
+    }
+    if URL_SAFE_NO_PAD.encode(&envelope) != bootstrap_ciphertext {
+        return Err(PartyError::InvalidTicket);
+    }
+    let (nonce, ciphertext) = envelope.split_at(NONCE_BYTES);
+    // The relay lookup is intentionally not part of the key or AAD. It is a
+    // routing hint only; the combined ticket's bootstrap key authenticates
+    // this payload when supplied by the guest.
+    let key = ticket_key(&parsed_ticket.bootstrap_key, relay_session_id)?;
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let plaintext = cipher
+        .decrypt(
+            XNonce::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad: &ticket_aad(relay_session_id),
+            },
+        )
+        .map_err(|_| PartyError::InvalidTicket)?;
+    if plaintext.is_empty() || plaintext.len() > 4096 {
+        return Err(PartyError::InvalidTicket);
+    }
+    let fragment = String::from_utf8(plaintext).map_err(|_| PartyError::InvalidTicket)?;
+    validate_ticket_fragment(&fragment)?;
+    Ok(fragment)
+}
+
+fn validate_ticket_session_id(relay_session_id: &str) -> Result<(), PartyError> {
+    if relay_session_id.is_empty()
+        || relay_session_id.len() > MAX_RELAY_SESSION_ID_BYTES
+        || relay_session_id.chars().any(char::is_control)
+    {
+        return Err(PartyError::InvalidTicket);
+    }
+    Ok(())
+}
+
+fn validate_ticket_fragment(fragment: &str) -> Result<Vec<u8>, PartyError> {
+    if fragment.is_empty() || fragment.len() > 4096 || !fragment.is_ascii() {
+        return Err(PartyError::InvalidTicket);
+    }
+    let decoded = URL_SAFE_NO_PAD
+        .decode(fragment)
+        .map_err(|_| PartyError::InvalidTicket)?;
+    if decoded.is_empty() || URL_SAFE_NO_PAD.encode(&decoded) != fragment {
+        return Err(PartyError::InvalidTicket);
+    }
+    Ok(fragment.as_bytes().to_vec())
+}
+
+struct ParsedTicket {
+    _ticket_lookup: [u8; MAX_TICKET_BYTES],
+    bootstrap_key: [u8; MAX_TICKET_BYTES],
+}
+
+fn decode_ticket(ticket: &str) -> Result<ParsedTicket, PartyError> {
+    if ticket.len() != MAX_TICKET_TEXT_BYTES || !ticket.is_ascii() {
+        return Err(PartyError::InvalidTicket);
+    }
+    let mut parts = ticket.split('.');
+    if parts.next() != Some("v1") {
+        return Err(PartyError::InvalidTicket);
+    }
+    let lookup = decode_ticket_component(parts.next().ok_or(PartyError::InvalidTicket)?)?;
+    let bootstrap_key = decode_ticket_component(parts.next().ok_or(PartyError::InvalidTicket)?)?;
+    if parts.next().is_some() {
+        return Err(PartyError::InvalidTicket);
+    }
+    Ok(ParsedTicket {
+        _ticket_lookup: lookup,
+        bootstrap_key,
+    })
+}
+
+fn decode_ticket_component(component: &str) -> Result<[u8; MAX_TICKET_BYTES], PartyError> {
+    if component.len() != MAX_TICKET_COMPONENT_TEXT_BYTES || !component.is_ascii() {
+        return Err(PartyError::InvalidTicket);
+    }
+    let bytes = URL_SAFE_NO_PAD
+        .decode(component)
+        .map_err(|_| PartyError::InvalidTicket)?;
+    if URL_SAFE_NO_PAD.encode(&bytes) != component {
+        return Err(PartyError::InvalidTicket);
+    }
+    bytes.try_into().map_err(|_| PartyError::InvalidTicket)
+}
+
+fn ticket_key(
+    ticket: &[u8; MAX_TICKET_BYTES],
+    relay_session_id: &str,
+) -> Result<[u8; KEY_BYTES], PartyError> {
+    let mut info = Vec::with_capacity(DISCORD_TICKET_DOMAIN.len() + relay_session_id.len() + 2);
+    info.extend_from_slice(DISCORD_TICKET_DOMAIN);
+    info.push(0);
+    info.extend_from_slice(relay_session_id.as_bytes());
+    let mut key = [0; KEY_BYTES];
+    Hkdf::<Sha256>::new(None, ticket)
+        .expand(&info, &mut key)
+        .map_err(|_| PartyError::InvalidTicket)?;
+    Ok(key)
+}
+
+fn ticket_aad(relay_session_id: &str) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(DISCORD_TICKET_DOMAIN.len() + relay_session_id.len() + 1);
+    aad.extend_from_slice(DISCORD_TICKET_DOMAIN);
+    aad.push(0);
+    aad.extend_from_slice(relay_session_id.as_bytes());
+    aad
+}
+
+fn encoded_len(bytes: usize) -> usize {
+    (bytes / 3) * 4
+        + match bytes % 3 {
+            0 => 0,
+            1 => 2,
+            _ => 3,
+        }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1048,6 +1243,7 @@ pub enum PartyError {
     SessionLimit,
     MessageTooLarge,
     InvalidFrame,
+    InvalidTicket,
     EncryptionFailed,
     DecryptionFailed,
 }
@@ -1498,6 +1694,69 @@ mod tests {
         assert!(matches!(
             host.accept_command(&accepted).unwrap().body,
             PartyEventBody::TrackQueued { .. }
+        ));
+    }
+
+    #[test]
+    fn ticket_bootstrap_round_trips_and_rejects_cross_session_or_tampering() {
+        let (host, _) = PartyHost::create("Host", 100_000).unwrap();
+        let fragment = host.invite_fragment("cap").unwrap();
+        let wrapped = wrap_party_invite_fragment(&fragment, "relay-session").unwrap();
+        assert_eq!(wrapped.ticket.len(), MAX_TICKET_TEXT_BYTES);
+        let ticket_parts = wrapped.ticket.split('.').collect::<Vec<_>>();
+        assert_eq!(ticket_parts.len(), 3);
+        assert_eq!(ticket_parts[0], "v1");
+        assert_eq!(ticket_parts[1], wrapped.ticket_lookup);
+        assert_eq!(ticket_parts[1].len(), MAX_TICKET_COMPONENT_TEXT_BYTES);
+        assert_eq!(ticket_parts[2].len(), MAX_TICKET_COMPONENT_TEXT_BYTES);
+        assert_eq!(
+            unwrap_party_invite_fragment(
+                &wrapped.ticket,
+                &wrapped.bootstrap_ciphertext,
+                "relay-session"
+            )
+            .unwrap(),
+            fragment
+        );
+        assert!(matches!(
+            unwrap_party_invite_fragment(
+                &wrapped.ticket,
+                &wrapped.bootstrap_ciphertext,
+                "other-session"
+            ),
+            Err(PartyError::InvalidTicket)
+        ));
+        let alternate_lookup = URL_SAFE_NO_PAD.encode([0x5a; KEY_BYTES]);
+        let ticket_with_alternate_lookup = format!("v1.{alternate_lookup}.{}", ticket_parts[2]);
+        // The lookup is relay routing metadata, not key material or AAD.
+        assert_eq!(
+            unwrap_party_invite_fragment(
+                &ticket_with_alternate_lookup,
+                &wrapped.bootstrap_ciphertext,
+                "relay-session"
+            )
+            .unwrap(),
+            fragment
+        );
+        let alternate_key = URL_SAFE_NO_PAD.encode([0xa5; KEY_BYTES]);
+        let ticket_with_alternate_key = format!("v1.{}.{}", ticket_parts[1], alternate_key);
+        assert!(matches!(
+            unwrap_party_invite_fragment(
+                &ticket_with_alternate_key,
+                &wrapped.bootstrap_ciphertext,
+                "relay-session"
+            ),
+            Err(PartyError::InvalidTicket)
+        ));
+        let mut tampered = wrapped.bootstrap_ciphertext.clone().into_bytes();
+        tampered[0] = if tampered[0] == b'A' { b'B' } else { b'A' };
+        assert!(matches!(
+            unwrap_party_invite_fragment(
+                &wrapped.ticket,
+                std::str::from_utf8(&tampered).unwrap(),
+                "relay-session"
+            ),
+            Err(PartyError::InvalidTicket)
         ));
     }
 }

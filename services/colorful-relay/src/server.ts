@@ -6,6 +6,10 @@ import {
   MAX_RELAY_FRAMES_PER_SECOND,
   MAX_RELAY_PEERS,
   MAX_MESSAGE_BYTES,
+  MAX_JOIN_TICKET_BOOTSTRAP_BYTES,
+  MAX_JOIN_TICKET_ISSUANCES_PER_MINUTE,
+  MAX_JOIN_TICKET_REDEMPTIONS_IN_FLIGHT,
+  MAX_JOIN_TICKET_REDEMPTIONS_PER_MINUTE,
   PROTOCOL_VERSION,
   bearerToken,
 } from "./protocol";
@@ -47,6 +51,19 @@ function partyLandingPage(sessionId: string): Response {
   });
 }
 
+function discordJoinLandingPage(): Response {
+  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Join in Colorful</title><style>body{margin:0;background:#0d0d10;color:#f5f5f5;font:16px system-ui;display:grid;min-height:100vh;place-items:center}.card{width:min(420px,calc(100% - 40px));padding:28px;border:1px solid #303038;background:#17171c}h1{font-size:24px;margin:0 0 8px}p{color:#aaaab3;line-height:1.5}a{display:block;margin-top:12px;padding:12px;text-align:center;text-decoration:none;color:#111;background:#f5f5f5}</style><main class="card"><h1>Join in Colorful</h1><p>This invite opens in Colorful. The relay never receives the secret after the # in this URL.</p><a id="open" href="#">Open in Colorful</a></main><script>document.getElementById('open').href='colorful://discord/join'+location.hash;</script></html>`;
+  return new Response(html, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
 function storeStatus(error: unknown): number {
   if (!(error instanceof StoreError)) return 500;
   return error.code === "not_found" || error.code === "expired" ? 404
@@ -54,9 +71,9 @@ function storeStatus(error: unknown): number {
     : error.code === "conflict" ? 409 : 400;
 }
 
-async function requestJson(request: Request): Promise<Record<string, unknown>> {
+async function requestJson(request: Request, maxBodyCharacters = 4096): Promise<Record<string, unknown>> {
   const body = await request.text();
-  if (body.length > 4096) throw new StoreError("invalid");
+  if (body.length > maxBodyCharacters) throw new StoreError("invalid");
   let value: unknown;
   try {
     value = JSON.parse(body);
@@ -83,6 +100,12 @@ export function createRelayApp(
   const startedAtMs = Date.now();
   let allocationWindowMs = startedAtMs;
   let allocationsThisMinute = 0;
+  let joinTicketWindowMs = startedAtMs;
+  let joinTicketsIssuedThisMinute = 0;
+  let joinTicketsInFlight = 0;
+  let joinTicketRedemptionWindowMs = startedAtMs;
+  let joinTicketRedemptionsThisMinute = 0;
+  let joinTicketRedemptionsInFlight = 0;
   let activeRelayConnections = 0;
   let relayConnectionsAccepted = 0;
   let framesForwarded = 0;
@@ -117,6 +140,9 @@ export function createRelayApp(
           && /^[A-Za-z0-9_-]{8,64}$/.test(parts[1]!))
         return partyLandingPage(parts[1]!);
 
+      if (request.method === "GET" && url.pathname === "/discord/join")
+        return discordJoinLandingPage();
+
       if (request.method === "POST" && url.pathname === "/v1/mailboxes") {
         const now = Date.now();
         if (now - allocationWindowMs >= 60_000) {
@@ -144,6 +170,62 @@ export function createRelayApp(
           return json({ ok: true, protocolVersion: PROTOCOL_VERSION, party: await store.createParty(body.ttlSeconds) }, 201);
         } catch (error) {
           return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "invalid");
+        }
+      }
+
+      if (request.method === "POST" && parts[0] === "v1" && parts[1] === "party-sessions"
+          && parts[2] && parts[3] === "join-tickets" && parts.length === 4) {
+        const capability = bearerToken(request);
+        if (!capability) return errorResponse(404, "not_found");
+        let reserved = false;
+        try {
+          // Authenticate before consulting or reserving the global issuance
+          // budget so unauthenticated callers cannot exhaust it.
+          if (await store.authorizeParty(parts[2], capability) !== "host")
+            return errorResponse(404, "not_found");
+          const body = await requestJson(request, MAX_JOIN_TICKET_BOOTSTRAP_BYTES + 4096);
+          const now = Date.now();
+          if (now - joinTicketWindowMs >= 60_000) {
+            joinTicketWindowMs = now;
+            joinTicketsIssuedThisMinute = 0;
+          }
+          if (joinTicketsIssuedThisMinute + joinTicketsInFlight >= MAX_JOIN_TICKET_ISSUANCES_PER_MINUTE)
+            return errorResponse(429, "rate_limited");
+          joinTicketsInFlight += 1;
+          reserved = true;
+          const result = await store.issueJoinTicket(
+            parts[2], capability, body.ticketLookup, body.expiresAtMs,
+            body.bootstrapCiphertext,
+          );
+          joinTicketsIssuedThisMinute += 1;
+          joinTicketsInFlight -= 1;
+          reserved = false;
+          return json({ ok: true, protocolVersion: PROTOCOL_VERSION, ...result, joinTicket: result }, 201);
+        } catch (error) {
+          if (reserved) joinTicketsInFlight = Math.max(0, joinTicketsInFlight - 1);
+          return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "invalid");
+        }
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/party-join-tickets/redeem") {
+        const now = Date.now();
+        if (now - joinTicketRedemptionWindowMs >= 60_000) {
+          joinTicketRedemptionWindowMs = now;
+          joinTicketRedemptionsThisMinute = 0;
+        }
+        if (joinTicketRedemptionsThisMinute >= MAX_JOIN_TICKET_REDEMPTIONS_PER_MINUTE
+            || joinTicketRedemptionsInFlight >= MAX_JOIN_TICKET_REDEMPTIONS_IN_FLIGHT)
+          return errorResponse(429, "rate_limited");
+        joinTicketRedemptionsThisMinute += 1;
+        joinTicketRedemptionsInFlight += 1;
+        try {
+          const body = await requestJson(request, MAX_JOIN_TICKET_BOOTSTRAP_BYTES + 4096);
+          const result = await store.redeemJoinTicket(body.ticketLookup);
+          return json({ ok: true, protocolVersion: PROTOCOL_VERSION, ...result });
+        } catch (error) {
+          return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "invalid");
+        } finally {
+          joinTicketRedemptionsInFlight = Math.max(0, joinTicketRedemptionsInFlight - 1);
         }
       }
 

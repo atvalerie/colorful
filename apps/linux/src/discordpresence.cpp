@@ -29,6 +29,29 @@ QString validHttpUrl(const QString &value)
     return url.toString(QUrl::FullyEncoded);
 }
 
+QString validJoinPartyUrl(const QString &value)
+{
+    const QUrl url(value.trimmed());
+    if (!url.isValid() || url.scheme() != QStringLiteral("https")
+        || url.host() != QStringLiteral("colorful.valerie.sh")
+        || url.path() != QStringLiteral("/discord/join")
+        || !url.userInfo().isEmpty() || url.port() != -1
+        || !url.query(QUrl::FullyEncoded).isEmpty()) return {};
+    static const QRegularExpression ticketPattern(
+        QStringLiteral("^v1\\.[A-Za-z0-9_-]{43}\\.[A-Za-z0-9_-]{43}$"));
+    const auto fragment = url.fragment(QUrl::FullyEncoded);
+    if (!ticketPattern.match(fragment).hasMatch()) return {};
+    const auto fields = fragment.split(QLatin1Char('.'));
+    for (int index = 1; index < fields.size(); ++index) {
+        const auto bytes = QByteArray::fromBase64(fields.at(index).toLatin1(), QByteArray::Base64UrlEncoding);
+        if (bytes.size() != 32
+            || QString::fromLatin1(bytes.toBase64(QByteArray::Base64UrlEncoding
+                                                   | QByteArray::OmitTrailingEquals)) != fields.at(index))
+            return {};
+    }
+    return url.toString(QUrl::FullyEncoded);
+}
+
 #if !defined(Q_OS_WIN)
 QString discordRuntimeDirectory()
 {
@@ -99,6 +122,9 @@ void DiscordPresence::shutdown()
     m_hasDesiredActivity = false;
     m_desiredActivity = {};
     m_trackUrl.clear();
+    m_partyId.clear();
+    m_partySize = 0;
+    m_joinPartyUrl.clear();
     m_socket.abort();
 }
 
@@ -115,6 +141,9 @@ void DiscordPresence::setEnabled(bool enabled)
         m_hasDesiredActivity = false;
         m_desiredActivity = {};
         m_trackUrl.clear();
+        m_partyId.clear();
+        m_partySize = 0;
+        m_joinPartyUrl.clear();
         m_ready = false;
         m_socket.abort();
         m_enabled = false;
@@ -133,18 +162,23 @@ void DiscordPresence::setTrackButtonEnabled(bool enabled)
     if (m_trackButtonEnabled == enabled) return;
     m_trackButtonEnabled = enabled;
     if (!m_hasDesiredActivity) return;
-    if (m_trackButtonEnabled) {
-        const auto url = validHttpUrl(m_trackUrl);
-        if (!url.isEmpty()) {
-            m_desiredActivity.insert(QStringLiteral("buttons"), QJsonArray{
-                QJsonObject{{QStringLiteral("label"), QStringLiteral("View Track")},
-                            {QStringLiteral("url"), url}},
-            });
-        }
-    } else {
-        m_desiredActivity.remove(QStringLiteral("buttons"));
-    }
+    rebuildButtons();
     publishDesiredActivity();
+}
+
+void DiscordPresence::rebuildButtons()
+{
+    m_desiredActivity.remove(QStringLiteral("buttons"));
+    QJsonArray buttons;
+    const auto track = validHttpUrl(m_trackUrl);
+    if (m_trackButtonEnabled && !track.isEmpty())
+        buttons.append(QJsonObject{{QStringLiteral("label"), QStringLiteral("View Track")},
+                                   {QStringLiteral("url"), track}});
+    const auto join = validJoinPartyUrl(m_joinPartyUrl);
+    if (!m_partyId.isEmpty() && !join.isEmpty())
+        buttons.append(QJsonObject{{QStringLiteral("label"), QStringLiteral("Join Party")},
+                                   {QStringLiteral("url"), join}});
+    if (!buttons.isEmpty()) m_desiredActivity.insert(QStringLiteral("buttons"), buttons);
 }
 
 void DiscordPresence::update(const QString &title,
@@ -154,7 +188,10 @@ void DiscordPresence::update(const QString &title,
                              qint64 positionMs,
                              qint64 durationMs,
                              bool playing,
-                             const QString &trackUrl)
+                             const QString &trackUrl,
+                             const QString &partyId,
+                             int partySize,
+                             const QString &joinPartyUrl)
 {
     if (!m_enabled || title.trimmed().isEmpty()) {
         clear();
@@ -162,9 +199,13 @@ void DiscordPresence::update(const QString &title,
     }
 
     m_trackUrl = validHttpUrl(trackUrl);
+    m_partyId = partyId.trimmed();
+    m_partySize = std::clamp(partySize, 0, 64);
+    m_joinPartyUrl = joinPartyUrl;
     m_desiredActivity = buildActivity(title, artist, album, artworkUrl, positionMs,
                                       durationMs, playing, m_trackUrl,
-                                      m_trackButtonEnabled);
+                                      m_trackButtonEnabled, m_partyId, m_partySize,
+                                      m_joinPartyUrl);
     m_hasDesiredActivity = true;
     publishDesiredActivity();
 }
@@ -177,7 +218,10 @@ QJsonObject DiscordPresence::buildActivity(const QString &title,
                                            qint64 durationMs,
                                            bool playing,
                                            const QString &trackUrl,
-                                           bool trackButtonEnabled)
+                                           bool trackButtonEnabled,
+                                           const QString &partyId,
+                                           int partySize,
+                                           const QString &joinPartyUrl)
 {
     QJsonObject activity{
         {QStringLiteral("type"), 2}, // Listening
@@ -185,7 +229,7 @@ QJsonObject DiscordPresence::buildActivity(const QString &title,
         {QStringLiteral("state"), (playing ? artist
                                             : artist.isEmpty() ? QStringLiteral("Paused")
                                                                : artist + QStringLiteral(" · Paused")).left(128)},
-        {QStringLiteral("instance"), false},
+        {QStringLiteral("instance"), !partyId.trimmed().isEmpty()},
     };
     if (playing) {
         const auto nowSeconds = QDateTime::currentSecsSinceEpoch();
@@ -203,10 +247,19 @@ QJsonObject DiscordPresence::buildActivity(const QString &title,
     if (!assets.isEmpty()) activity.insert(QStringLiteral("assets"), assets);
 
     const auto validTrackUrl = validHttpUrl(trackUrl);
-    if (trackButtonEnabled && !validTrackUrl.isEmpty()) {
-        activity.insert(QStringLiteral("buttons"), QJsonArray{
-            QJsonObject{{QStringLiteral("label"), QStringLiteral("View Track")},
-                        {QStringLiteral("url"), validTrackUrl}},
+    QJsonArray buttons;
+    if (trackButtonEnabled && !validTrackUrl.isEmpty())
+        buttons.append(QJsonObject{{QStringLiteral("label"), QStringLiteral("View Track")},
+                                   {QStringLiteral("url"), validTrackUrl}});
+    const auto validJoinUrl = validJoinPartyUrl(joinPartyUrl);
+    if (!partyId.trimmed().isEmpty() && !validJoinUrl.isEmpty())
+        buttons.append(QJsonObject{{QStringLiteral("label"), QStringLiteral("Join Party")},
+                                   {QStringLiteral("url"), validJoinUrl}});
+    if (!buttons.isEmpty()) activity.insert(QStringLiteral("buttons"), buttons);
+    if (!partyId.trimmed().isEmpty()) {
+        activity.insert(QStringLiteral("party"), QJsonObject{
+            {QStringLiteral("id"), partyId.left(128)},
+            {QStringLiteral("size"), QJsonArray{qBound(1, partySize, 64), 64}},
         });
     }
     return activity;
@@ -218,6 +271,9 @@ void DiscordPresence::clear()
     m_hasDesiredActivity = false;
     m_desiredActivity = {};
     m_trackUrl.clear();
+    m_partyId.clear();
+    m_partySize = 0;
+    m_joinPartyUrl.clear();
     publishDesiredActivity();
 }
 

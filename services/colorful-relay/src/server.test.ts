@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createRelayApp } from "./server";
 import type { RelaySocketData } from "./server";
 import { OpaqueRelayStore } from "./store";
+import { randomToken } from "./protocol";
 
 const servers: Bun.Server<RelaySocketData>[] = [];
 
@@ -103,6 +104,109 @@ describe("relay HTTP API", () => {
     expect(html).toContain("https://github.com/atvalerie/colorful");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+
+  test("serves a hardened Discord join landing page that preserves its fragment client-side", async () => {
+    const server = await startTestServer();
+    const origin = `http://${server.hostname}:${server.port}`;
+    const response = await fetch(`${origin}/discord/join`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("colorful://discord/join'+location.hash");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  test("issues and redeems host-authenticated one-use join tickets", async () => {
+    const server = await startTestServer();
+    const origin = `http://${server.hostname}:${server.port}`;
+    const created = await fetch(`${origin}/v1/party-sessions`, { method: "POST", body: "{}" });
+    const party = (await created.json() as {
+      party: { sessionId: string; hostCapability: string; guestCapability: string; expiresAtMs: number };
+    }).party;
+    const ticket = randomToken();
+    const issueBody = {
+      ticketLookup: ticket,
+      expiresAtMs: Date.now() + 30_000,
+      bootstrapCiphertext: "sealed-bootstrap",
+    };
+    const guestAttempt = await fetch(`${origin}/v1/party-sessions/${party.sessionId}/join-tickets`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${party.guestCapability}`, "content-type": "application/json" },
+      body: JSON.stringify(issueBody),
+    });
+    expect(guestAttempt.status).toBe(404);
+    const issued = await fetch(`${origin}/v1/party-sessions/${party.sessionId}/join-tickets`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${party.hostCapability}`, "content-type": "application/json" },
+      body: JSON.stringify(issueBody),
+    });
+    expect(issued.status).toBe(201);
+    const issuedBody = await issued.json() as Record<string, unknown>;
+    expect(issuedBody).toMatchObject({ joinTicket: { expiresAtMs: issueBody.expiresAtMs }, expiresAtMs: issueBody.expiresAtMs });
+    expect(JSON.stringify(issuedBody)).not.toContain(ticket);
+
+    const unknown = await fetch(`${origin}/v1/party-join-tickets/redeem`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticketLookup: randomToken() }),
+    });
+    expect(unknown.status).toBe(404);
+    const redeemed = await fetch(`${origin}/v1/party-join-tickets/redeem`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ticketLookup: ticket }),
+    });
+    expect(redeemed.status).toBe(200);
+    expect(await redeemed.json()).toMatchObject({ sessionId: party.sessionId, bootstrapCiphertext: "sealed-bootstrap" });
+    const replay = await fetch(`${origin}/v1/party-join-tickets/redeem`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ticketLookup: ticket }),
+    });
+    expect(replay.status).toBe(404);
+  });
+
+  test("rate-limits global join-ticket issuance", async () => {
+    const server = await startTestServer();
+    const origin = `http://${server.hostname}:${server.port}`;
+    const unauthorizedPartyResponse = await fetch(`${origin}/v1/party-sessions`, { method: "POST", body: "{}" });
+    const unauthorizedParty = (await unauthorizedPartyResponse.json() as { party: { sessionId: string } }).party;
+    for (let index = 0; index < 3; index++) {
+      const unauthorized = await fetch(`${origin}/v1/party-sessions/${unauthorizedParty.sessionId}/join-tickets`, {
+        method: "POST", body: JSON.stringify({ ticketLookup: randomToken(), expiresAtMs: Date.now() + 30_000, bootstrapCiphertext: "x" }),
+      });
+      expect(unauthorized.status).toBe(404);
+    }
+    let lastStatus = 0;
+    for (let index = 0; index < 121; index++) {
+      const created = await fetch(`${origin}/v1/party-sessions`, { method: "POST", body: "{}" });
+      const party = (await created.json() as { party: { sessionId: string; hostCapability: string } }).party;
+      const response = await fetch(`${origin}/v1/party-sessions/${party.sessionId}/join-tickets`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${party.hostCapability}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          ticketLookup: randomToken(),
+          expiresAtMs: Date.now() + 30_000,
+          bootstrapCiphertext: "bootstrap",
+        }),
+      });
+      lastStatus = response.status;
+    }
+    expect(lastStatus).toBe(429);
+  });
+
+  test("rate-limits unauthenticated join-ticket redemption", async () => {
+    const server = await startTestServer();
+    const origin = `http://${server.hostname}:${server.port}`;
+    let lastStatus = 0;
+    for (let index = 0; index < 241; index++) {
+      const response = await fetch(`${origin}/v1/party-join-tickets/redeem`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticketLookup: randomToken() }),
+      });
+      lastStatus = response.status;
+    }
+    expect(lastStatus).toBe(429);
   });
 
   test("relay forwards binary frames without echoing to the sender", async () => {

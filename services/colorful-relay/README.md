@@ -4,7 +4,8 @@ This is the first hosted backend slice for colorful. It provides:
 
 - expiring opaque mailboxes for store-and-forward sync;
 - expiring party-session allocation with separate host and guest capabilities;
-- a binary WebSocket relay that forwards ciphertext without parsing it; and
+- host-authenticated, one-use public Discord join tickets (90 seconds);
+- a binary WebSocket relay that forwards ciphertext without parsing it;
 - health and privacy-safe aggregate-stat endpoints for deployment checks; and
 - a public HTTPS party landing page that preserves invite secrets in fragments.
 
@@ -34,11 +35,14 @@ ciphertext, or per-party breakdowns.
 GET  /healthz
 GET  /stats
 GET  /party/<session-id>
+GET  /discord/join
 POST /v1/mailboxes
 GET  /v1/mailboxes/<id>/messages
 PUT  /v1/mailboxes/<id>/messages/<message-id>
 DELETE /v1/mailboxes/<id>/messages/<message-id>
 POST /v1/party-sessions
+POST /v1/party-sessions/<id>/join-tickets
+POST /v1/party-join-tickets/redeem
 GET  /v1/party-sessions/<id>/relay   (WebSocket upgrade)
 ```
 
@@ -51,6 +55,15 @@ an application protocol parser.
 The party landing page sends `no-store` and `no-referrer` headers. Browsers do
 not transmit the private fragment after `#`; client-side code carries it into
 the `colorful://` link and otherwise offers the GitHub repository.
+
+For Discord Join Party, the client creates `v1.<lookup>.<bootstrapKey>` and
+publishes it only in `https://colorful.valerie.sh/discord/join#...`. The host
+authenticates issuance with its party capability. Redemption sends only the
+lookup to the relay; the relay stores a lookup digest and encrypted bootstrap
+ciphertext, deletes the ticket before returning it, and never receives the
+bootstrap key or combined ticket. Tickets expire after 90 seconds and cannot be
+reused. Native Discord Ask-to-Join is not implemented; that needs authenticated
+RPC or the Discord Social SDK.
 
 This is not the final connectivity stack yet. mDNS discovery, authenticated
 LAN transport, ICE/STUN candidate exchange, TURN, QUIC relay transport, QR
@@ -78,6 +91,9 @@ Use `COLORFUL_RELAY_HOST` and `COLORFUL_RELAY_PORT` to configure binding. Keep
 the development default bound to loopback; a public deployment must sit behind
 TLS, authentication-aware rate limiting, connection limits, and a rate-limiting
 edge. The service does not terminate application-layer end-to-end encryption.
+The public Discord ticket flow intentionally issues tickets only when the relay
+base URL is exactly `https://colorful.valerie.sh`; a local or arbitrary relay
+cannot be used for that Discord button.
 
 ## Docker Compose deployment
 

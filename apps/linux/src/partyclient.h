@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVector>
+#include <QUrl>
 #include <cmath>
 
 class Backend;
@@ -107,6 +108,11 @@ private:
     static QJsonObject partyTrack(const QVariantMap &track);
     static QVariantMap backendTrack(const QJsonObject &track);
     void setStatus(const QString &status);
+    void refreshPublicJoinTicket();
+    void publishDiscordPartyState();
+    void joinPartyWithFragment(const QString &session, const QString &fragment,
+                               const QString &displayName);
+    static QString publicJoinTicketFromUrl(const QUrl &url);
 
     Backend *m_backend = nullptr;
     PartyCoreBridge m_core;
@@ -115,10 +121,16 @@ private:
     QTimer m_hostClock;
     QTimer m_clockSampler;
     QTimer m_driftController;
+    QTimer m_publicTicketTimer;
     QElapsedTimer m_monotonicClock;
     QList<QByteArray> m_pendingFrames;
     qsizetype m_pendingFrameBytes = 0;
     QString m_relayBaseUrl;
+    QString m_relaySessionId;
+    QString m_relayHostCapability;
+    QString m_inviteFragment;
+    QString m_publicJoinTicket;
+    QString m_publicJoinTicketLookup;
     QString m_role;
     QString m_status = QStringLiteral("No active party");
     QString m_shareUrl;
@@ -139,6 +151,7 @@ private:
     QHash<quint64, qint64> m_clockRequests;
     qint64 m_clockEpochMs = 0;
     qint64 m_expiresAtMs = 0;
+    qint64 m_publicJoinTicketExpiresAtMs = 0;
     qint64 m_lastHardSeekMs = 0;
     qint64 m_lastDriftMs = 0;
     qint64 m_lastRateChangeMs = 0;
@@ -161,4 +174,7 @@ private:
     bool m_needsResync = false;
     bool m_resyncPending = false;
     bool m_creatingParty = false;
+    bool m_publicTicketRequestInFlight = false;
+    bool m_joinTicketRedemptionInFlight = false;
+    quint64 m_ticketGeneration = 0;
 };

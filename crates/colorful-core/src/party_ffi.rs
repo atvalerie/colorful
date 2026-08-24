@@ -2,7 +2,8 @@
 
 use crate::party_session::{
     GuestCommand, JoinRequest, PartyChannel, PartyError, PartyEvent, PartyEventBody, PartyFrame,
-    PartyHost, PartyInvite, PartyReplica, PartyTrack, PartyUser,
+    PartyHost, PartyInvite, PartyReplica, PartyTrack, PartyUser, unwrap_party_invite_fragment,
+    wrap_party_invite_fragment,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -51,6 +52,30 @@ enum PartyController {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 enum PartyCommand {
+    #[serde(
+        alias = "wrap_ticket",
+        alias = "create_ticket",
+        alias = "create_invite_ticket"
+    )]
+    WrapInviteTicket {
+        #[serde(alias = "invite_fragment")]
+        fragment: String,
+        #[serde(alias = "relaySessionId")]
+        relay_session_id: String,
+    },
+    #[serde(
+        alias = "unwrap_ticket",
+        alias = "decrypt_ticket",
+        alias = "unwrap_invite_ticket",
+        alias = "unwrap_bootstrap"
+    )]
+    UnwrapInviteTicket {
+        ticket: String,
+        #[serde(alias = "bootstrapCiphertext")]
+        bootstrap_ciphertext: String,
+        #[serde(alias = "relaySessionId")]
+        relay_session_id: String,
+    },
     Create {
         display_name: String,
         expires_at_ms: i64,
@@ -118,6 +143,24 @@ enum PartyMessage {
 impl PartyController {
     fn dispatch(&mut self, command: PartyCommand) -> Result<Value, String> {
         match command {
+            PartyCommand::WrapInviteTicket {
+                fragment,
+                relay_session_id,
+            } => Ok(json!(
+                wrap_party_invite_fragment(&fragment, &relay_session_id).map_err(error)?
+            )),
+            PartyCommand::UnwrapInviteTicket {
+                ticket,
+                bootstrap_ciphertext,
+                relay_session_id,
+            } => Ok(json!({
+                "fragment": unwrap_party_invite_fragment(
+                    &ticket,
+                    &bootstrap_ciphertext,
+                    &relay_session_id,
+                )
+                .map_err(error)?,
+            })),
             PartyCommand::Create {
                 display_name,
                 expires_at_ms,
@@ -702,6 +745,73 @@ mod tests {
         assert_eq!(
             recovered["value"]["state"]["participants"][0]["role"],
             "host"
+        );
+        assert!(colorful_party_close(handle));
+    }
+
+    #[test]
+    fn ticket_commands_round_trip_without_party_state() {
+        let handle = registry().lock().unwrap().insert();
+        let created = call(
+            handle,
+            json!({
+                "command": "create",
+                "display_name": "Host",
+                "expires_at_ms": 100000,
+                "relay_session_id": "relay",
+                "relay_host_capability": "host-cap",
+                "relay_guest_capability": "guest-cap"
+            }),
+        );
+        let fragment = created["value"]["fragment"].as_str().unwrap();
+        let wrapped = call(
+            handle,
+            json!({
+                "command": "wrap_invite_ticket",
+                "fragment": fragment,
+                "relay_session_id": "relay"
+            }),
+        );
+        assert!(wrapped["ok"].as_bool().unwrap());
+        let ticket = wrapped["value"]["ticket"].as_str().unwrap();
+        let ticket_lookup = wrapped["value"]["ticketLookup"].as_str().unwrap();
+        let ciphertext = wrapped["value"]["bootstrapCiphertext"].as_str().unwrap();
+        assert_eq!(ticket.split('.').nth(1), Some(ticket_lookup));
+        let unwrapped = call(
+            handle,
+            json!({
+                "command": "unwrap_invite_ticket",
+                "ticket": ticket,
+                "bootstrap_ciphertext": ciphertext,
+                "relay_session_id": "relay"
+            }),
+        );
+        assert_eq!(unwrapped["value"]["fragment"], fragment);
+        let wrong_lookup = call(
+            handle,
+            json!({
+                "command": "unwrap_ticket",
+                "ticket": format!("v1.{}.{}", "A".repeat(43), ticket.split('.').nth(2).unwrap()),
+                "bootstrap_ciphertext": ciphertext,
+                "relay_session_id": "relay"
+            }),
+        );
+        assert_eq!(wrong_lookup["ok"], true);
+        let wrong_session = call(
+            handle,
+            json!({
+                "command": "unwrap_ticket",
+                "ticket": ticket,
+                "bootstrap_ciphertext": ciphertext,
+                "relay_session_id": "wrong"
+            }),
+        );
+        assert_eq!(wrong_session["ok"], false);
+        assert!(
+            wrong_session["error"]
+                .as_str()
+                .unwrap()
+                .contains("InvalidTicket")
         );
         assert!(colorful_party_close(handle));
     }
