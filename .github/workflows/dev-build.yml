@@ -104,11 +104,14 @@ jobs:
           build_status=${PIPESTATUS[0]}
           set -e
           if ((build_status != 0)); then
-            message="$(tail -n 40 "$RUNNER_TEMP/colorful-libplacebo-build.log")"
+            message="$(grep -E 'ERROR|Error|error:|FAILED:|fatal:|Traceback|ModuleNotFound' \
+              "$RUNNER_TEMP/colorful-libplacebo-build.log" | tail -n 16 | tail -c 6000 | tr '\n' '|' || true)"
+            if [[ -z "$message" ]]; then
+              message="$(tail -n 12 "$RUNNER_TEMP/colorful-libplacebo-build.log" | tail -c 6000 | tr '\n' '|')"
+            fi
             message="${message//'%'/'%25'}"
-            message="${message//$'\r'/'%0D'}"
-            message="${message//$'\n'/'%0A'}"
-            echo "::error title=Pinned libplacebo build failed::$message"
+            message="${message//$'\r'/}"
+            echo "::error file=packaging/linux/build-mpv-source.sh,line=1,title=Pinned libplacebo build failed::$message"
             exit "$build_status"
           fi
       - name: Build pinned mpv layer
