@@ -40,6 +40,7 @@ appdir="$dist_dir/$artifact.AppDir"
 "$script_dir/check-linux-deps.sh" build
 "$script_dir/build-linux.sh" --release
 expected_mpv="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["mpv"]["sourceVersion"])' "$repo_dir/packaging/desktop-dependencies.json")"
+mpv_source_marker="${COLORFUL_MPV_PREFIX:-/opt/colorful-mpv}/share/colorful/mpv-source-version"
 buildinfo="$build_dir/generated/buildinfo_generated.h"
 if [[ "${COLORFUL_MPV_MODE:-compatibility}" == official ]] \
     && ! grep -Fq "$expected_mpv" "$buildinfo"; then
@@ -162,6 +163,10 @@ install -Dm755 "$ffprobe" "$appdir/usr/bin/ffprobe"
 install -Dm644 "$target_dir/release/libcolorful_core.so" "$appdir/usr/lib/libcolorful_core.so"
 install -Dm644 "$repo_dir/packaging/desktop-dependencies.json" \
   "$appdir/usr/share/doc/colorful/BUILD_DEPENDENCIES.json"
+if [[ "${COLORFUL_MPV_MODE:-compatibility}" == official ]]; then
+  install -Dm644 "$mpv_source_marker" \
+    "$appdir/usr/share/doc/colorful/MPV_SOURCE_VERSION"
+fi
 install -Dm755 "$script_dir/AppRun-linux" "$appdir/AppRun"
 
 "$script_dir/check-linux-deps.sh" bundle "$appdir"

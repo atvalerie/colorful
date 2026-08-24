@@ -123,7 +123,7 @@ jobs:
             .cache/container/target
             .cache/container/bun
             .cache/container/linuxdeploy
-          key: linux-desktop-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/desktop-dependencies.json', 'packaging/linux/Dockerfile', 'scripts/provision-linux-packaging.sh') }}
+          key: linux-desktop-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/desktop-dependencies.json', 'packaging/linux/Dockerfile', 'packaging/linux/build-mpv-source.sh', 'scripts/provision-linux-packaging.sh') }}
           restore-keys: |
             linux-desktop-
             linux-dev-

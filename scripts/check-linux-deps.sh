@@ -83,6 +83,13 @@ done
 [[ -f "$appdir/usr/lib/libcolorful_core.so" ]] || missing "libcolorful_core.so"
 find "$appdir/usr/lib" -maxdepth 1 -type f -name 'libmpv.so*' -print -quit | grep -q . || missing "bundled libmpv runtime"
 [[ -f "$appdir/usr/share/doc/colorful/BUILD_DEPENDENCIES.json" ]] || missing "build dependency manifest"
+if [[ "${COLORFUL_MPV_MODE:-compatibility}" == official ]]; then
+  expected_mpv="$(pin mpv.sourceVersion)"
+  bundled_mpv_marker="$appdir/usr/share/doc/colorful/MPV_SOURCE_VERSION"
+  actual_mpv="$(tr -d '[:space:]' < "$bundled_mpv_marker" 2>/dev/null || echo none)"
+  [[ "$actual_mpv" == "$expected_mpv" ]] || \
+    missing "bundled mpv source exactly $expected_mpv (found $actual_mpv)"
+fi
 
 for plugin in platforms/libqxcb.so platforms/libqoffscreen.so \
   xcbglintegrations/libqxcb-glx-integration.so xcbglintegrations/libqxcb-egl-integration.so \
