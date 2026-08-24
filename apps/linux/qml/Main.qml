@@ -1140,6 +1140,7 @@ ApplicationWindow {
                         playbackPosition: colorful.position
                         onCloseRequested: window.lyricsOpen = false
                         onRefreshRequested: colorful.loadLyrics(true)
+                        onSeekRequested: colorful.seek(positionMs)
                     }
 
                     PartySidePanel {

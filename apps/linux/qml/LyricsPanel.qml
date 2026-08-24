@@ -12,6 +12,7 @@ Rectangle {
     property bool showRomanized: false
     signal closeRequested()
     signal refreshRequested()
+    signal seekRequested(int positionMs)
 
     readonly property bool hasRomanized: (lyrics.romanizedLines || []).length > 0
     readonly property var lines: showRomanized && hasRomanized ? lyrics.romanizedLines : (lyrics.lines || [])
@@ -26,6 +27,13 @@ Rectangle {
             selected = index
         }
         return selected
+    }
+
+    function seekToLine(startMs) {
+        if (!synced || !Number.isFinite(startMs)) return
+        // activeIndex compares playbackPosition + offsetMs to the lyric clock;
+        // invert that same display offset when seeking from a lyric timestamp.
+        root.seekRequested(Math.max(0, Math.round(startMs - offsetMs)))
     }
 
     function centerActiveLine(animated) {
@@ -149,6 +157,14 @@ Rectangle {
                 wrapMode: Text.WordWrap
                 lineHeight: 1.15
                 Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                TapHandler {
+                    enabled: root.synced && Number.isFinite(modelData.startMs)
+                    onTapped: root.seekToLine(modelData.startMs)
+                }
+                HoverHandler {
+                    cursorShape: root.synced && Number.isFinite(modelData.startMs)
+                        ? Qt.PointingHandCursor : Qt.ArrowCursor
+                }
             }
         }
 
