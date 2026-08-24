@@ -455,7 +455,55 @@ Item {
                     id: integrationsBody
                     width: Math.min(parent.width, 820); spacing: 12
                     Text { text: "Integrations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
-                    Text { text: "Discord Rich Presence starts automatically while Discord is running."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "Choose what colorful shares through the running Discord desktop client."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 166
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.fill: parent; anchors.margins: 15; spacing: 12
+                            Item {
+                                width: parent.width; height: 54
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 0
+                                    anchors.right: presenceSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "Discord Rich Presence"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Show what you are listening to in your Discord profile while Discord is running."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: presenceSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22
+                                    color: colorful.discordPresenceEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordPresenceEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordPresenceEnabled ? parent.width - width - 3 : 3; color: colorful.discordPresenceEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordPresenceEnabled = !colorful.discordPresenceEnabled }
+                                }
+                            }
+                            Item {
+                                width: parent.width; height: 70
+                                opacity: colorful.discordPresenceEnabled ? 1 : 0.42
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 18
+                                    anchors.right: trackButtonSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "View Track button"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Let other users open the current track directly at its provider."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: trackButtonSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22; enabled: colorful.discordPresenceEnabled
+                                    color: colorful.discordTrackButtonEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordTrackButtonEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordTrackButtonEnabled ? parent.width - width - 3 : 3; color: colorful.discordTrackButtonEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordTrackButtonEnabled = !colorful.discordTrackButtonEnabled }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

@@ -202,6 +202,10 @@ Backend::Backend(QObject *parent)
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
     m_onboardingCompleted = settings.value(QStringLiteral("ui/onboardingCompleted"), false).toBool();
     m_partyDiagnosticsEnabled = settings.value(QStringLiteral("debug/partyDiagnostics"), false).toBool();
+    m_discordPresenceEnabled = settings.value(QStringLiteral("discord/presenceEnabled"), true).toBool();
+    m_discordTrackButtonEnabled = settings.value(QStringLiteral("discord/trackButtonEnabled"), true).toBool();
+    m_discordPresence.setTrackButtonEnabled(m_discordTrackButtonEnabled);
+    m_discordPresence.setEnabled(m_discordPresenceEnabled);
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
     m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
@@ -3500,6 +3504,25 @@ void Backend::setPartyDiagnosticsEnabled(bool enabled)
     emit partyDiagnosticsEnabledChanged();
 }
 
+void Backend::setDiscordPresenceEnabled(bool enabled)
+{
+    if (m_discordPresenceEnabled == enabled) return;
+    m_discordPresenceEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/presenceEnabled"), enabled);
+    m_discordPresence.setEnabled(enabled);
+    updateDiscordPresence();
+    emit discordSettingsChanged();
+}
+
+void Backend::setDiscordTrackButtonEnabled(bool enabled)
+{
+    if (m_discordTrackButtonEnabled == enabled) return;
+    m_discordTrackButtonEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/trackButtonEnabled"), enabled);
+    m_discordPresence.setTrackButtonEnabled(enabled);
+    emit discordSettingsChanged();
+}
+
 void Backend::openDownloadsFolder()
 {
     QString directoryError;
@@ -4450,6 +4473,31 @@ void Backend::setTextScale(double scale)
     emit appearanceChanged();
 }
 
+QString Backend::discordTrackUrl(const QVariantMap &track)
+{
+    const auto validUrl = [](const QString &value) {
+        const QUrl url(value.trimmed());
+        if (!url.isValid() || url.host().isEmpty()
+            || (url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
+                && url.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) != 0))
+            return QString{};
+        return url.toString(QUrl::FullyEncoded);
+    };
+    const auto existing = validUrl(track.value(QStringLiteral("webpageUrl")).toString());
+    if (!existing.isEmpty()) return existing;
+
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal"))
+                              .toString().trimmed().toLower();
+    const auto id = track.value(QStringLiteral("id")).toString().trimmed();
+    if (id.isEmpty() || provider == QStringLiteral("soundcloud")) return {};
+    const auto encodedId = QString::fromLatin1(QUrl::toPercentEncoding(id));
+    if (provider == QStringLiteral("youtube"))
+        return QStringLiteral("https://music.youtube.com/watch?v=%1").arg(encodedId);
+    if (provider == QStringLiteral("tidal"))
+        return QStringLiteral("https://tidal.com/browse/track/%1").arg(encodedId);
+    return {};
+}
+
 void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
@@ -4466,7 +4514,8 @@ void Backend::updateDiscordPresence()
                                     track.value(QStringLiteral("coverUrl"))).toString(),
         m_playback.position(),
         duration(),
-        playing());
+        playing(),
+        discordTrackUrl(track));
 }
 
 QString Backend::trackKey(const QVariantMap &track) const

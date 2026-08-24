@@ -15,14 +15,29 @@ public:
     ~DiscordPresence() override;
 
     void shutdown();
+    void setEnabled(bool enabled);
+    void setTrackButtonEnabled(bool enabled);
     void update(const QString &title,
                 const QString &artist,
                 const QString &album,
                 const QString &artworkUrl,
                 qint64 positionMs,
                 qint64 durationMs,
-                bool playing);
+                bool playing,
+                const QString &trackUrl = {});
     void clear();
+
+    // Kept pure so the activity contract can be tested without a Discord
+    // process or IPC socket.
+    static QJsonObject buildActivity(const QString &title,
+                                     const QString &artist,
+                                     const QString &album,
+                                     const QString &artworkUrl,
+                                     qint64 positionMs,
+                                     qint64 durationMs,
+                                     bool playing,
+                                     const QString &trackUrl,
+                                     bool trackButtonEnabled);
 
 private:
     enum class Opcode : quint32 { Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4 };
@@ -48,8 +63,10 @@ private:
     quint64 m_nonce = 0;
     qint64 m_staleProcessId = 0;
     bool m_enabled = true;
+    bool m_trackButtonEnabled = true;
     bool m_ready = false;
     bool m_hasDesiredActivity = false;
     bool m_shuttingDown = false;
     bool m_unavailableLogged = false;
+    QString m_trackUrl;
 };

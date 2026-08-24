@@ -7,14 +7,27 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QSettings>
+#include <QUrl>
 #include <QtEndian>
 #include <algorithm>
 
 namespace {
 constexpr auto defaultApplicationId = "1528095256820842606";
 constexpr quint32 maximumFrameSize = 1024 * 1024;
+
+QString validHttpUrl(const QString &value)
+{
+    const QUrl url(value.trimmed());
+    if (!url.isValid() || url.host().isEmpty()
+        || (url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
+            && url.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) != 0))
+        return {};
+    return url.toString(QUrl::FullyEncoded);
+}
 
 #if !defined(Q_OS_WIN)
 QString discordRuntimeDirectory()
@@ -43,7 +56,6 @@ DiscordPresence::DiscordPresence(QObject *parent)
     }
     settings.setValue(QStringLiteral("discord/lastRpcProcessId"), currentProcessId);
     m_enabled = !qEnvironmentVariableIsSet("COLORFUL_DISABLE_DISCORD_RPC");
-    if (!m_enabled) return;
     m_reconnectTimer.setSingleShot(true);
     m_reconnectTimer.setInterval(15000);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &DiscordPresence::connectToDiscord);
@@ -51,7 +63,7 @@ DiscordPresence::DiscordPresence(QObject *parent)
     connect(&m_socket, &QLocalSocket::disconnected, this, &DiscordPresence::handleDisconnected);
     connect(&m_socket, &QLocalSocket::readyRead, this, &DiscordPresence::handleReadyRead);
     connect(&m_socket, &QLocalSocket::errorOccurred, this, [this](QLocalSocket::LocalSocketError) {
-        if (m_shuttingDown || m_socket.state() != QLocalSocket::UnconnectedState) return;
+        if (!m_enabled || m_shuttingDown || m_socket.state() != QLocalSocket::UnconnectedState) return;
         ++m_candidateIndex;
         if (m_candidateIndex >= m_candidates.size() && !m_unavailableLogged) {
             m_unavailableLogged = true;
@@ -62,7 +74,7 @@ DiscordPresence::DiscordPresence(QObject *parent)
         }
         QTimer::singleShot(0, this, &DiscordPresence::connectToDiscord);
     });
-    connectToDiscord();
+    if (m_enabled) connectToDiscord();
 }
 
 DiscordPresence::~DiscordPresence()
@@ -86,7 +98,53 @@ void DiscordPresence::shutdown()
     }
     m_hasDesiredActivity = false;
     m_desiredActivity = {};
+    m_trackUrl.clear();
     m_socket.abort();
+}
+
+void DiscordPresence::setEnabled(bool enabled)
+{
+    const auto effective = enabled && !qEnvironmentVariableIsSet("COLORFUL_DISABLE_DISCORD_RPC");
+    if (m_enabled == effective) return;
+    if (!effective) {
+        m_reconnectTimer.stop();
+        if (m_socket.state() == QLocalSocket::ConnectedState && m_ready) {
+            clearActivityForProcess(QCoreApplication::applicationPid());
+            flushActivity(500);
+        }
+        m_hasDesiredActivity = false;
+        m_desiredActivity = {};
+        m_trackUrl.clear();
+        m_ready = false;
+        m_socket.abort();
+        m_enabled = false;
+        return;
+    }
+    m_enabled = true;
+    m_shuttingDown = false;
+    m_candidateIndex = 0;
+    m_candidates.clear();
+    m_unavailableLogged = false;
+    connectToDiscord();
+}
+
+void DiscordPresence::setTrackButtonEnabled(bool enabled)
+{
+    if (m_trackButtonEnabled == enabled) return;
+    m_trackButtonEnabled = enabled;
+    if (!m_hasDesiredActivity) return;
+    if (m_trackButtonEnabled) {
+        const auto url = validHttpUrl(m_trackUrl);
+        if (!url.isEmpty()) {
+            m_desiredActivity.insert(QStringLiteral("buttons"), QJsonArray{
+                QJsonObject{{QStringLiteral("label"), QStringLiteral("View Track")},
+                            {QStringLiteral("url"), url}},
+            });
+        }
+    } else {
+        m_desiredActivity.remove(QStringLiteral("buttons"));
+    }
+    publishDesiredActivity();
 }
 
 void DiscordPresence::update(const QString &title,
@@ -95,13 +153,32 @@ void DiscordPresence::update(const QString &title,
                              const QString &artworkUrl,
                              qint64 positionMs,
                              qint64 durationMs,
-                             bool playing)
+                             bool playing,
+                             const QString &trackUrl)
 {
-    if (title.trimmed().isEmpty()) {
+    if (!m_enabled || title.trimmed().isEmpty()) {
         clear();
         return;
     }
 
+    m_trackUrl = validHttpUrl(trackUrl);
+    m_desiredActivity = buildActivity(title, artist, album, artworkUrl, positionMs,
+                                      durationMs, playing, m_trackUrl,
+                                      m_trackButtonEnabled);
+    m_hasDesiredActivity = true;
+    publishDesiredActivity();
+}
+
+QJsonObject DiscordPresence::buildActivity(const QString &title,
+                                           const QString &artist,
+                                           const QString &album,
+                                           const QString &artworkUrl,
+                                           qint64 positionMs,
+                                           qint64 durationMs,
+                                           bool playing,
+                                           const QString &trackUrl,
+                                           bool trackButtonEnabled)
+{
     QJsonObject activity{
         {QStringLiteral("type"), 2}, // Listening
         {QStringLiteral("details"), title.left(128)},
@@ -125,9 +202,14 @@ void DiscordPresence::update(const QString &title,
     }
     if (!assets.isEmpty()) activity.insert(QStringLiteral("assets"), assets);
 
-    m_desiredActivity = activity;
-    m_hasDesiredActivity = true;
-    publishDesiredActivity();
+    const auto validTrackUrl = validHttpUrl(trackUrl);
+    if (trackButtonEnabled && !validTrackUrl.isEmpty()) {
+        activity.insert(QStringLiteral("buttons"), QJsonArray{
+            QJsonObject{{QStringLiteral("label"), QStringLiteral("View Track")},
+                        {QStringLiteral("url"), validTrackUrl}},
+        });
+    }
+    return activity;
 }
 
 void DiscordPresence::clear()
@@ -135,6 +217,7 @@ void DiscordPresence::clear()
     if (!m_hasDesiredActivity && m_desiredActivity.isEmpty()) return;
     m_hasDesiredActivity = false;
     m_desiredActivity = {};
+    m_trackUrl.clear();
     publishDesiredActivity();
 }
 
@@ -230,6 +313,25 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
     const auto document = QJsonDocument::fromJson(payload, &error);
     if (error.error != QJsonParseError::NoError || !document.isObject()) return;
     const auto message = document.object();
+    if (message.value(QStringLiteral("evt")).toString() == QStringLiteral("ERROR")
+        || message.value(QStringLiteral("cmd")).toString() == QStringLiteral("ERROR")) {
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        const auto code = data.value(QStringLiteral("code")).isUndefined()
+            ? message.value(QStringLiteral("code")).toVariant().toString()
+            : data.value(QStringLiteral("code")).toVariant().toString();
+        auto detail = data.value(QStringLiteral("message")).toString(
+            message.value(QStringLiteral("message")).toString()).left(256);
+        // Discord normally reports a short validation message, but redact any
+        // URL before writing diagnostics so rejected activity payloads cannot
+        // leak a track link or other user-provided secret.
+        detail.replace(QRegularExpression(QStringLiteral(R"(https?://[^\s"'<>]+)")),
+                       QStringLiteral("[url]"));
+        DebugLog::write(u"discord", QStringLiteral("RPC error cmd=%1 nonce=%2 code=%3 message=%4")
+                                        .arg(message.value(QStringLiteral("cmd")).toString(),
+                                             message.value(QStringLiteral("nonce")).toString(),
+                                             code, detail));
+        return;
+    }
     if (message.value(QStringLiteral("cmd")).toString() == QStringLiteral("DISPATCH")
         && message.value(QStringLiteral("evt")).toString() == QStringLiteral("READY")) {
         m_ready = true;
@@ -291,5 +393,5 @@ void DiscordPresence::writeFrame(Opcode opcode, const QJsonObject &payload)
 
 void DiscordPresence::scheduleReconnect()
 {
-    if (!m_shuttingDown && !m_reconnectTimer.isActive()) m_reconnectTimer.start();
+    if (m_enabled && !m_shuttingDown && !m_reconnectTimer.isActive()) m_reconnectTimer.start();
 }

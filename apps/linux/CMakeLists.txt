@@ -232,6 +232,18 @@ if(BUILD_TESTING)
     )
     add_test(NAME colorful-updater COMMAND colorful-updater-test)
     set_tests_properties(colorful-updater PROPERTIES TIMEOUT 20)
+
+    qt_add_executable(colorful-discord-presence-test
+        tests/discordpresencetest.cpp
+        src/discordpresence.cpp
+        src/discordpresence.h
+        src/debuglog.cpp
+        src/debuglog.h
+    )
+    target_include_directories(colorful-discord-presence-test PRIVATE src)
+    target_link_libraries(colorful-discord-presence-test PRIVATE Qt6::Core Qt6::Network)
+    add_test(NAME colorful-discord-presence COMMAND colorful-discord-presence-test)
+    set_tests_properties(colorful-discord-presence PROPERTIES TIMEOUT 10)
 endif()
 target_include_directories(colorful-linux PRIVATE
     ../../crates/colorful-core/include
