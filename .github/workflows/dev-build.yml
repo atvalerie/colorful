@@ -92,13 +92,25 @@ jobs:
           cache-from: type=gha,scope=colorful-linux-builder
           cache-to: type=gha,mode=max,scope=colorful-linux-builder
       - name: Build pinned libplacebo layer
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: packaging/linux/Dockerfile
-          target: colorful-libplacebo
-          cache-from: type=gha,scope=colorful-linux-builder
-          cache-to: type=gha,mode=max,scope=colorful-linux-builder
+        shell: bash
+        run: |
+          set +e
+          docker buildx build \
+            --file packaging/linux/Dockerfile \
+            --target colorful-libplacebo \
+            --cache-from type=gha,scope=colorful-linux-builder \
+            --cache-to type=gha,mode=max,scope=colorful-linux-builder \
+            --progress=plain . 2>&1 | tee "$RUNNER_TEMP/colorful-libplacebo-build.log"
+          build_status=${PIPESTATUS[0]}
+          set -e
+          if ((build_status != 0)); then
+            message="$(tail -n 40 "$RUNNER_TEMP/colorful-libplacebo-build.log")"
+            message="${message//'%'/'%25'}"
+            message="${message//$'\r'/'%0D'}"
+            message="${message//$'\n'/'%0A'}"
+            echo "::error title=Pinned libplacebo build failed::$message"
+            exit "$build_status"
+          fi
       - name: Build pinned mpv layer
         uses: docker/build-push-action@v6
         with:
