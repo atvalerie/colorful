@@ -109,7 +109,14 @@ private:
     static QVariantMap backendTrack(const QJsonObject &track);
     void setStatus(const QString &status);
     void refreshPublicJoinTicket();
+    void revokePublicJoinHandle(const QString &sessionId, const QString &handleLookup,
+                                const QString &relayBaseUrl = {},
+                                const QString &hostCapability = {});
     void publishDiscordPartyState();
+    void mintPublicJoinTicket(const QString &ticket, const QString &displayName,
+                              quint64 requestGeneration);
+    void redeemPublicJoinTicket(const QString &ticket, const QString &displayName,
+                                quint64 requestGeneration);
     void joinPartyWithFragment(const QString &session, const QString &fragment,
                                const QString &displayName);
     static QString publicJoinTicketFromUrl(const QUrl &url);
@@ -121,7 +128,7 @@ private:
     QTimer m_hostClock;
     QTimer m_clockSampler;
     QTimer m_driftController;
-    QTimer m_publicTicketTimer;
+    QTimer m_publicHandleRetryTimer;
     QElapsedTimer m_monotonicClock;
     QList<QByteArray> m_pendingFrames;
     qsizetype m_pendingFrameBytes = 0;

@@ -112,10 +112,12 @@ describe("relay HTTP API", () => {
     const response = await fetch(`${origin}/discord/join`);
     expect(response.status).toBe(200);
     const html = await response.text();
-    expect(html).toContain("colorful://discord/join'+location.hash");
+    expect(html).toContain("/v1/party-join-handles/mint");
+    expect(html).toContain("colorful://discord/join'+original");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(response.headers.get("content-security-policy")).toContain("connect-src 'self'");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
@@ -163,6 +165,53 @@ describe("relay HTTP API", () => {
       body: JSON.stringify({ ticketLookup: ticket }),
     });
     expect(replay.status).toBe(404);
+  });
+
+  test("mints click-time tickets from a stable handle and revokes stale handles", async () => {
+    const server = await startTestServer();
+    const origin = `http://${server.hostname}:${server.port}`;
+    const created = await fetch(`${origin}/v1/party-sessions`, { method: "POST", body: "{}" });
+    const party = (await created.json() as { party: { sessionId: string; hostCapability: string } }).party;
+    const handle = randomToken();
+    const registered = await fetch(`${origin}/v1/party-sessions/${party.sessionId}/join-handles`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${party.hostCapability}`, "content-type": "application/json" },
+      body: JSON.stringify({ handleLookup: handle, inviteGeneration: 1, bootstrapCiphertext: "sealed" }),
+    });
+    expect(registered.status).toBe(201);
+    const [first, second] = await Promise.all([
+      fetch(`${origin}/v1/party-join-handles/mint`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handleLookup: handle }),
+      }),
+      fetch(`${origin}/v1/party-join-handles/mint`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handleLookup: handle }),
+      }),
+    ]);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const firstLookup = (await first.json() as { ticketLookup: string }).ticketLookup;
+    const secondLookup = (await second.json() as { ticketLookup: string }).ticketLookup;
+    expect(firstLookup).not.toBe(secondLookup);
+    const redeemed = await fetch(`${origin}/v1/party-join-tickets/redeem`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticketLookup: firstLookup }),
+    });
+    expect(redeemed.status).toBe(200);
+    expect(await redeemed.json()).toMatchObject({ sessionId: party.sessionId, bootstrapCiphertext: "sealed" });
+    const replay = await fetch(`${origin}/v1/party-join-tickets/redeem`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticketLookup: firstLookup }),
+    });
+    expect(replay.status).toBe(404);
+
+    const revoked = await fetch(`${origin}/v1/party-sessions/${party.sessionId}/join-handles/revoke`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${party.hostCapability}`, "content-type": "application/json" },
+      body: JSON.stringify({ handleLookup: handle }),
+    });
+    expect(revoked.status).toBe(200);
+    const stale = await fetch(`${origin}/v1/party-join-handles/mint`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handleLookup: handle }),
+    });
+    expect(stale.status).toBe(404);
   });
 
   test("rate-limits global join-ticket issuance", async () => {

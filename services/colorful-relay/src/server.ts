@@ -10,6 +10,8 @@ import {
   MAX_JOIN_TICKET_ISSUANCES_PER_MINUTE,
   MAX_JOIN_TICKET_REDEMPTIONS_IN_FLIGHT,
   MAX_JOIN_TICKET_REDEMPTIONS_PER_MINUTE,
+  MAX_JOIN_HANDLE_MINTS_IN_FLIGHT,
+  MAX_JOIN_HANDLE_MINTS_PER_MINUTE,
   PROTOCOL_VERSION,
   bearerToken,
 } from "./protocol";
@@ -52,12 +54,12 @@ function partyLandingPage(sessionId: string): Response {
 }
 
 function discordJoinLandingPage(): Response {
-  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Join in Colorful</title><style>body{margin:0;background:#0d0d10;color:#f5f5f5;font:16px system-ui;display:grid;min-height:100vh;place-items:center}.card{width:min(420px,calc(100% - 40px));padding:28px;border:1px solid #303038;background:#17171c}h1{font-size:24px;margin:0 0 8px}p{color:#aaaab3;line-height:1.5}a{display:block;margin-top:12px;padding:12px;text-align:center;text-decoration:none;color:#111;background:#f5f5f5}</style><main class="card"><h1>Join in Colorful</h1><p>This invite opens in Colorful. The relay never receives the secret after the # in this URL.</p><a id="open" href="#">Open in Colorful</a></main><script>document.getElementById('open').href='colorful://discord/join'+location.hash;</script></html>`;
+  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Join in Colorful</title><style>body{margin:0;background:#0d0d10;color:#f5f5f5;font:16px system-ui;display:grid;min-height:100vh;place-items:center}.card{width:min(420px,calc(100% - 40px));padding:28px;border:1px solid #303038;background:#17171c}h1{font-size:24px;margin:0 0 8px}p{color:#aaaab3;line-height:1.5}a{display:block;margin-top:12px;padding:12px;text-align:center;text-decoration:none;color:#111;background:#f5f5f5}</style><main class="card"><h1>Join in Colorful</h1><p>This invite opens in Colorful. The relay never receives the secret after the # in this URL.</p><a id="open" href="#">Open in Colorful</a></main><script>const open=document.getElementById('open');const original=location.hash;open.href='colorful://discord/join'+original;open.addEventListener('click',async event=>{const match=/^#v1\\.([A-Za-z0-9_-]{43})\\.([A-Za-z0-9_-]{43})$/.exec(location.hash);if(!match)return;event.preventDefault();try{const response=await fetch('/v1/party-join-handles/mint',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handleLookup:match[1]})});if(!response.ok)throw new Error('stale');const body=await response.json();if(typeof body.ticketLookup!=='string')throw new Error('invalid');location.href='colorful://discord/join#v1.'+body.ticketLookup+'.'+match[2];}catch{location.href='colorful://discord/join'+original;}});</script></html>`;
   return new Response(html, {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "content-security-policy": "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     },
@@ -106,6 +108,9 @@ export function createRelayApp(
   let joinTicketRedemptionWindowMs = startedAtMs;
   let joinTicketRedemptionsThisMinute = 0;
   let joinTicketRedemptionsInFlight = 0;
+  let joinHandleMintWindowMs = startedAtMs;
+  let joinHandleMintsThisMinute = 0;
+  let joinHandleMintsInFlight = 0;
   let activeRelayConnections = 0;
   let relayConnectionsAccepted = 0;
   let framesForwarded = 0;
@@ -184,6 +189,25 @@ export function createRelayApp(
           if (await store.authorizeParty(parts[2], capability) !== "host")
             return errorResponse(404, "not_found");
           const body = await requestJson(request, MAX_JOIN_TICKET_BOOTSTRAP_BYTES + 4096);
+          // Compatibility form: older clients use this path for one-use
+          // tickets, while newer clients can register a stable handle here by
+          // omitting expiresAtMs and supplying handleLookup/publicHandle.
+          const stableLookup = body.handleLookup ?? body.publicHandle;
+          if (stableLookup !== undefined) {
+            const now = Date.now();
+            if (now - joinTicketWindowMs >= 60_000) {
+              joinTicketWindowMs = now;
+              joinTicketsIssuedThisMinute = 0;
+            }
+            if (joinTicketsIssuedThisMinute >= MAX_JOIN_TICKET_ISSUANCES_PER_MINUTE)
+              return errorResponse(429, "rate_limited");
+            const result = await store.registerJoinHandle(
+              parts[2], capability, stableLookup, body.bootstrapCiphertext,
+              body.inviteGeneration ?? body.generation,
+            );
+            joinTicketsIssuedThisMinute += 1;
+            return json({ ok: true, protocolVersion: PROTOCOL_VERSION, ...result, joinHandle: result }, 201);
+          }
           const now = Date.now();
           if (now - joinTicketWindowMs >= 60_000) {
             joinTicketWindowMs = now;
@@ -204,6 +228,100 @@ export function createRelayApp(
         } catch (error) {
           if (reserved) joinTicketsInFlight = Math.max(0, joinTicketsInFlight - 1);
           return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "invalid");
+        }
+      }
+
+      // Stable handle registration is additive to the v0.2.11 ticket route.
+      // A host may use the explicit /join-handles path, or the compatible
+      // /join-tickets path with handleLookup and no short-lived expiry.
+      if (request.method === "POST" && parts[0] === "v1" && parts[1] === "party-sessions"
+          && parts[2] && parts[3] === "join-handles" && parts.length === 4) {
+        const capability = bearerToken(request);
+        if (!capability) return errorResponse(404, "not_found");
+        try {
+          const body = await requestJson(request, MAX_JOIN_TICKET_BOOTSTRAP_BYTES + 4096);
+          // The old route remains one-use when an explicit expiresAtMs is
+          // provided. Stable callers use handleLookup (or publicHandle).
+          const handleLookup = body.handleLookup ?? body.publicHandle
+            ?? (body.expiresAtMs === undefined ? body.ticketLookup : undefined);
+          const bootstrap = body.bootstrapCiphertext;
+          if (handleLookup === undefined || bootstrap === undefined)
+            return errorResponse(400, "invalid");
+          const now = Date.now();
+          if (now - joinTicketWindowMs >= 60_000) {
+            joinTicketWindowMs = now;
+            joinTicketsIssuedThisMinute = 0;
+          }
+          if (joinTicketsIssuedThisMinute >= MAX_JOIN_TICKET_ISSUANCES_PER_MINUTE)
+            return errorResponse(429, "rate_limited");
+          const result = await store.registerJoinHandle(
+            parts[2], capability, handleLookup, bootstrap,
+            body.inviteGeneration ?? body.generation,
+          );
+          joinTicketsIssuedThisMinute += 1;
+          return json({ ok: true, protocolVersion: PROTOCOL_VERSION, ...result, joinHandle: result }, 201);
+        } catch (error) {
+          return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "invalid");
+        }
+      }
+
+      if ((request.method === "DELETE" || request.method === "POST")
+          && parts[0] === "v1" && parts[1] === "party-sessions" && parts[2]
+          && ((parts[3] === "join-handles" && (parts.length === 4
+                || (parts.length === 5 && parts[4] === "revoke")))
+              || (parts[3] === "join-handle" && parts.length === 5 && parts[4] === "revoke"))) {
+        const capability = bearerToken(request);
+        if (!capability) return errorResponse(404, "not_found");
+        try {
+          let expectedHandleLookup: unknown;
+          if (request.method === "POST") {
+            const body = await requestJson(request, 4096);
+            expectedHandleLookup = body.handleLookup ?? body.publicHandle;
+          }
+          const revoked = await store.revokeJoinHandle(parts[2], capability, expectedHandleLookup);
+          return json({ ok: true, protocolVersion: PROTOCOL_VERSION, revoked });
+        } catch (error) {
+          return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "invalid");
+        }
+      }
+
+      // A stable handle is intentionally not redeemed directly. This endpoint
+      // mints a fresh one-use ticket only after an explicit client click; the
+      // client then combines the returned lookup with its fragment-held key and
+      // calls /v1/party-join-tickets/redeem as before.
+      const stableMintPath = request.method === "POST" && parts[0] === "v1"
+        && parts[1] === "party-join-handles";
+      if (stableMintPath) {
+        const now = Date.now();
+        if (now - joinHandleMintWindowMs >= 60_000) {
+          joinHandleMintWindowMs = now;
+          joinHandleMintsThisMinute = 0;
+        }
+        if (joinHandleMintsThisMinute >= MAX_JOIN_HANDLE_MINTS_PER_MINUTE
+            || joinHandleMintsInFlight >= MAX_JOIN_HANDLE_MINTS_IN_FLIGHT)
+          return errorResponse(429, "rate_limited");
+        let body: Record<string, unknown> = {};
+        try {
+          if (parts.length === 3 && parts[2] !== "mint" && parts[2] !== "click"
+              && parts[2] !== "mint-ticket" && parts[2] !== "tickets") {
+            body = { handleLookup: parts[2] };
+          } else {
+            body = await requestJson(request, 4096);
+          }
+          const handleLookup = body.handleLookup ?? body.publicHandle ?? body.ticketLookup;
+          joinHandleMintsThisMinute += 1;
+          joinHandleMintsInFlight += 1;
+          const result = await store.mintJoinTicketFromHandle(handleLookup);
+          return json({
+            ok: true,
+            protocolVersion: PROTOCOL_VERSION,
+            ...result,
+            joinTicket: result,
+          }, 201);
+        } catch (error) {
+          return errorResponse(storeStatus(error), error instanceof StoreError ? error.code : "invalid");
+        } finally {
+          joinHandleMintsInFlight = Math.max(0, joinHandleMintsInFlight - 1);
         }
       }
 

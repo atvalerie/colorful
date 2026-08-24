@@ -4,7 +4,8 @@ This is the first hosted backend slice for colorful. It provides:
 
 - expiring opaque mailboxes for store-and-forward sync;
 - expiring party-session allocation with separate host and guest capabilities;
-- host-authenticated, one-use public Discord join tickets (90 seconds);
+- host-authenticated, revocable stable Discord join handles with short-lived
+  one-use click tickets;
 - a binary WebSocket relay that forwards ciphertext without parsing it;
 - health and privacy-safe aggregate-stat endpoints for deployment checks; and
 - a public HTTPS party landing page that preserves invite secrets in fragments.
@@ -41,7 +42,11 @@ GET  /v1/mailboxes/<id>/messages
 PUT  /v1/mailboxes/<id>/messages/<message-id>
 DELETE /v1/mailboxes/<id>/messages/<message-id>
 POST /v1/party-sessions
-POST /v1/party-sessions/<id>/join-tickets
+POST /v1/party-sessions/<id>/join-handles
+DELETE /v1/party-sessions/<id>/join-handles
+POST /v1/party-sessions/<id>/join-handles/revoke
+POST /v1/party-sessions/<id>/join-tickets       (legacy one-use issue / compatible registration)
+POST /v1/party-join-handles/mint
 POST /v1/party-join-tickets/redeem
 GET  /v1/party-sessions/<id>/relay   (WebSocket upgrade)
 ```
@@ -56,14 +61,21 @@ The party landing page sends `no-store` and `no-referrer` headers. Browsers do
 not transmit the private fragment after `#`; client-side code carries it into
 the `colorful://` link and otherwise offers the GitHub repository.
 
-For Discord Join Party, the client creates `v1.<lookup>.<bootstrapKey>` and
-publishes it only in `https://colorful.valerie.sh/discord/join#...`. The host
-authenticates issuance with its party capability. Redemption sends only the
-lookup to the relay; the relay stores a lookup digest and encrypted bootstrap
-ciphertext, deletes the ticket before returning it, and never receives the
-bootstrap key or combined ticket. Tickets expire after 90 seconds and cannot be
-reused. Native Discord Ask-to-Join is not implemented; that needs authenticated
-RPC or the Discord Social SDK.
+For Discord Join Party, the host creates `v1.<handleLookup>.<bootstrapKey>` and
+publishes it only in `https://colorful.valerie.sh/discord/join#...`. It
+registers `handleLookup` and encrypted `bootstrapCiphertext` at
+`POST /v1/party-sessions/<id>/join-handles`; the relay stores only the lookup
+digest and ciphertext. On an explicit click, the client sends only
+`handleLookup` to `POST /v1/party-join-handles/mint`. The relay returns a fresh
+short-lived `ticketLookup`; the client combines that lookup with its locally
+retained `bootstrapKey` and redeems it through
+`POST /v1/party-join-tickets/redeem`. Each minted ticket expires after at most
+two minutes and is deleted before redemption returns, so concurrent clicks are
+independent and replay fails. Registering a new invite generation, ending the
+party, disabling joins, or compare-and-revoke through the host-authenticated
+revoke endpoint invalidates the stable handle and all outstanding derived
+tickets. The relay never receives the bootstrap key or plaintext invite
+fragment.
 
 This is not the final connectivity stack yet. mDNS discovery, authenticated
 LAN transport, ICE/STUN candidate exchange, TURN, QUIC relay transport, QR
