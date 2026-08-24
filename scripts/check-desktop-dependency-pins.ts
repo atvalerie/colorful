@@ -22,6 +22,10 @@ const mpvVersionCommit = pins.mpv.sourceVersion.match(/-g([0-9a-f]{7,40})$/)?.[1
 if (!mpvVersionCommit || !pins.mpv.sourceCommit.startsWith(mpvVersionCommit)) {
   failures.push("mpv.sourceVersion must identify mpv.sourceCommit");
 }
+if (!/^\d+\.\d+\.\d+$/.test(pins.mpv.clientApiVersion) ||
+    !/^\d+\.\d+\.\d+$/.test(pins.mpv.minimumClientApi)) {
+  failures.push("mpv client API pins must be three-part versions");
+}
 if (!pins.windows.mpv.url.includes(pins.mpv.sourceCommit.slice(0, 10))) {
   failures.push("the Windows libmpv archive must identify the shared mpv source commit");
 }
@@ -46,6 +50,7 @@ requireText("packaging/linux/Dockerfile", `ARG BUN_VERSION=${pins.toolchains.bun
 requireText("packaging/linux/Dockerfile", `ARG BUN_SHA256=${pins.linux.bun.sha256}`);
 requireText("packaging/linux/Dockerfile", "COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json");
 requireText("packaging/linux/build-mpv-source.sh", "pin mpv.sourceCommit");
+requireText("packaging/linux/build-mpv-source.sh", "mpv-source-version");
 requireText("packaging/linux/build-mpv-source.sh", "pin linux.libmpv.ffmpeg.sha256");
 requireText("scripts/provision-windows-qt.ps1", "$pins.mpv.sourceVersion");
 requireText("scripts/build-windows-qt.ps1", "-DCOLORFUL_EXPECTED_MPV_VERSION");

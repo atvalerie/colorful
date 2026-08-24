@@ -9,6 +9,7 @@ pin() {
 
 readonly MPV_VERSION="$(pin mpv.sourceVersion)"
 readonly MPV_COMMIT="$(pin mpv.sourceCommit)"
+readonly MPV_CLIENT_API_VERSION="$(pin mpv.clientApiVersion)"
 readonly MPV_URL="$(pin mpv.sourceArchiveUrl)"
 readonly MPV_SHA256="$(pin mpv.sourceArchiveSha256)"
 readonly FFMPEG_VERSION="$(pin linux.libmpv.ffmpeg.version)"
@@ -121,10 +122,12 @@ meson install -C build
 popd >/dev/null
 
 printf '%s\n' "$PREFIX/lib" > /etc/ld.so.conf.d/colorful-mpv.conf
+mkdir -p "$PREFIX/share/colorful"
+printf '%s\n' "$MPV_VERSION" > "$PREFIX/share/colorful/mpv-source-version"
 ldconfig
 test -f "$PREFIX/lib/pkgconfig/mpv.pc"
 test -f "$PREFIX/lib/libmpv.so.2"
-test "$(pkg-config --modversion mpv)" = "$MPV_VERSION"
+test "$(pkg-config --modversion mpv)" = "$MPV_CLIENT_API_VERSION"
 test "$(pkg-config --variable=libdir mpv)" = "$PREFIX/lib"
 pkg-config --exists alsa libpulse libavcodec libavformat libplacebo
 test "$(pkg-config --modversion libplacebo)" = "$LIBPLACEBO_VERSION"

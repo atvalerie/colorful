@@ -29,14 +29,15 @@ if [[ "$mode" == build ]]; then
   if [[ -n "$qmake" ]] && [[ "$("$qmake" -query QT_VERSION)" != "$expected_qt" ]]; then
     missing "Qt $expected_qt qmake (found $qmake for Qt $("$qmake" -query QT_VERSION))"
   fi
-  expected_mpv_min="$(pin mpv.minimumCompatible)"
-  if ! pkg-config --atleast-version="$expected_mpv_min" mpv; then
-    missing "mpv >= $expected_mpv_min (found $(pkg-config --modversion mpv 2>/dev/null || echo none))"
+  expected_mpv_api_min="$(pin mpv.minimumClientApi)"
+  if ! pkg-config --atleast-version="$expected_mpv_api_min" mpv; then
+    missing "mpv client API >= $expected_mpv_api_min (found $(pkg-config --modversion mpv 2>/dev/null || echo none))"
   fi
   if [[ "${COLORFUL_MPV_MODE:-compatibility}" == official ]]; then
     expected_mpv="$(pin mpv.sourceVersion)"
-    actual_mpv="$(pkg-config --modversion mpv 2>/dev/null || echo none)"
-    [[ "$actual_mpv" == "$expected_mpv" ]] || missing "mpv exactly $expected_mpv for an official build (found $actual_mpv)"
+    source_marker="$(pkg-config --variable=prefix mpv)/share/colorful/mpv-source-version"
+    actual_mpv="$(tr -d '[:space:]' < "$source_marker" 2>/dev/null || echo none)"
+    [[ "$actual_mpv" == "$expected_mpv" ]] || missing "mpv source exactly $expected_mpv for an official build (found $actual_mpv)"
   fi
   if ((failures)); then exit 1; fi
   echo "Linux build dependencies are ready"
