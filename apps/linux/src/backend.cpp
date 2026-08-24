@@ -71,10 +71,15 @@ bool ensureWritableDirectory(const QString &path, QString *error)
 QString safeTrackPath(const QVariantMap &track)
 {
     const auto id = track.value(QStringLiteral("id")).toString();
-    QString safe;
-    safe.reserve(id.size());
-    for (const auto character : id) safe.append(character.isLetterOrNumber() ? character : QChar('_'));
-    return QStringLiteral("/org/mpris/MediaPlayer2/track/%1").arg(safe.isEmpty() ? QStringLiteral("unknown") : safe);
+    if (id.isEmpty()) return QStringLiteral("/org/mpris/MediaPlayer2/track/unknown");
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto identity = (provider + QChar::Null + id).toUtf8();
+    const auto digest = QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex();
+    // D-Bus object-path components only permit ASCII letters, digits, and
+    // underscores. Hash the provider identity instead of passing arbitrary
+    // Unicode provider ids into libdbus.
+    return QStringLiteral("/org/mpris/MediaPlayer2/track/id_%1")
+        .arg(QString::fromLatin1(digest));
 }
 
 QStringList playbackHttpHeaders(const QJsonObject &source)
@@ -1138,11 +1143,13 @@ QVariantMap Backend::mprisMetadata() const
 #else
     metadata.insert(QStringLiteral("mpris:trackid"), safeTrackPath(track));
 #endif
-    metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")));
-    metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")));
-    metadata.insert(QStringLiteral("xesam:album"), track.value(QStringLiteral("albumTitle")));
-    if (!m_lowDataMode)
-        metadata.insert(QStringLiteral("mpris:artUrl"), track.value(QStringLiteral("coverUrl")));
+    metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")).toString());
+    metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")).toStringList());
+    const auto album = track.value(QStringLiteral("albumTitle")).toString();
+    if (!album.isEmpty()) metadata.insert(QStringLiteral("xesam:album"), album);
+    const auto artworkUrl = track.value(QStringLiteral("coverUrl")).toString();
+    if (!m_lowDataMode && !artworkUrl.isEmpty())
+        metadata.insert(QStringLiteral("mpris:artUrl"), artworkUrl);
     metadata.insert(QStringLiteral("mpris:length"), track.value(QStringLiteral("durationMs")).toLongLong() * 1000);
     return metadata;
 }
