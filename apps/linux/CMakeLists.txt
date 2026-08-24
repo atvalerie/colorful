@@ -23,6 +23,24 @@ execute_process(
 if(NOT COLORFUL_GIT_COMMIT)
     set(COLORFUL_GIT_COMMIT "unknown")
 endif()
+execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    OUTPUT_VARIABLE COLORFUL_GIT_COMMIT_FULL
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT COLORFUL_GIT_COMMIT_FULL)
+    set(COLORFUL_GIT_COMMIT_FULL "unknown")
+endif()
+execute_process(
+    COMMAND git describe --tags --exact-match --match "v[0-9]*" --dirty=-dirty
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    OUTPUT_VARIABLE COLORFUL_GIT_TAG
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+string(TIMESTAMP COLORFUL_BUILD_DATE "%Y-%m-%d %H:%M:%S UTC" UTC)
 
 set(COLORFUL_BUILD_CHANNEL "$ENV{COLORFUL_BUILD_CHANNEL}")
 if(NOT COLORFUL_BUILD_CHANNEL)
@@ -41,13 +59,6 @@ if(COLORFUL_BUILD_CHANNEL STREQUAL "dev")
 else()
     set(COLORFUL_DISPLAY_VERSION "${PROJECT_VERSION}")
 endif()
-
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
-configure_file(
-    src/buildinfo_generated.h.in
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/buildinfo_generated.h"
-    @ONLY
-)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -80,6 +91,13 @@ else()
     pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
     add_library(colorful-mpv ALIAS PkgConfig::MPV)
 endif()
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    src/buildinfo_generated.h.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/buildinfo_generated.h"
+    @ONLY
+)
 
 qt_standard_project_setup(REQUIRES 6.8)
 

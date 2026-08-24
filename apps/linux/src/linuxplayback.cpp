@@ -116,6 +116,16 @@ LinuxPlayback::~LinuxPlayback()
     mpv_terminate_destroy(m_mpv);
 }
 
+QString LinuxPlayback::version() const
+{
+    if (!m_mpv) return {};
+    char *value = mpv_get_property_string(m_mpv, "mpv-version");
+    if (!value) return {};
+    const auto version = QString::fromUtf8(value).trimmed();
+    mpv_free(value);
+    return version;
+}
+
 qint64 LinuxPlayback::position() const
 {
     if (m_state != State::Playing || !m_positionClock.isValid() || m_buffering)

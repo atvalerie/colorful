@@ -25,6 +25,7 @@
 #include <QQuickStyle>
 #include <QScreen>
 #include <QSet>
+#include <QSize>
 #include <QSettings>
 #include <QTimer>
 #include <QLocalServer>
@@ -303,6 +304,11 @@ int main(int argc, char *argv[])
 
     auto *rootObject = engine.rootObjects().constFirst();
     auto *window = qobject_cast<QWindow *>(rootObject);
+    if (window) {
+        // QML minimum dimensions are normally propagated to the native window,
+        // but enforce them here too for frameless resize paths on Windows/Linux.
+        window->setMinimumSize(QSize(920, 700));
+    }
     if (auto *quickWindow = qobject_cast<QQuickWindow *>(rootObject)) {
         QObject::connect(quickWindow, &QQuickWindow::frameSwapped, &backend,
                          [&backend, &startupTimer] {

@@ -7,6 +7,7 @@ Item {
     id: root
     property int tab: 0
     property url pendingTravelImportFile: ""
+    readonly property var aboutBuild: colorful.buildInfo || {}
     readonly property var pages: [
         ["Accounts", "Provider connections"],
         ["Playback", "Queue and audio behavior"],
@@ -14,7 +15,7 @@ Item {
         ["Appearance", "Color and interface"],
         ["Storage", "Cache and offline music"],
         ["Sync", "Devices and handoff"],
-        ["About", "colorful and licenses"]
+        ["About", "Build, runtime, and licenses"]
     ]
 
     function fieldBackground(field) {
@@ -815,38 +816,78 @@ Item {
                     }
                     AccountCard {
                         Layout.fillWidth: true
-                        title: "Build"
+                        title: "Build identity"
                         rows: [
-                            ["Version", colorful.buildInfo.version || "unknown"],
-                            ["Channel", colorful.buildInfo.channel || "release"],
-                            ["Commit", colorful.buildInfo.commit || "unknown"],
-                            ["System", colorful.buildInfo.system || "Linux"],
-                            ["Architecture", colorful.buildInfo.architecture || "unknown"],
-                            ["Compiler", colorful.buildInfo.compiler || "unknown"]
+                            ["Semantic version", aboutBuild.semanticVersion || "unknown"],
+                            ["Display version", aboutBuild.version || "unknown"],
+                            ["Git tag / state", aboutBuild.tag || "Not on a tagged commit"],
+                            ["Channel", aboutBuild.channel || "unknown"],
+                            ["Build number", aboutBuild.buildNumber || "Not set"],
+                            ["Commit (short)", aboutBuild.commitShort || aboutBuild.commit || "unknown"],
+                            ["Commit (full)", aboutBuild.commitFull || "unknown"],
+                            ["Built (UTC)", aboutBuild.buildDate || "unknown"]
                         ]
                     }
                     AccountCard {
                         Layout.fillWidth: true
-                        title: "Runtime components"
+                        title: "Environment"
                         rows: [
-                            ["Interface", "Qt " + (colorful.buildInfo.qt || "unknown") + " / Qt Quick"],
-                            ["Playback", "libmpv " + (colorful.buildInfo.mpv || "unknown")],
-                            ["Core", "Rust / SQLite"],
-                            ["Provider host", "Bun / TypeScript"]
+                            ["Platform", aboutBuild.platform || "unknown"],
+                            ["Operating system", aboutBuild.system || "unknown"],
+                            ["Architecture", aboutBuild.architecture || "unknown"],
+                            ["Compiler", aboutBuild.compiler || "unknown"]
+                        ]
+                    }
+                    AccountCard {
+                        Layout.fillWidth: true
+                        title: "Runtime"
+                        rows: [
+                            ["Qt / UI", "Qt " + (aboutBuild.qt || "unknown") + " / Qt Quick"],
+                            ["Playback", aboutBuild.mpv ? "libmpv " + aboutBuild.mpv : "libmpv (not reported)"]
                         ]
                     }
                     AccountCard {
                         Layout.fillWidth: true
                         title: "Licenses"
                         rows: [
-                            ["colorful", colorful.buildInfo.license || "GPL-3.0-or-later"],
-                            ["Qt", "LGPL-3.0 / GPL-3.0"],
-                            ["libmpv", "GPL-compatible build"],
-                            ["Bun", "MIT"],
-                            ["Nunito", "OFL-1.1"]
+                            ["colorful", aboutBuild.license || "GPL-3.0-or-later"],
+                            ["Qt", "LGPL-3.0 / GPL-3.0"]
                         ]
                     }
-                    Text { Layout.fillWidth: true; text: "This personal project is entirely AI-made. It exists because its owner needed a stable music client that worked for them."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        ColorButton {
+                            text: "Repository"
+                            quiet: true
+                            visible: Boolean(aboutBuild.repository)
+                            onClicked: Qt.openUrlExternally(aboutBuild.repository)
+                        }
+                        ColorButton {
+                            text: "Releases"
+                            quiet: true
+                            visible: Boolean(aboutBuild.releases)
+                            onClicked: Qt.openUrlExternally(aboutBuild.releases)
+                        }
+                        ColorButton {
+                            text: "Issues"
+                            quiet: true
+                            visible: Boolean(aboutBuild.issues)
+                            onClicked: Qt.openUrlExternally(aboutBuild.issues)
+                        }
+                        ColorButton {
+                            text: "License"
+                            quiet: true
+                            visible: Boolean(aboutBuild.licenseUrl)
+                            onClicked: Qt.openUrlExternally(aboutBuild.licenseUrl)
+                        }
+                        ColorButton {
+                            text: "Third-party notices"
+                            quiet: true
+                            visible: Boolean(aboutBuild.noticesUrl)
+                            onClicked: Qt.openUrlExternally(aboutBuild.noticesUrl)
+                        }
+                    }
                 }
             }
         }

@@ -7,7 +7,9 @@ ApplicationWindow {
     width: 1240
     height: 780
     minimumWidth: 920
-    minimumHeight: 620
+    // Keep the fixed title/search/player chrome from crowding the page content
+    // when the frameless window is resized down.
+    minimumHeight: 700
     visible: true
     title: colorful.buildInfo.channel === "dev" ? "colorful · DEV" : "colorful"
     color: "#101012"

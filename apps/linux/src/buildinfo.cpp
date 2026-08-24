@@ -20,8 +20,14 @@ QVariantMap colorfulBuildInfo()
 #endif
     return {
         {QStringLiteral("version"), QString::fromLatin1(COLORFUL_VERSION)},
+        {QStringLiteral("semanticVersion"), QString::fromLatin1(COLORFUL_SEMANTIC_VERSION)},
         {QStringLiteral("channel"), QString::fromLatin1(COLORFUL_BUILD_CHANNEL)},
+        {QStringLiteral("buildNumber"), QString::fromLatin1(COLORFUL_BUILD_NUMBER)},
         {QStringLiteral("commit"), QString::fromLatin1(COLORFUL_GIT_COMMIT)},
+        {QStringLiteral("commitShort"), QString::fromLatin1(COLORFUL_GIT_COMMIT)},
+        {QStringLiteral("commitFull"), QString::fromLatin1(COLORFUL_GIT_COMMIT_FULL)},
+        {QStringLiteral("tag"), QString::fromLatin1(COLORFUL_GIT_TAG)},
+        {QStringLiteral("buildDate"), QString::fromLatin1(COLORFUL_BUILD_DATE)},
         {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
         {QStringLiteral("mpv"), QString::fromLatin1(COLORFUL_MPV_VERSION)},
         {QStringLiteral("compiler"), compiler},
@@ -29,5 +35,10 @@ QVariantMap colorfulBuildInfo()
         {QStringLiteral("system"), QSysInfo::prettyProductName()},
         {QStringLiteral("platform"), platform},
         {QStringLiteral("license"), QStringLiteral("GPL-3.0-or-later")},
+        {QStringLiteral("repository"), QStringLiteral("https://github.com/atvalerie/colorful")},
+        {QStringLiteral("issues"), QStringLiteral("https://github.com/atvalerie/colorful/issues")},
+        {QStringLiteral("releases"), QStringLiteral("https://github.com/atvalerie/colorful/releases")},
+        {QStringLiteral("licenseUrl"), QStringLiteral("https://github.com/atvalerie/colorful/blob/main/LICENSE")},
+        {QStringLiteral("noticesUrl"), QStringLiteral("https://github.com/atvalerie/colorful/blob/main/THIRD_PARTY_NOTICES.md")},
     };
 }

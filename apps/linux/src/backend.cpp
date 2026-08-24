@@ -766,7 +766,10 @@ qint64 Backend::offlineStorageUsed() const
 
 QVariantMap Backend::buildInfo() const
 {
-    return colorfulBuildInfo();
+    auto info = colorfulBuildInfo();
+    const auto mpvVersion = m_playback.version();
+    if (!mpvVersion.isEmpty()) info.insert(QStringLiteral("mpv"), mpvVersion);
+    return info;
 }
 
 bool Backend::openCore()

@@ -32,6 +32,16 @@ QString partySessionFromUrl(const QUrl &url)
     static const QRegularExpression valid(QStringLiteral("^[A-Za-z0-9_-]{8,64}$"));
     return valid.match(session).hasMatch() ? session : QString{};
 }
+
+// Playback is emitted by more than one protocol shape (live events and state
+// snapshots). Accept either wire spelling at that boundary so a producer-side
+// serialization change cannot silently turn into an empty track id.
+QJsonValue partyField(const QJsonObject &object, const QString &camelCase,
+                      const QString &snakeCase = {})
+{
+    if (object.contains(camelCase)) return object.value(camelCase);
+    return snakeCase.isEmpty() ? QJsonValue{} : object.value(snakeCase);
+}
 }
 
 PartyClient::PartyClient(Backend *backend, QObject *parent)
@@ -94,7 +104,15 @@ PartyClient::PartyClient(Backend *backend, QObject *parent)
         }
     });
     connect(backend, &Backend::playbackConditionChanged, this, [this] {
-        if (m_role != QStringLiteral("host")) correctPlayback();
+        if (m_role != QStringLiteral("host")) {
+            correctPlayback();
+            // A failed speculative source must not strand the guest on the
+            // previous track.  Once Backend clears its failed prepared source,
+            // retry the current successor preparation on the next condition
+            // update (the authoritative transition still has a direct-load
+            // fallback).
+            preloadFollowingTrack();
+        }
     });
 }
 
@@ -112,7 +130,8 @@ QVariantList PartyClient::playbackQueue() const
 
 int PartyClient::currentQueueIndex() const
 {
-    const auto entryId = m_lastPlayback.value(QStringLiteral("entry_id")).toString();
+    const auto entryId = partyField(m_lastPlayback, QStringLiteral("entryId"),
+                                    QStringLiteral("entry_id")).toString();
     for (int index = 0; index < m_queue.size(); ++index) {
         if (m_queue.at(index).toMap().value(QStringLiteral("entryId")).toString() == entryId)
             return index;
@@ -358,8 +377,13 @@ void PartyClient::publishCurrentTrack()
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
     publishQueue();
     const auto queueIndex = m_backend->currentQueueIndex();
-    if (queueIndex >= 0 && queueIndex < m_partyEntryIds.size()) {
-        m_currentEntryId = m_partyEntryIds.at(queueIndex);
+    const auto partyIndex = m_partyBackendIndexes.indexOf(queueIndex);
+    if (queueIndex >= 0) {
+        // A queue slot with no provider id is not publishable.  Do not fall
+        // back to a title/id cache here: that cache aliases duplicate queue
+        // entries and can make guests jump to an older entry.
+        m_currentEntryId = partyIndex >= 0 && partyIndex < m_partyEntryIds.size()
+            ? m_partyEntryIds.at(partyIndex) : QString{};
     } else if (!m_entryByTrackKey.contains(key)) {
         const auto value = dispatchCore({{QStringLiteral("command"), QStringLiteral("host_track")},
                                          {QStringLiteral("track"), partyTrack(track)}});
@@ -380,14 +404,27 @@ void PartyClient::publishQueue()
     if (m_role != QStringLiteral("host")) return;
     const auto queue = m_backend->queue();
     QJsonArray tracks;
-    for (const auto &value : queue) {
-        const auto track = value.toMap();
-        if (!track.value(QStringLiteral("id")).toString().isEmpty())
+    QVector<int> backendIndexes;
+    backendIndexes.reserve(queue.size());
+    for (int backendIndex = 0; backendIndex < queue.size(); ++backendIndex) {
+        const auto track = queue.at(backendIndex).toMap();
+        if (!track.value(QStringLiteral("id")).toString().isEmpty()) {
             tracks.append(partyTrack(track));
+            backendIndexes.append(backendIndex);
+        }
     }
 
     const auto signature = QJsonDocument(tracks).toJson(QJsonDocument::Compact);
-    if (signature == m_lastQueueSignature) return;
+    if (signature == m_lastQueueSignature) {
+        // Invalid local rows are omitted from the wire queue. They can still
+        // move without changing its serialized signature, so keep the local
+        // index map current even when the relay queue needs no replacement.
+        m_partyBackendIndexes = backendIndexes;
+        const auto partyIndex = m_partyBackendIndexes.indexOf(m_backend->currentQueueIndex());
+        m_currentEntryId = partyIndex >= 0 && partyIndex < m_partyEntryIds.size()
+            ? m_partyEntryIds.at(partyIndex) : QString{};
+        return;
+    }
 
     const auto result = dispatchCore({{QStringLiteral("command"), QStringLiteral("host_queue")},
                                       {QStringLiteral("tracks"), tracks}});
@@ -396,14 +433,24 @@ void PartyClient::publishQueue()
     QStringList entryIds;
     const auto entries = result.value(QStringLiteral("entries")).toArray();
     entryIds.reserve(entries.size());
-    for (const auto &entry : entries)
+    const auto mappedEntryCount = std::min(entries.size(), backendIndexes.size());
+    backendIndexes.resize(mappedEntryCount);
+    for (int entryIndex = 0; entryIndex < mappedEntryCount; ++entryIndex) {
+        const auto &entry = entries.at(entryIndex);
         entryIds.append(entry.toObject().value(QStringLiteral("entryId")).toString());
+    }
 
     m_partyEntryIds = entryIds;
+    m_partyBackendIndexes = backendIndexes;
+    // Queue replacement invalidates any cached standalone entries.  If the
+    // current track is no longer in the local queue, publishCurrentTrack will
+    // mint a new authoritative entry instead of reusing a stale one.
+    m_entryByTrackKey.clear();
     m_lastQueueSignature = signature;
     const auto queueIndex = m_backend->currentQueueIndex();
-    if (queueIndex >= 0 && queueIndex < m_partyEntryIds.size())
-        m_currentEntryId = m_partyEntryIds.at(queueIndex);
+    const auto partyIndex = m_partyBackendIndexes.indexOf(queueIndex);
+    if (partyIndex >= 0 && partyIndex < m_partyEntryIds.size())
+        m_currentEntryId = m_partyEntryIds.at(partyIndex);
     else
         m_currentEntryId.clear();
     applyResult(result);
@@ -442,8 +489,12 @@ void PartyClient::applyRemoteEvent(const QJsonObject &event)
         type = QStringLiteral("playback_changed");
     }
     if (type != QStringLiteral("playback_changed")) return;
-    const auto generation = quint64(body.value(QStringLiteral("generation")).toInteger());
-    const bool authoritativeTransition = generation != m_remoteGeneration;
+    const auto generation = quint64(partyField(body, QStringLiteral("generation")).toInteger());
+    // Relay order is normally enough to order events, but reconnect snapshots
+    // can race with already-buffered playback events.  Never roll a guest
+    // back to an older host generation.
+    if (!m_lastPlayback.isEmpty() && generation < m_remoteGeneration) return;
+    const bool authoritativeTransition = m_lastPlayback.isEmpty() || generation > m_remoteGeneration;
     if (authoritativeTransition) {
         m_remoteGeneration = generation;
         m_filteredDriftMs = 0.0;
@@ -452,34 +503,47 @@ void PartyClient::applyRemoteEvent(const QJsonObject &event)
         m_backend->setPartyPlaybackRate(1.0);
     }
     m_lastPlayback = body;
-    const auto entryId = body.value(QStringLiteral("entry_id")).toString();
+    const auto entryId = partyField(body, QStringLiteral("entryId"),
+                                    QStringLiteral("entry_id")).toString();
     const auto track = trackForEntry(entryId);
     if (track.isEmpty()) {
-        emit notification(QStringLiteral("This party track is unavailable on this device"), QStringLiteral("warning"));
+        if (!m_resyncPending) {
+            emit notification(QStringLiteral("Party queue fell out of sync; requesting a fresh snapshot"),
+                              QStringLiteral("warning"));
+            if (m_socket.connected()) {
+                m_resyncPending = true;
+                dispatch({{QStringLiteral("command"), QStringLiteral("resync")} });
+            }
+        }
         return;
     }
+    m_resyncPending = false;
     const auto local = backendTrack(track);
     const auto currentKey = m_backend->currentTrack().value(QStringLiteral("provider")).toString() + ':'
         + m_backend->currentTrack().value(QStringLiteral("id")).toString();
     const auto wantedKey = local.value(QStringLiteral("provider")).toString() + ':'
         + local.value(QStringLiteral("id")).toString();
     if (currentKey != wantedKey) {
-        auto position = body.value(QStringLiteral("position_ms")).toInteger();
-        if (m_clockSynchronized && body.value(QStringLiteral("playing")).toBool()) {
+        auto position = partyField(body, QStringLiteral("positionMs"),
+                                   QStringLiteral("position_ms")).toInteger();
+        if (m_clockSynchronized && partyField(body, QStringLiteral("playing")).toBool()) {
             const auto hostNow = qint64(std::llround(clockNowMs() + m_hostClockOffsetMs));
-            position += qMax<qint64>(0, hostNow - body.value(QStringLiteral("host_time_ms")).toInteger());
+            position += qMax<qint64>(0, hostNow - partyField(body, QStringLiteral("hostTimeMs"),
+                                                               QStringLiteral("host_time_ms")).toInteger());
         }
         m_applyingRemote = true;
         m_backend->loadPartyTrack(local, position,
-                                  m_clockSynchronized && body.value(QStringLiteral("playing")).toBool());
+                                  m_clockSynchronized && partyField(body, QStringLiteral("playing")).toBool());
         m_applyingRemote = false;
     }
     if (authoritativeTransition && currentKey == wantedKey && !m_backend->playbackLoading()) {
-        const bool shouldPlay = body.value(QStringLiteral("playing")).toBool();
-        auto target = body.value(QStringLiteral("position_ms")).toInteger();
+        const bool shouldPlay = partyField(body, QStringLiteral("playing")).toBool();
+        auto target = partyField(body, QStringLiteral("positionMs"),
+                                 QStringLiteral("position_ms")).toInteger();
         if (shouldPlay && m_clockSynchronized) {
             const auto hostNow = qint64(std::llround(clockNowMs() + m_hostClockOffsetMs));
-            target += qMax<qint64>(0, hostNow - body.value(QStringLiteral("host_time_ms")).toInteger());
+            target += qMax<qint64>(0, hostNow - partyField(body, QStringLiteral("hostTimeMs"),
+                                                             QStringLiteral("host_time_ms")).toInteger());
         }
         m_backend->setPartyPlaying(false);
         if (std::abs(target - m_backend->position()) > 35) m_backend->seekParty(target);
@@ -549,7 +613,8 @@ QJsonObject PartyClient::trackForEntry(const QString &entryId) const
 void PartyClient::correctPlayback()
 {
     if (m_role == QStringLiteral("host") || !m_clockSynchronized || m_lastPlayback.isEmpty()) return;
-    const auto track = trackForEntry(m_lastPlayback.value(QStringLiteral("entry_id")).toString());
+    const auto track = trackForEntry(partyField(m_lastPlayback, QStringLiteral("entryId"),
+                                                QStringLiteral("entry_id")).toString());
     if (track.isEmpty() || m_backend->playbackLoading()) return;
     const auto local = backendTrack(track);
     const auto wantedKey = local.value(QStringLiteral("provider")).toString() + ':'
@@ -558,11 +623,13 @@ void PartyClient::correctPlayback()
         + m_backend->currentTrack().value(QStringLiteral("id")).toString();
     if (wantedKey != currentKey) return;
 
-    const bool shouldPlay = m_lastPlayback.value(QStringLiteral("playing")).toBool();
-    auto target = m_lastPlayback.value(QStringLiteral("position_ms")).toInteger();
+    const bool shouldPlay = partyField(m_lastPlayback, QStringLiteral("playing")).toBool();
+    auto target = partyField(m_lastPlayback, QStringLiteral("positionMs"),
+                             QStringLiteral("position_ms")).toInteger();
     if (shouldPlay) {
         const auto hostNow = qint64(std::llround(clockNowMs() + m_hostClockOffsetMs));
-        target += qMax<qint64>(0, hostNow - m_lastPlayback.value(QStringLiteral("host_time_ms")).toInteger());
+        target += qMax<qint64>(0, hostNow - partyField(m_lastPlayback, QStringLiteral("hostTimeMs"),
+                                                        QStringLiteral("host_time_ms")).toInteger());
     }
     const auto rawDrift = target - m_backend->position();
     m_filteredDriftMs = m_filteredDriftMs == 0.0
@@ -611,7 +678,8 @@ void PartyClient::correctPlayback()
 void PartyClient::preloadFollowingTrack()
 {
     if (m_role == QStringLiteral("host") || m_lastPlayback.isEmpty()) return;
-    const auto current = m_lastPlayback.value(QStringLiteral("entry_id")).toString();
+    const auto current = partyField(m_lastPlayback, QStringLiteral("entryId"),
+                                    QStringLiteral("entry_id")).toString();
     for (int index = 0; index + 1 < m_queue.size(); ++index) {
         if (m_queue.at(index).toMap().value(QStringLiteral("entryId")).toString() != current) continue;
         const auto next = QJsonObject::fromVariantMap(
@@ -696,6 +764,7 @@ void PartyClient::leave()
     m_lastTrackKey.clear();
     m_entryByTrackKey.clear();
     m_partyEntryIds.clear();
+    m_partyBackendIndexes.clear();
     m_lastQueueSignature.clear();
     m_clockRequests.clear();
     m_lastPlayback = {};
@@ -711,6 +780,7 @@ void PartyClient::leave()
     m_clockSampleCount = 0;
     m_hardResyncCount = 0;
     m_needsResync = false;
+    m_resyncPending = false;
     emit timingChanged();
     m_backend->leavePartyPlayback();
     QString resetError;

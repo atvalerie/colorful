@@ -21,6 +21,7 @@ public:
     ~LinuxPlayback() override;
 
     bool isAvailable() const { return m_mpv != nullptr; }
+    QString version() const;
     bool hasSource() const { return !m_source.isEmpty(); }
     bool playing() const { return m_state == State::Playing; }
     State state() const { return m_state; }

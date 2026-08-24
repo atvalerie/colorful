@@ -1275,6 +1275,39 @@ mod tests {
     }
 
     #[test]
+    fn localized_duplicate_titles_keep_distinct_queue_identity_across_playback() {
+        let (mut host, bootstrap) = PartyHost::create("Host", 100_000).unwrap();
+        let invite = PartyInvite::from_fragment(&host.invite_fragment("cap").unwrap(), 0).unwrap();
+        let mut first = track("cn-one");
+        first.title = "同一首歌".into();
+        let mut second = track("cn-two");
+        second.title = "同一首歌".into();
+        let replacement = host.replace_queue(vec![first, second]).unwrap();
+        let entries = match &replacement.body {
+            PartyEventBody::QueueReplaced { entries } => entries,
+            _ => unreachable!(),
+        };
+        assert_ne!(entries[0].entry_id, entries[1].entry_id);
+
+        // Playback references the queue entry, never a title/provider-id
+        // lookup.  This is the invariant the desktop guest relies on when
+        // consecutive tracks have the same localized title.
+        let playback = host
+            .set_playback(Some(entries[1].entry_id.clone()), true, 0, 10_000, 2)
+            .unwrap();
+        let mut replica = PartyReplica::from_invite(&invite);
+        replica.apply(&bootstrap).unwrap();
+        replica.apply(&replacement).unwrap();
+        replica.apply(&playback).unwrap();
+        assert_eq!(
+            replica.playback.as_ref().unwrap().0,
+            Some(entries[1].entry_id.clone())
+        );
+        assert_eq!(replica.queue[1].1.title, "同一首歌");
+        assert_ne!(replica.queue[0].0, replica.queue[1].0);
+    }
+
+    #[test]
     fn signed_state_snapshot_bootstraps_a_late_guest_without_replaying_history() {
         let (mut host, bootstrap) = PartyHost::create("Host", 100_000).unwrap();
         let invite = PartyInvite::from_fragment(&host.invite_fragment("cap").unwrap(), 0).unwrap();

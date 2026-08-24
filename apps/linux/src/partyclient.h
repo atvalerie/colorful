@@ -10,6 +10,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
+#include <QVector>
 #include <cmath>
 
 class Backend;
@@ -129,6 +130,11 @@ private:
     QJsonObject m_lastPlayback;
     QHash<QString, QString> m_entryByTrackKey;
     QStringList m_partyEntryIds;
+    // Index in the local queue for each wire entry.  Party entries are
+    // deliberately fresh on every queue replacement, while local queue
+    // entries remain the only reliable identity when the same track appears
+    // more than once (or a malformed item has no provider id).
+    QVector<int> m_partyBackendIndexes;
     QByteArray m_lastQueueSignature;
     QHash<quint64, qint64> m_clockRequests;
     qint64 m_clockEpochMs = 0;
@@ -153,5 +159,6 @@ private:
     bool m_applyingRemote = false;
     bool m_everConnected = false;
     bool m_needsResync = false;
+    bool m_resyncPending = false;
     bool m_creatingParty = false;
 };
