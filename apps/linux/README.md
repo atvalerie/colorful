@@ -155,7 +155,10 @@ The lyrics control beside the queue opens a mutually exclusive side panel.
 colorful prefers the provider's own lyrics: timestamped TIDAL lyrics and native
 YouTube Music lyrics are used when present, with LRCLIB as a fallback for all
 providers. Synced lines follow playback and support a ±250 ms display offset;
-successful results are cached in shared local storage for offline reuse.
+successful results are cached in shared local storage for offline reuse. When a
+provider does not include transliteration, the desktop provider host generates
+romanized Japanese, Korean, Chinese, and Thai lines locally. The lyrics panel
+can switch between the original and romanized text without losing timestamps.
 
 ## Offline files and low-data mode
 

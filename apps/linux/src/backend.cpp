@@ -617,7 +617,7 @@ QString Backend::lyricsCacheKey(const QVariantMap &track) const
     // Version the cache whenever provider selection or the document shape
     // changes so older plain-only results do not mask newly available synced
     // or romanized lyrics indefinitely.
-    return QStringLiteral("lyrics/v2/%1/%2").arg(provider, QString::fromLatin1(digest));
+    return QStringLiteral("lyrics/v3/%1/%2").arg(provider, QString::fromLatin1(digest));
 }
 
 void Backend::resetLyrics()

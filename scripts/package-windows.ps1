@@ -56,6 +56,9 @@ foreach ($name in $runtimeFiles) {
     if (-not (Test-Path $source)) { throw "Required runtime file is missing: $source" }
     Copy-Item $source $stage -Force
 }
+$providerData = Join-Path $buildDirectory 'colorful-provider-data'
+if (-not (Test-Path $providerData)) { throw "Required provider data is missing: $providerData" }
+Copy-Item $providerData $stage -Recurse -Force
 Copy-Item (Join-Path $repoRoot 'LICENSE') $stage -Force
 Copy-Item (Join-Path $repoRoot 'README.md') $stage -Force
 Copy-Item (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') $stage -Force
