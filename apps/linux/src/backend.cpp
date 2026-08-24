@@ -434,6 +434,7 @@ Backend::Backend(QObject *parent)
         m_partyPreparedTrack.clear();
         m_playbackReady = false;
         emit currentTrackChanged();
+        emit currentTrackSavedChanged();
     });
     connect(&m_playback, &LinuxPlayback::preparedNextFailed, this, [this](const QString &) {
         if (m_partyPlaybackActive) {
@@ -520,6 +521,19 @@ QVariantMap Backend::currentTrack() const
         : QVariantMap{};
 }
 
+bool Backend::currentTrackSaved() const
+{
+    const auto track = currentTrack();
+    const auto id = track.value(QStringLiteral("id")).toString();
+    if (id.isEmpty()) return false;
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    return std::any_of(m_library.cbegin(), m_library.cend(), [&provider, &id](const QVariant &value) {
+        const auto saved = value.toMap();
+        return saved.value(QStringLiteral("id")).toString() == id
+            && saved.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString() == provider;
+    });
+}
+
 void Backend::loadPartyTrack(const QVariantMap &track, qint64 positionMs, bool autoplay)
 {
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
@@ -528,7 +542,10 @@ void Backend::loadPartyTrack(const QVariantMap &track, qint64 positionMs, bool a
     m_partyTrack = track;
     m_partyPreparedTrack.clear();
     ++m_partyPrepareGeneration;
-    if (changed) emit currentTrackChanged();
+    if (changed) {
+        emit currentTrackChanged();
+        emit currentTrackSavedChanged();
+    }
     resolveCurrentSource(std::max<qint64>(0, positionMs), autoplay);
 }
 
@@ -605,6 +622,7 @@ void Backend::leavePartyPlayback()
     m_playbackReady = false;
     m_displayPositionOverride = -1;
     emit currentTrackChanged();
+    emit currentTrackSavedChanged();
     emit positionChanged();
     emit playbackConditionChanged();
 }
@@ -904,6 +922,7 @@ void Backend::refreshCoreSnapshot(bool restorePlaybackPosition)
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
+    if (currentWasChanged || queueWasChanged || libraryWasChanged) emit currentTrackSavedChanged();
     if (localPlaylistsWereChanged) emit localPlaylistsChanged();
     if (downloadsWereChanged) emit downloadsChanged();
     if (listenStatsWereChanged) emit listenStatsChanged();
@@ -2334,6 +2353,25 @@ void Backend::startRadio(const QVariantMap &track)
 }
 
 void Backend::saveCatalogTrack(const QVariantMap &track) { saveTrack(track); }
+
+void Backend::toggleCurrentTrackSaved()
+{
+    const auto track = currentTrack();
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+
+    if (currentTrackSaved()) {
+        const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_from_library")},
+                      {QStringLiteral("id"), QJsonObject{
+                          {QStringLiteral("provider"), provider},
+                          {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()},
+                      }}});
+        notify(QStringLiteral("Removed %1 from your library").arg(track.value(QStringLiteral("title")).toString()));
+        return;
+    }
+
+    saveTrack(track);
+}
 
 void Backend::playCatalogCollection()
 {

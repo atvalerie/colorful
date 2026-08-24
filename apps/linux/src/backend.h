@@ -65,6 +65,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool tidalMoreLoading READ tidalMoreLoading NOTIFY tidalHubChanged)
     Q_PROPERTY(int currentQueueIndex READ currentQueueIndex NOTIFY currentTrackChanged)
     Q_PROPERTY(QVariantMap currentTrack READ currentTrack NOTIFY currentTrackChanged)
+    Q_PROPERTY(bool currentTrackSaved READ currentTrackSaved NOTIFY currentTrackSavedChanged)
     Q_PROPERTY(QVariantMap lyrics READ lyrics NOTIFY lyricsChanged)
     Q_PROPERTY(bool lyricsLoading READ lyricsLoading NOTIFY lyricsChanged)
     Q_PROPERTY(QString lyricsError READ lyricsError NOTIFY lyricsChanged)
@@ -147,6 +148,7 @@ public:
     bool tidalMoreLoading() const { return m_tidalMoreLoading; }
     int currentQueueIndex() const { return m_currentIndex; }
     QVariantMap currentTrack() const;
+    bool currentTrackSaved() const;
     QVariantMap lyrics() const { return m_lyrics; }
     bool lyricsLoading() const { return m_lyricsLoading; }
     QString lyricsError() const { return m_lyricsError; }
@@ -228,6 +230,7 @@ public:
     Q_INVOKABLE void playCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void startRadio(const QVariantMap &track);
     Q_INVOKABLE void saveCatalogTrack(const QVariantMap &track);
+    Q_INVOKABLE void toggleCurrentTrackSaved();
     Q_INVOKABLE void playCatalogCollection();
     Q_INVOKABLE void enqueueSearchResult(int index);
     Q_INVOKABLE void playSearchResult(int index);
@@ -318,6 +321,7 @@ signals:
     void downloadDirectoryChanged();
     void tidalHubChanged();
     void currentTrackChanged();
+    void currentTrackSavedChanged();
     void lyricsChanged();
     void playbackChanged();
     void positionChanged();

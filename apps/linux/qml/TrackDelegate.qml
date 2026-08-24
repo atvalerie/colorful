@@ -47,6 +47,7 @@ ItemDelegate {
     property string removeActionText: ""
     property int queueIndex: -1
     property int queueCount: 0
+    property int queueClickCount: 0
     property var contextMenuObject: null
     signal playRequested()
     signal addRequested()
@@ -60,12 +61,44 @@ ItemDelegate {
     signal moveUpRequested()
     signal moveDownRequested()
 
+    // Queue rows intentionally have no single-click action. A double-click
+    // plays, while a triple-click opens details; delaying the double-click
+    // action lets the third tap cancel it before playback starts.
+    Timer {
+        id: queueDoubleClickTimer
+        interval: Application.styleHints.mouseDoubleClickInterval
+        repeat: false
+        onTriggered: {
+            if (root.queueClickCount === 2) root.playRequested()
+            root.queueClickCount = 0
+        }
+    }
+
+    onTrackChanged: { queueDoubleClickTimer.stop(); queueClickCount = 0 }
+    onQueueIndexChanged: { queueDoubleClickTimer.stop(); queueClickCount = 0 }
+
     width: ListView.view ? ListView.view.width : (parent ? parent.width : 500)
     height: 54
     hoverEnabled: true
     padding: 6
-    onDoubleClicked: if (!readOnlyMode) playRequested()
-    onClicked: detailsRequested()
+    onDoubleClicked: if (!queueMode && !readOnlyMode) playRequested()
+    onClicked: if (!queueMode) detailsRequested()
+
+    TapHandler {
+        enabled: root.queueMode && !root.readOnlyMode
+        acceptedButtons: Qt.LeftButton
+        onTapped: {
+            root.queueClickCount = queueDoubleClickTimer.running
+                                   ? root.queueClickCount + 1 : 1
+            if (root.queueClickCount >= 3) {
+                queueDoubleClickTimer.stop()
+                root.queueClickCount = 0
+                root.detailsRequested()
+            } else {
+                queueDoubleClickTimer.restart()
+            }
+        }
+    }
 
     TapHandler {
         acceptedButtons: root.readOnlyMode ? Qt.NoButton : Qt.RightButton
