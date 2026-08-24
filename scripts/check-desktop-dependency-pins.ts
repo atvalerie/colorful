@@ -26,6 +26,7 @@ if (!pins.windows.mpv.url.includes(pins.mpv.sourceCommit.slice(0, 10))) {
   failures.push("the Windows libmpv archive must identify the shared mpv source commit");
 }
 for (const [label, hash] of [
+  ["Windows 7-Zip", pins.windows.sevenZip.sha256],
   ["mpv source archive", pins.mpv.sourceArchiveSha256],
   ["Linux libmpv FFmpeg", pins.linux.libmpv.ffmpeg.sha256],
   ["Linux libplacebo", pins.linux.libmpv.libplacebo.sha256],

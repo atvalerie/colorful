@@ -6,11 +6,10 @@
     "aqtinstall": "3.3.0",
     "cmake": "3.31.6",
     "meson": "1.7.0",
-    "ninja": "1.12.1",
+    "ninja": "1.13.0",
     "rust": "1.97.1",
     "bun": "1.3.14",
     "python": "3.13.15",
-    "py7zr": "1.1.3",
     "innoSetup": "6.7.1"
   },
   "mpv": {
@@ -29,6 +28,11 @@
     "getPip": {
       "url": "https://bootstrap.pypa.io/get-pip.py",
       "sha256": "fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6"
+    },
+    "sevenZip": {
+      "version": "26.02",
+      "url": "https://www.7-zip.org/a/7zr.exe",
+      "sha256": "56b8cc9f4971cef253644fafe54063ed7fdca551d4dee0f8c6baa81b855acd72"
     },
     "mpv": {
       "asset": "mpv-dev-x86_64-20260729-git-24c1cc52a3.7z",

@@ -97,15 +97,13 @@ if (-not (Test-PinMarker $pythonRoot $pythonPin) -or -not (Test-Path $python)) {
 }
 
 $pythonToolsPin = @(
-    $pins.toolchains.aqtinstall, $pins.toolchains.py7zr,
-    $pins.toolchains.cmake, $pins.toolchains.ninja
+    $pins.toolchains.aqtinstall, $pins.toolchains.cmake, $pins.toolchains.ninja
 ) -join '-'
 $pythonToolsMarker = Join-Path $pythonRoot '.colorful-build-tools-pin'
 if (-not (Test-Path $pythonToolsMarker) `
         -or (Get-Content $pythonToolsMarker -Raw).Trim() -ne $pythonToolsPin) {
     & $python -m pip install --disable-pip-version-check `
         "aqtinstall==$($pins.toolchains.aqtinstall)" `
-        "py7zr==$($pins.toolchains.py7zr)" `
         "cmake==$($pins.toolchains.cmake)" `
         "ninja==$($pins.toolchains.ninja)" 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "Pinned Python build tools failed to install with exit code $LASTEXITCODE." }
@@ -131,8 +129,15 @@ if (-not $mpvReady) {
         -Headers @{ 'User-Agent' = 'colorful-build'; 'Accept' = 'application/octet-stream' }
     if (Test-Path $extracted) { Remove-Item $extracted -Recurse -Force }
     New-Item -ItemType Directory -Path $extracted -Force | Out-Null
-    & $python -c 'import py7zr,sys; py7zr.SevenZipFile(sys.argv[1], mode="r").extractall(path=sys.argv[2])' `
-        $archive $extracted 2>&1 | Write-Host
+    $sevenZip = Join-Path $toolsRoot '7zr.exe'
+    $sevenZipReady = (Test-Path $sevenZip) -and `
+        ((Get-FileHash $sevenZip -Algorithm SHA256).Hash.ToLowerInvariant() -eq `
+            $pins.windows.sevenZip.sha256.ToLowerInvariant())
+    if (-not $sevenZipReady) {
+        Invoke-ResilientDownload -Uri $pins.windows.sevenZip.url -OutFile $sevenZip `
+            -Sha256 $pins.windows.sevenZip.sha256
+    }
+    & $sevenZip x $archive "-o$extracted" -y 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "libmpv extraction failed with exit code $LASTEXITCODE." }
 
     $clientHeader = Get-ChildItem $extracted -Filter client.h -Recurse |
