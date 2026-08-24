@@ -639,8 +639,9 @@ ApplicationWindow {
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/user.svg"
-                        selected: window.partyOpen || party.active
-                        tooltipText: party.active ? "Active listening party" : "Listen together"
+                        selected: window.partyOpen
+                        activeIndicator: party.active
+                        tooltipText: party.active ? "Listening party active" : "Listen together"
                         onClicked: {
                             window.partyOpen = !window.partyOpen
                             if (window.partyOpen) {

@@ -6,6 +6,7 @@ Button {
     property url iconSource
     property url darkIconSource
     property bool selected: false
+    property bool activeIndicator: false
     property bool strong: false
     property string tooltipText: ""
 
@@ -31,6 +32,20 @@ Button {
         border.width: control.selected || control.strong ? 1 : 0
         border.color: control.strong ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.16)
         Behavior on color { ColorAnimation { duration: 100 } }
+    }
+
+    Rectangle {
+        visible: control.activeIndicator
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 3
+        anchors.rightMargin: 3
+        width: 7
+        height: 7
+        radius: width / 2
+        color: colorful.accent
+        border.width: 1
+        border.color: Qt.rgba(0.06, 0.06, 0.08, 0.9)
     }
 
     ToolTip.visible: control.hovered && control.tooltipText.length > 0
