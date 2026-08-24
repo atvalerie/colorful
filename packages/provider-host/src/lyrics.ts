@@ -13,7 +13,16 @@ import { dirname, join, resolve } from "node:path";
 const LRCLIB_BASE_URL = "https://lrclib.net/api";
 const LRCLIB_TIMEOUT_MS = 8_000;
 const DURATION_TOLERANCE_SECONDS = 3;
-let japaneseKuroshiro: Promise<Kuroshiro> | null = null;
+type JapaneseToken = {
+  surface_form: string;
+  pronunciation?: string;
+  reading?: string;
+  pos: string;
+  pos_detail_1: string;
+  basic_form?: string;
+};
+
+let japaneseKuromoji: Promise<KuromojiAnalyzer> | null = null;
 
 function japaneseDictionaryPath(): string {
   const configured = process.env.COLORFUL_KUROMOJI_DICT?.trim();
@@ -27,18 +36,19 @@ function japaneseDictionaryPath(): string {
   return found;
 }
 
-function japanese(): Promise<Kuroshiro> {
-  if (!japaneseKuroshiro) {
-    japaneseKuroshiro = (async () => {
-      const value = new Kuroshiro();
-      await value.init(new KuromojiAnalyzer({ dictPath: japaneseDictionaryPath() }));
-      return value;
+function japanese(): Promise<KuromojiAnalyzer> {
+  if (!japaneseKuromoji) {
+    japaneseKuromoji = (async () => {
+      const analyzer = new KuromojiAnalyzer({ dictPath: japaneseDictionaryPath() });
+      const converter = new Kuroshiro();
+      await converter.init(analyzer);
+      return analyzer;
     })().catch((error) => {
-      japaneseKuroshiro = null;
+      japaneseKuromoji = null;
       throw error;
     });
   }
-  return japaneseKuroshiro;
+  return japaneseKuromoji;
 }
 
 export type LyricLine = {
@@ -112,6 +122,75 @@ function tidyRomanization(value: string): string {
   return value.replace(/\s+/g, " ").replace(/\s+([,!?;:.])/g, "$1").trim();
 }
 
+function tidyJapaneseRomanization(value: string): string {
+  return value.replace(/\s+/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/([“‘(\[])\s+/g, "$1")
+    .replace(/\s+([”’)\]])/g, "$1")
+    .trim();
+}
+
+function patchJapaneseTokens(rawTokens: JapaneseToken[]): JapaneseToken[] {
+  const tokens = rawTokens.map((token) => ({ ...token }));
+  for (let index = 0; index < tokens.length; ++index) {
+    const token = tokens[index];
+    const previous = tokens[index - 1];
+    if (token?.pos === "助動詞" && (token.surface_form === "う" || token.surface_form === "ウ")
+        && previous?.pos === "動詞") {
+      const pronunciation = previous.pronunciation ?? previous.reading ?? previous.surface_form;
+      previous.surface_form += token.surface_form;
+      previous.pronunciation = `${pronunciation}ー`;
+      tokens.splice(index, 1);
+      --index;
+    }
+  }
+  for (let index = 0; index < tokens.length - 1; ++index) {
+    const token = tokens[index];
+    const next = tokens[index + 1];
+    if ((token?.pos === "動詞" || token?.pos === "形容詞")
+        && /[っッ]$/u.test(token.surface_form) && next) {
+      const pronunciation = token.pronunciation ?? token.reading ?? token.surface_form;
+      const nextPronunciation = next.pronunciation ?? next.reading ?? next.surface_form;
+      token.surface_form += next.surface_form;
+      token.pronunciation = pronunciation + nextPronunciation;
+      tokens.splice(index + 1, 1);
+      --index;
+    }
+  }
+  return tokens;
+}
+
+async function romanizeJapanese(value: string): Promise<string> {
+  const rawTokens = await (await japanese()).parse(value) as JapaneseToken[];
+  const tokens = patchJapaneseTokens(rawTokens);
+  const groups: string[] = [];
+  const punctuation: Record<string, string> = {
+    "「": "“", "」": "”", "『": "‘", "』": "’",
+    "（": "(", "）": ")", "［": "[", "］": "]",
+    "、": ",", "。": ".",
+  };
+  for (const token of tokens) {
+    if (token.pos === "記号" && token.pos_detail_1 === "空白") continue;
+    const source = punctuation[token.surface_form]
+      ?? token.pronunciation ?? token.reading ?? token.surface_form;
+    const text = token.pos === "記号"
+      ? source : Kuroshiro.Util.kanaToRomaji(source, "hepburn");
+    if (!text) continue;
+    const closesPunctuation = token.pos === "記号"
+      && /^(?:[」』）］】、。,.!?;:])$/u.test(token.surface_form);
+    const attachesToPrevious = (token.pos === "助動詞"
+        && token.basic_form !== "だ" && token.basic_form !== "です")
+      || (token.pos === "助詞" && token.pos_detail_1 === "接続助詞"
+        && ["て", "で", "ば", "たら", "たり"].includes(token.surface_form))
+      || (token.pos === "動詞" && token.pos_detail_1 === "非自立");
+    if ((closesPunctuation || attachesToPrevious) && groups.length > 0)
+      groups[groups.length - 1] += text;
+    else
+      groups.push(text);
+  }
+  return tidyJapaneseRomanization(groups.join(" "));
+}
+
 async function romanizeLine(value: string): Promise<string> {
   if (!value.trim() || !/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u.test(value)) return value;
   const language = likelyLanguage(value);
@@ -131,7 +210,7 @@ async function romanizeLine(value: string): Promise<string> {
       return romanizeHangul(hanja.translate(value, "SUBSTITUTION"));
     }
     if (hasKana || (hasHan && (language === "ja" || language === "jpn")))
-      return await (await japanese()).convert(value, { to: "romaji", mode: "spaced" });
+      return await romanizeJapanese(value);
     if (hasHan || language === "zh" || language === "zho" || language === "chi")
       return tidyRomanization(pinyin(value, {
         toneType: "none", type: "string", nonZh: "consecutive",
