@@ -4589,11 +4589,16 @@ QString Backend::discordTrackUrl(const QVariantMap &track)
 void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
+    // Native parties must remain connected on a recipient too: Discord sends
+    // the accepted-invite join secret through the Social SDK callback, not
+    // through the legacy RPC transport. This has no visual effect unless the
+    // user is actively hosting a party.
+    const bool nativeIntegrationEnabled = m_discordAskToJoinEnabled;
     const bool nativePartyRequested = m_discordPresenceEnabled && m_discordPartyActive
-        && m_discordAskToJoinEnabled;
+        && nativeIntegrationEnabled;
     // Keep normal Listening visible while Social SDK OAuth/Connect is still
     // running. Once it is ready, its party payload takes ownership.
-    m_discordSocial.setEnabled(nativePartyRequested);
+    m_discordSocial.setEnabled(nativeIntegrationEnabled);
     const bool useSocialParty = nativePartyRequested && m_discordSocial.ready();
     m_discordPresence.setEnabled(m_discordPresenceEnabled && !useSocialParty);
     if (track.isEmpty() || m_playback.state() == LinuxPlayback::State::Stopped) {

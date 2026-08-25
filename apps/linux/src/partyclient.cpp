@@ -1,6 +1,7 @@
 #include "partyclient.h"
 
 #include "backend.h"
+#include "debuglog.h"
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QNetworkReply>
@@ -277,7 +278,11 @@ void PartyClient::handleDiscordJoinSecret(const QString &secret)
         return;
     }
     const auto link = publicJoinSecretUrl(secret);
-    if (link.isEmpty()) return;
+    if (link.isEmpty()) {
+        DebugLog::write(u"party", QStringLiteral("Discord activity join did not contain a usable ticket"));
+        return;
+    }
+    DebugLog::write(u"party", QStringLiteral("Opening the party join panel from a Discord activity"));
     emit joinLinkReceived(link);
 }
 

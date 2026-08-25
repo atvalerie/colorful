@@ -116,7 +116,12 @@ DiscordSocial::DiscordSocial(QObject *parent)
     });
     m_private->client->SetActivityJoinCallback([this](std::string secret) {
         const auto ticket = validJoinSecret(fromUtf8(secret));
-        if (!ticket.isEmpty()) emit activityJoin(ticket);
+        if (ticket.isEmpty()) {
+            DebugLog::write(u"discord", QStringLiteral("Social SDK received an invalid activity join secret"));
+            return;
+        }
+        DebugLog::write(u"discord", QStringLiteral("Social SDK received an activity join request"));
+        emit activityJoin(ticket);
     });
     m_private->client->SetActivityInviteCreatedCallback([this](discordpp::ActivityInvite invite) {
         if (invite.Type() != discordpp::ActivityActionTypes::JoinRequest) return;
