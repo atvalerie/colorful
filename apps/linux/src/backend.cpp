@@ -210,7 +210,10 @@ Backend::Backend(QObject *parent)
     m_discordPresenceEnabled = settings.value(QStringLiteral("discord/presenceEnabled"), true).toBool();
     m_discordTrackButtonEnabled = settings.value(QStringLiteral("discord/trackButtonEnabled"), true).toBool();
     m_discordPartyButtonEnabled = settings.value(QStringLiteral("discord/partyButtonEnabled"), true).toBool();
-    m_discordAskToJoinEnabled = settings.value(QStringLiteral("discord/askToJoinEnabled"), true).toBool();
+    // Receiving native Discord party invites requires the authenticated RPC
+    // event subscription. Keep it opt-in so ordinary Rich Presence never
+    // triggers an unexpected Discord authorization prompt.
+    m_discordAskToJoinEnabled = settings.value(QStringLiteral("discord/askToJoinEnabled"), false).toBool();
     m_discordPresence.setTrackButtonEnabled(m_discordTrackButtonEnabled);
     m_discordPresence.setAskToJoinEnabled(m_discordAskToJoinEnabled);
     m_discordPresence.setEnabled(m_discordPresenceEnabled);

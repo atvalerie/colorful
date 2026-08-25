@@ -514,8 +514,8 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
 
 void DiscordPresence::beginAuthentication()
 {
-    if (!m_ready || m_authenticated || m_authorizationRequested || m_authorizationFailed
-        || !m_askToJoinEnabled || validJoinSecret(m_joinSecret).isEmpty()) return;
+    if (!m_ready || !m_hasDesiredActivity || m_authenticated || m_authorizationRequested
+        || m_authorizationFailed || !m_askToJoinEnabled) return;
     m_authorizationRequested = true;
     writeFrame(Opcode::Frame, {
         {QStringLiteral("cmd"), QStringLiteral("AUTHORIZE")},

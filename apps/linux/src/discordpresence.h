@@ -85,7 +85,7 @@ private:
     qint64 m_staleProcessId = 0;
     bool m_enabled = true;
     bool m_trackButtonEnabled = true;
-    bool m_askToJoinEnabled = true;
+    bool m_askToJoinEnabled = false;
     bool m_ready = false;
     bool m_authenticated = false;
     bool m_authorizationRequested = false;
