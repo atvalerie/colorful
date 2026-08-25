@@ -12,6 +12,7 @@ public:
     explicit DiscordSocial(QObject *parent = nullptr);
     ~DiscordSocial() override;
 
+    bool ready() const { return m_ready; }
     void shutdown();
     void setEnabled(bool enabled);
     void setTrackButtonEnabled(bool enabled);
@@ -44,7 +45,9 @@ private:
     void setReady(bool ready);
 
     std::unique_ptr<Private> m_private;
-    bool m_enabled = true;
+    // Social presence is opt-in per active party; legacy RPC owns normal
+    // listening activity until Backend explicitly enables this transport.
+    bool m_enabled = false;
     bool m_trackButtonEnabled = true;
     bool m_askToJoinEnabled = false;
     bool m_ready = false;

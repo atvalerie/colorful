@@ -83,6 +83,7 @@ struct DiscordSocial::Private {
     QString authorizationVerifier;
     bool authorizing = false;
     bool connected = false;
+    qint64 lastPresenceUpdateMs = 0;
 };
 
 DiscordSocial::DiscordSocial(QObject *parent)
@@ -164,14 +165,17 @@ void DiscordSocial::setEnabled(bool enabled)
     }
     m_private->callbacks.start();
     if (m_askToJoinEnabled) ensureAuthenticated();
-    publish();
+    // A party activity needs an authenticated Social SDK connection. Keep the
+    // desired state locally until that connection reaches Ready; publishing
+    // before then causes Discord clients to briefly cache a partial activity.
+    if (m_ready) publish();
 }
 
 void DiscordSocial::setTrackButtonEnabled(bool enabled)
 {
     if (m_trackButtonEnabled == enabled) return;
     m_trackButtonEnabled = enabled;
-    publish();
+    if (m_ready) publish();
 }
 
 void DiscordSocial::setAskToJoinEnabled(bool enabled)
@@ -216,7 +220,7 @@ void DiscordSocial::update(const QString &title, const QString &artist, const QS
     m_joinSecret = validJoinSecret(joinSecret);
     m_hasActivity = true;
     if (m_askToJoinEnabled) ensureAuthenticated();
-    publish();
+    if (m_ready) publish();
 }
 
 void DiscordSocial::clear()
@@ -271,7 +275,13 @@ void DiscordSocial::ensureAuthenticated()
 
 void DiscordSocial::publish()
 {
-    if (!m_enabled || !m_hasActivity || !m_private->client) return;
+    if (!m_enabled || !m_ready || !m_hasActivity || !m_private->client) return;
+    const auto now = QDateTime::currentMSecsSinceEpoch();
+    // UpdateRichPresence goes through the Social API, which has a much tighter
+    // rate limit than the desktop RPC. Coalesce duplicate state refreshes that
+    // often arrive together while playback and party state are settling.
+    if (now - m_private->lastPresenceUpdateMs < 2'000) return;
+    m_private->lastPresenceUpdateMs = now;
     discordpp::Activity activity;
     // Social SDK documents Playing as the interoperable type for party
     // activities. The detail keeps the music-focused presentation clear.
@@ -281,19 +291,16 @@ void DiscordSocial::publish()
                                                                    : m_artist + QStringLiteral(" · Paused"));
     if (!state.isEmpty()) activity.SetState(utf8(state.left(128)));
     if (m_playing) {
-        const auto now = QDateTime::currentMSecsSinceEpoch();
         discordpp::ActivityTimestamps timestamps;
         const auto start = static_cast<uint64_t>(std::max<qint64>(0, now - m_positionMs));
         timestamps.SetStart(start);
         if (m_durationMs > 0) timestamps.SetEnd(start + static_cast<uint64_t>(m_durationMs));
         activity.SetTimestamps(std::move(timestamps));
     }
-    if (!m_artworkUrl.isEmpty()) {
-        discordpp::ActivityAssets assets;
-        assets.SetLargeImage(utf8(m_artworkUrl));
-        assets.SetLargeText(utf8((m_album.isEmpty() ? m_title : m_album).left(128)));
-        activity.SetAssets(std::move(assets));
-    }
+    // Social SDK resolves external artwork server-side. Provider CDN URLs can
+    // reject that fetch, and Discord rejects the entire activity when they do.
+    // Keep party presence functional first; a portal-hosted Colorful asset can
+    // be added here later without making joinability depend on cover art.
     if (m_trackButtonEnabled && !m_trackUrl.isEmpty()) {
         discordpp::ActivityButton button;
         button.SetLabel("View Track");

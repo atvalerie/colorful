@@ -222,6 +222,12 @@ Backend::Backend(QObject *parent)
     m_discordSocial.setTrackButtonEnabled(m_discordTrackButtonEnabled);
     m_discordSocial.setAskToJoinEnabled(m_discordAskToJoinEnabled);
     m_discordSocial.setEnabled(false);
+    connect(&m_discordSocial, &DiscordSocial::readyChanged, this, [this](bool) {
+        // Switch from legacy Listening only after the authenticated Social
+        // SDK transport is ready. This keeps a continuous activity visible
+        // while Discord completes its OAuth/connection handshake.
+        updateDiscordPresence();
+    });
     connect(&m_discordSocial, &DiscordSocial::activityJoinRequested, this,
             [this](const QVariantMap &user) {
         if (!m_discordPartyActive) return;
@@ -4583,20 +4589,47 @@ QString Backend::discordTrackUrl(const QVariantMap &track)
 void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
-    const bool useSocialParty = m_discordPresenceEnabled && m_discordPartyActive
+    const bool nativePartyRequested = m_discordPresenceEnabled && m_discordPartyActive
         && m_discordAskToJoinEnabled;
-    // Never let the two transports publish concurrently. A normal listening
-    // activity should not claim a joinable party, while a party must use the
-    // Social SDK's Playing type, privacy, and desktop-support fields.
+    // Keep normal Listening visible while Social SDK OAuth/Connect is still
+    // running. Once it is ready, its party payload takes ownership.
+    m_discordSocial.setEnabled(nativePartyRequested);
+    const bool useSocialParty = nativePartyRequested && m_discordSocial.ready();
     m_discordPresence.setEnabled(m_discordPresenceEnabled && !useSocialParty);
-    m_discordSocial.setEnabled(useSocialParty);
     if (track.isEmpty() || m_playback.state() == LinuxPlayback::State::Stopped) {
         m_discordSocial.clear();
         m_discordPresence.clear();
         return;
     }
-    if (!useSocialParty) {
+    if (nativePartyRequested) {
+        // update() only stores the payload until the Social client is Ready.
+        // That avoids sending a partial unauthenticated activity to Discord.
+        m_discordSocial.update(
+            track.value(QStringLiteral("title")).toString(),
+            track.value(QStringLiteral("artistText")).toString(),
+            track.value(QStringLiteral("albumTitle")).toString(),
+            m_lowDataMode ? QString()
+                          : track.value(QStringLiteral("coverRemoteUrl"),
+                                        track.value(QStringLiteral("coverUrl"))).toString(),
+            m_playback.position(),
+            duration(),
+            playing(),
+            discordTrackUrl(track),
+            m_discordPartyId,
+            m_discordPartySize,
+            m_discordJoinPartyUrl,
+            m_discordJoinSecret);
+        if (useSocialParty) {
+            m_discordPresence.clear();
+            return;
+        }
+    } else {
         m_discordSocial.clear();
+    }
+
+    // Either native parties were not requested, or Social SDK is still
+    // connecting: publish the normal Listening payload as the fallback.
+    if (!useSocialParty) {
         m_discordPresence.update(
             track.value(QStringLiteral("title")).toString(),
             track.value(QStringLiteral("artistText")).toString(),
@@ -4611,24 +4644,7 @@ void Backend::updateDiscordPresence()
             m_discordPartyActive ? m_discordPartyId : QString{},
             m_discordPartyActive ? m_discordPartySize : 0,
             m_discordPartyActive ? m_discordJoinPartyUrl : QString{});
-        return;
     }
-    m_discordPresence.clear();
-    m_discordSocial.update(
-        track.value(QStringLiteral("title")).toString(),
-        track.value(QStringLiteral("artistText")).toString(),
-        track.value(QStringLiteral("albumTitle")).toString(),
-        m_lowDataMode ? QString()
-                      : track.value(QStringLiteral("coverRemoteUrl"),
-                                    track.value(QStringLiteral("coverUrl"))).toString(),
-        m_playback.position(),
-        duration(),
-        playing(),
-        discordTrackUrl(track),
-        m_discordPartyActive ? m_discordPartyId : QString{},
-        m_discordPartyActive ? m_discordPartySize : 0,
-        m_discordPartyActive ? m_discordJoinPartyUrl : QString{},
-        m_discordPartyActive ? m_discordJoinSecret : QString{});
 }
 
 QString Backend::trackKey(const QVariantMap &track) const
