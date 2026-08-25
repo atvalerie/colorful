@@ -92,7 +92,8 @@ to enable the desktop client's authenticated Discord RPC flow. The relay uses
 it to exchange a one-time authorization code at Discord, immediately returns
 the resulting short-lived access token to the requesting desktop client, and
 does not persist either value. Do not put this secret in Colorful desktop
-builds, repository files, or a client-side environment file. Test Discord
+builds or repository files; use an untracked deployment environment or secret
+manager. Test Discord
 accounts must be added to the application's tester list until the Discord app
 has production RPC access.
 

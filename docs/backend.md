@@ -90,8 +90,8 @@ Colorful.
 
 The relay never receives a party invite fragment, bootstrap key, party frames,
 or the resulting Discord token after returning it. It stores none of the OAuth
-codes or access tokens. The app secret must never be added to a desktop build,
-repository, or ordinary `.env` file. The Discord application needs the test
+codes or access tokens. The app secret must never be added to a desktop build
+or repository; use an untracked deployment environment or secret manager. The Discord application needs the test
 accounts added as approved testers until Discord approves the application for
 general RPC use.
 
