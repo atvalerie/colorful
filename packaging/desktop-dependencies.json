@@ -74,6 +74,11 @@
         "commit": "97b54ca9e75f5303507699d27c6b4f4efe4641a1",
         "url": "https://github.com/fastfloat/fast_float/archive/97b54ca9e75f5303507699d27c6b4f4efe4641a1.tar.gz",
         "sha256": "2b132274539286e41f37857cac22aa8441d21bd86d55de825a3342b149f66801"
+      },
+      "vulkanHeaders": {
+        "commit": "450bd2232225d6c7728a4108055ac2e37cef6475",
+        "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/450bd2232225d6c7728a4108055ac2e37cef6475.tar.gz",
+        "sha256": "26df9841c30806a994e2fdf42f7c87bcb1ced9db9a06033469123939fb3fa075"
       }
     },
     "linuxdeploy": {

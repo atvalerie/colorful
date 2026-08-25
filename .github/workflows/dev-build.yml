@@ -28,7 +28,6 @@ on:
           - linux
 
 permissions:
-  checks: write
   contents: read
 
 env:
@@ -93,44 +92,13 @@ jobs:
           cache-from: type=gha,scope=colorful-linux-builder
           cache-to: type=gha,mode=max,scope=colorful-linux-builder
       - name: Build pinned libplacebo layer
-        id: libplacebo-build
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          docker buildx build \
-            --file packaging/linux/Dockerfile \
-            --target colorful-libplacebo \
-            --cache-from type=gha,scope=colorful-linux-builder \
-            --cache-to type=gha,mode=max,scope=colorful-linux-builder \
-            --progress=plain . 2>&1 | tee "$RUNNER_TEMP/colorful-libplacebo-build.log"
-          build_status=${PIPESTATUS[0]}
-          set -e
-          exit "$build_status"
-      - name: Publish libplacebo diagnostic
-        if: steps.libplacebo-build.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: docker/build-push-action@v6
         with:
-          script: |
-            const fs = require('fs');
-            const log = fs.readFileSync(`${process.env.RUNNER_TEMP}/colorful-libplacebo-build.log`, 'utf8');
-            const matching = log.split(/\r?\n/).filter((line) =>
-              /ERROR|Error|error:|FAILED:|fatal:|Traceback|ModuleNotFound/.test(line));
-            const excerpt = (matching.length ? matching : log.split(/\r?\n/))
-              .slice(-20).join('\n').slice(-12000);
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'Pinned libplacebo diagnostic',
-              head_sha: context.sha,
-              status: 'completed',
-              conclusion: 'failure',
-              output: {
-                title: 'Pinned libplacebo build failed',
-                summary: `\`\`\`text\n${excerpt}\n\`\`\``
-              }
-            });
-            core.setFailed('Pinned libplacebo build failed; diagnostic check published.');
+          context: .
+          file: packaging/linux/Dockerfile
+          target: colorful-libplacebo
+          cache-from: type=gha,scope=colorful-linux-builder
+          cache-to: type=gha,mode=max,scope=colorful-linux-builder
       - name: Build pinned mpv layer
         uses: docker/build-push-action@v6
         with:

@@ -34,6 +34,7 @@ for (const [label, hash] of [
   ["Linux libmpv FFmpeg", pins.linux.libmpv.ffmpeg.sha256],
   ["Linux libplacebo", pins.linux.libmpv.libplacebo.sha256],
   ["Linux fast_float", pins.linux.libmpv.fastFloat.sha256],
+  ["Linux Vulkan-Headers", pins.linux.libmpv.vulkanHeaders.sha256],
 ]) {
   if (!/^[0-9a-f]{64}$/.test(hash)) failures.push(`${label} must have a lowercase SHA-256 pin`);
 }
@@ -51,6 +52,7 @@ requireText("packaging/linux/Dockerfile", "COPY packaging/desktop-dependencies.j
 requireText("packaging/linux/build-mpv-source.sh", "pin mpv.sourceCommit");
 requireText("packaging/linux/build-mpv-source.sh", "mpv-source-version");
 requireText("packaging/linux/build-mpv-source.sh", "pin linux.libmpv.ffmpeg.sha256");
+requireText("packaging/linux/build-mpv-source.sh", "pin linux.libmpv.vulkanHeaders.sha256");
 requireText("scripts/provision-windows-qt.ps1", "$pins.mpv.sourceVersion");
 requireText("scripts/build-windows-qt.ps1", "-DCOLORFUL_EXPECTED_MPV_VERSION");
 requireText("scripts/build-linux.sh", "-DCOLORFUL_EXPECTED_MPV_VERSION");
