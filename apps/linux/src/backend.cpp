@@ -4607,7 +4607,10 @@ void Backend::updateDiscordPresence()
             m_playback.position(),
             duration(),
             playing(),
-            discordTrackUrl(track));
+            discordTrackUrl(track),
+            m_discordPartyActive ? m_discordPartyId : QString{},
+            m_discordPartyActive ? m_discordPartySize : 0,
+            m_discordPartyActive ? m_discordJoinPartyUrl : QString{});
         return;
     }
     m_discordPresence.clear();
