@@ -53,6 +53,14 @@ function partyLandingPage(sessionId: string): Response {
   });
 }
 
+type DiscordTokenFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+export interface DiscordRpcConfiguration {
+  clientId?: string;
+  clientSecret?: string;
+  fetch?: DiscordTokenFetch;
+}
+
 function discordJoinLandingPage(): Response {
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Join in Colorful</title><style>body{margin:0;background:#0d0d10;color:#f5f5f5;font:16px system-ui;display:grid;min-height:100vh;place-items:center}.card{width:min(420px,calc(100% - 40px));padding:28px;border:1px solid #303038;background:#17171c}h1{font-size:24px;margin:0 0 8px}p{color:#aaaab3;line-height:1.5}a{display:block;margin-top:12px;padding:12px;text-align:center;text-decoration:none;color:#111;background:#f5f5f5}</style><main class="card"><h1>Join in Colorful</h1><p>This invite opens in Colorful. The relay never receives the secret after the # in this URL.</p><a id="open" href="#">Open in Colorful</a></main><script>const open=document.getElementById('open');const original=location.hash;open.href='colorful://discord/join'+original;open.addEventListener('click',async event=>{const match=/^#v1\\.([A-Za-z0-9_-]{43})\\.([A-Za-z0-9_-]{43})$/.exec(location.hash);if(!match)return;event.preventDefault();try{const response=await fetch('/v1/party-join-handles/mint',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handleLookup:match[1]})});if(!response.ok)throw new Error('stale');const body=await response.json();if(typeof body.ticketLookup!=='string')throw new Error('invalid');location.href='colorful://discord/join#v1.'+body.ticketLookup+'.'+match[2];}catch{location.href='colorful://discord/join'+original;}});</script></html>`;
   return new Response(html, {
@@ -97,7 +105,14 @@ function pathParts(request: Request): string[] {
 export function createRelayApp(
   store: OpaqueRelayStore = new OpaqueRelayStore(),
   listen: { hostname?: string; port?: number } = {},
+  discordRpc: DiscordRpcConfiguration = {},
 ): Bun.Serve.Options<RelaySocketData> {
+  // The client secret is intentionally deployment-only. Desktop apps receive
+  // the resulting short-lived user token, never this OAuth application secret.
+  const discordClientId = discordRpc.clientId ?? process.env.COLORFUL_DISCORD_APPLICATION_ID
+    ?? "1528095256820842606";
+  const discordClientSecret = discordRpc.clientSecret ?? process.env.COLORFUL_DISCORD_CLIENT_SECRET ?? "";
+  const discordFetch: DiscordTokenFetch = discordRpc.fetch ?? globalThis.fetch;
   const sockets = new Map<string, Set<RelaySocket>>();
   const startedAtMs = Date.now();
   let allocationWindowMs = startedAtMs;
@@ -111,6 +126,8 @@ export function createRelayApp(
   let joinHandleMintWindowMs = startedAtMs;
   let joinHandleMintsThisMinute = 0;
   let joinHandleMintsInFlight = 0;
+  let discordRpcWindowMs = startedAtMs;
+  let discordRpcExchangesThisMinute = 0;
   let activeRelayConnections = 0;
   let relayConnectionsAccepted = 0;
   let framesForwarded = 0;
@@ -147,6 +164,44 @@ export function createRelayApp(
 
       if (request.method === "GET" && url.pathname === "/discord/join")
         return discordJoinLandingPage();
+
+      if (request.method === "POST" && url.pathname === "/v1/discord/rpc-token") {
+        // This endpoint is deliberately unavailable until the relay operator
+        // supplies the Discord application's secret. It only exchanges a
+        // one-time, locally-authorized code; it stores neither code nor token.
+        if (!discordClientSecret) return errorResponse(503, "unavailable");
+        const now = Date.now();
+        if (now - discordRpcWindowMs >= 60_000) {
+          discordRpcWindowMs = now;
+          discordRpcExchangesThisMinute = 0;
+        }
+        if (++discordRpcExchangesThisMinute > 60) return errorResponse(429, "rate_limited");
+        try {
+          const body = await requestJson(request, 1024);
+          const code = typeof body.code === "string" ? body.code : "";
+          if (!/^[A-Za-z0-9._-]{8,512}$/.test(code)) return errorResponse(400, "invalid");
+          const tokenResponse = await discordFetch("https://discord.com/api/oauth2/token", {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: discordClientId,
+              client_secret: discordClientSecret,
+              grant_type: "authorization_code",
+              code,
+            }),
+          });
+          if (!tokenResponse.ok) return errorResponse(502, "unavailable");
+          const token = await tokenResponse.json() as { access_token?: unknown; expires_in?: unknown };
+          if (typeof token.access_token !== "string" || token.access_token.length === 0
+              || token.access_token.length > 4096) return errorResponse(502, "unavailable");
+          const expiresIn = typeof token.expires_in === "number" && Number.isFinite(token.expires_in)
+            ? Math.max(0, Math.min(Math.floor(token.expires_in), 86_400)) : 0;
+          return json({ ok: true, protocolVersion: PROTOCOL_VERSION,
+            accessToken: token.access_token, expiresIn });
+        } catch {
+          return errorResponse(502, "unavailable");
+        }
+      }
 
       if (request.method === "POST" && url.pathname === "/v1/mailboxes") {
         const now = Date.now();

@@ -10,6 +10,9 @@ services:
     environment:
       COLORFUL_RELAY_HOST: 0.0.0.0
       COLORFUL_RELAY_PORT: 8787
+      # Optional: enables Discord's authenticated Ask-to-Join flow. Keep this
+      # in the deployment environment, never in a desktop build or git.
+      COLORFUL_DISCORD_CLIENT_SECRET: ${COLORFUL_DISCORD_CLIENT_SECRET:-}
     ports:
       - "127.0.0.1:${COLORFUL_RELAY_PORT:-8787}:8787"
     networks:

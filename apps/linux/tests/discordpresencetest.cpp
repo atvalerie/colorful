@@ -57,6 +57,13 @@ int main(int argc, char **argv)
         || both.value(QStringLiteral("party")).toObject().value(QStringLiteral("size")).toArray().at(0).toInt() != 2
         || both.value(QStringLiteral("party")).toObject().value(QStringLiteral("size")).toArray().at(1).toInt() != 64) return 1;
 
+    const auto askToJoin = DiscordPresence::buildActivity(
+        QStringLiteral("Track"), QStringLiteral("Artist"), {}, {}, 0, 180000, true,
+        {}, false, QStringLiteral("relay-session"), 2, {},
+        QStringLiteral("v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"));
+    if (askToJoin.value(QStringLiteral("secrets")).toObject().value(QStringLiteral("join")).toString()
+            != QStringLiteral("v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE")) return 1;
+
     const auto badScheme = DiscordPresence::buildActivity(
         QStringLiteral("Track"), QStringLiteral("Artist"), {}, {}, 0, 180000, true,
         {}, false, QStringLiteral("relay-session"), 2,
@@ -78,5 +85,9 @@ int main(int argc, char **argv)
     const auto invalid = DiscordPresence::buildActivity(
         QStringLiteral("Track"), QStringLiteral("Artist"), {}, {}, 0, 180000, true,
         QStringLiteral("javascript:alert(1)"), true);
+    const auto invalidSecret = DiscordPresence::buildActivity(
+        QStringLiteral("Track"), QStringLiteral("Artist"), {}, {}, 0, 180000, true,
+        {}, false, QStringLiteral("relay-session"), 2, {}, QStringLiteral("not-a-ticket"));
+    if (!invalidSecret.value(QStringLiteral("secrets")).toObject().isEmpty()) return 1;
     return check(invalid, false);
 }

@@ -77,6 +77,24 @@ fragment and is used locally. The relay stores only a digest of the lookup and
 deletes the ticket before returning it, so replay fails. Hosts issue these
 tickets only when using `https://colorful.valerie.sh` as the relay.
 
+## Discord Ask-to-Join
+
+When the host enables **Ask to Join**, the desktop client uses Discord's local
+RPC authorization prompt. The returned one-time authorization code is sent to
+`POST /v1/discord/rpc-token` on the official relay; the relay exchanges it
+with Discord using its deployment-only `COLORFUL_DISCORD_CLIENT_SECRET` and
+returns the short-lived user access token to that same desktop client. The
+client authenticates its local Discord RPC connection, receives join requests,
+and sends Discord's accept or decline command only after the host chooses in
+Colorful.
+
+The relay never receives a party invite fragment, bootstrap key, party frames,
+or the resulting Discord token after returning it. It stores none of the OAuth
+codes or access tokens. The app secret must never be added to a desktop build,
+repository, or ordinary `.env` file. The Discord application needs the test
+accounts added as approved testers until Discord approves the application for
+general RPC use.
+
 For a public track share, any title/artwork/provider metadata shown in the
 preview is an intentional public disclosure and must be generated from a
 separate opt-in share record. It must never be inferred by uploading a local
@@ -90,8 +108,7 @@ insertion, capability separation, binary WebSocket forwarding, request/frame
 limits, and health checks.
 
 Not implemented: mDNS/LAN transport, ICE/STUN, TURN, QUIC, robust reconnects,
-durable encrypted mailbox storage, public share pages, and native Discord
-Ask-to-Join (which needs authenticated RPC or Discord Social SDK integration).
+durable encrypted mailbox storage, and public share pages.
 The Rust core supplies encrypted host-authoritative party frames and queue
 suggestion contracts, and the Qt desktop connects them to the binary WebSocket
 relay; see [parties.md](parties.md).

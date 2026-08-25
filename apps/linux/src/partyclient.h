@@ -72,6 +72,7 @@ public:
     Q_INVOKABLE void createParty(const QString &displayName, const QString &relayBaseUrl);
     Q_INVOKABLE void joinParty(const QString &link, const QString &displayName,
                                const QString &relayBaseUrl);
+    Q_INVOKABLE void handleDiscordJoinSecret(const QString &secret);
     Q_INVOKABLE bool handlePartyLink(const QString &link);
     Q_INVOKABLE void suggestTrack(const QVariantMap &track);
     Q_INVOKABLE void enqueueTrack(const QVariantMap &track);
@@ -120,6 +121,7 @@ private:
     void joinPartyWithFragment(const QString &session, const QString &fragment,
                                const QString &displayName);
     static QString publicJoinTicketFromUrl(const QUrl &url);
+    static QString publicJoinSecretUrl(const QString &secret);
 
     Backend *m_backend = nullptr;
     PartyCoreBridge m_core;

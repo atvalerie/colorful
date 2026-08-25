@@ -509,6 +509,27 @@ Item {
                                 opacity: colorful.discordPresenceEnabled ? 1 : 0.42
                                 Column {
                                     anchors.left: parent.left; anchors.leftMargin: 18
+                                    anchors.right: askToJoinSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "Ask to Join"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Let friends request access to your party; you approve each request in Listen together."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: askToJoinSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22; enabled: colorful.discordPresenceEnabled
+                                    color: colorful.discordAskToJoinEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordAskToJoinEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordAskToJoinEnabled ? parent.width - width - 3 : 3; color: colorful.discordAskToJoinEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordAskToJoinEnabled = !colorful.discordAskToJoinEnabled }
+                                }
+                            }
+                            Item {
+                                width: parent.width; height: 70
+                                opacity: colorful.discordPresenceEnabled ? 1 : 0.42
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 18
                                     anchors.right: trackButtonSwitch.left; anchors.rightMargin: 18
                                     anchors.verticalCenter: parent.verticalCenter; spacing: 3
                                     Text { text: "View Track button"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }

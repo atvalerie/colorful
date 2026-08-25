@@ -121,6 +121,8 @@ PartyClient::PartyClient(Backend *backend, QObject *parent)
         refreshPublicJoinTicket();
         publishDiscordPartyState();
     });
+    connect(backend, &Backend::discordPartyJoinReceived, this,
+            &PartyClient::handleDiscordJoinSecret);
     connect(backend, &Backend::currentTrackChanged, this, [this] {
         if (m_role == QStringLiteral("host") && !m_applyingRemote) {
             ++m_generation;
@@ -258,6 +260,25 @@ QString PartyClient::publicJoinTicketFromUrl(const QUrl &url)
         || !url.query(QUrl::FullyEncoded).isEmpty()
         || url.fragment(QUrl::FullyEncoded).contains(QLatin1Char('%'))) return {};
     return canonicalPublicJoinTicket(url.fragment(QUrl::FullyEncoded));
+}
+
+QString PartyClient::publicJoinSecretUrl(const QString &secret)
+{
+    const auto ticket = canonicalPublicJoinTicket(secret);
+    return ticket.isEmpty() ? QString{}
+                            : QStringLiteral("colorful://discord/join#%1").arg(ticket);
+}
+
+void PartyClient::handleDiscordJoinSecret(const QString &secret)
+{
+    if (m_active) {
+        emit notification(QStringLiteral("Leave your current party before joining a Discord invite"),
+                          QStringLiteral("warning"));
+        return;
+    }
+    const auto link = publicJoinSecretUrl(secret);
+    if (link.isEmpty()) return;
+    emit joinLinkReceived(link);
 }
 
 bool PartyClient::handlePartyLink(const QString &link)
@@ -537,22 +558,26 @@ void PartyClient::publishDiscordPartyState()
 {
     const bool partyActive = m_active && !m_relaySessionId.isEmpty();
     QString joinUrl;
+    QString joinSecret;
     if (partyActive && m_role == QStringLiteral("host") && m_joinEnabled
-        && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled()
+        && m_backend->discordPresenceEnabled()
         && m_publicJoinTicketExpiresAtMs > QDateTime::currentMSecsSinceEpoch()
         && canonicalPublicJoinTicket(m_publicJoinTicket) == m_publicJoinTicket) {
-        joinUrl = QStringLiteral("https://colorful.valerie.sh/discord/join#%1")
-                      .arg(m_publicJoinTicket);
+        if (m_backend->discordPartyButtonEnabled())
+            joinUrl = QStringLiteral("https://colorful.valerie.sh/discord/join#%1")
+                          .arg(m_publicJoinTicket);
+        if (m_backend->discordAskToJoinEnabled()) joinSecret = m_publicJoinTicket;
     }
     m_backend->setDiscordPartyState(partyActive, m_relaySessionId,
-                                    qMax(1, m_participants.size()), joinUrl);
+                                    qMax(1, m_participants.size()), joinUrl, joinSecret);
 }
 
 void PartyClient::refreshPublicJoinTicket()
 {
     const auto now = QDateTime::currentMSecsSinceEpoch();
     const bool eligible = m_active && m_role == QStringLiteral("host") && m_joinEnabled
-        && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled()
+        && m_backend->discordPresenceEnabled()
+        && (m_backend->discordPartyButtonEnabled() || m_backend->discordAskToJoinEnabled())
         && !m_relaySessionId.isEmpty() && !m_relayHostCapability.isEmpty()
         && !m_inviteFragment.isEmpty() && isPublicPartyRelay(m_relayBaseUrl)
         && m_expiresAtMs >= now + 5'000;
@@ -626,7 +651,8 @@ void PartyClient::refreshPublicJoinTicket()
             // can revoke the just-created record for us.
             const bool terminal = !m_active || m_role != QStringLiteral("host")
                 || !m_joinEnabled || !m_backend->discordPresenceEnabled()
-                || !m_backend->discordPartyButtonEnabled();
+                || (!m_backend->discordPartyButtonEnabled()
+                    && !m_backend->discordAskToJoinEnabled());
             if (terminal)
                 revokePublicJoinHandle(sessionId, ticketLookup, relayBaseUrl, hostCapability);
             return;
@@ -636,7 +662,8 @@ void PartyClient::refreshPublicJoinTicket()
         const bool stillEligible = m_active && m_role == QStringLiteral("host")
             && m_joinEnabled && m_relaySessionId == sessionId
             && m_inviteFragment == inviteFragment
-            && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled();
+            && m_backend->discordPresenceEnabled()
+            && (m_backend->discordPartyButtonEnabled() || m_backend->discordAskToJoinEnabled());
         if (!stillEligible || networkError != QNetworkReply::NoError || status != 201
             || object.value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion
             || object.value(QStringLiteral("expiresAtMs")).toInteger() != expiresAtMs) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createRelayApp } from "./server";
+import type { DiscordRpcConfiguration } from "./server";
 import type { RelaySocketData } from "./server";
 import { OpaqueRelayStore } from "./store";
 import { randomToken } from "./protocol";
@@ -10,11 +11,11 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.stop(true);
 });
 
-async function startTestServer(): Promise<Bun.Server<RelaySocketData>> {
+async function startTestServer(discordRpc: DiscordRpcConfiguration = { clientSecret: "" }): Promise<Bun.Server<RelaySocketData>> {
   const server = Bun.serve<RelaySocketData>(createRelayApp(new OpaqueRelayStore(), {
     hostname: "127.0.0.1",
     port: 0,
-  }));
+  }, discordRpc));
   servers.push(server);
   return server;
 }
@@ -119,6 +120,36 @@ describe("relay HTTP API", () => {
     expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(response.headers.get("content-security-policy")).toContain("connect-src 'self'");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  test("keeps the Discord OAuth exchange unavailable without the deployment secret", async () => {
+    const server = await startTestServer();
+    const origin = `http://${server.hostname}:${server.port}`;
+    const response = await fetch(`${origin}/v1/discord/rpc-token`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "abcdefgh" }),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "unavailable" });
+  });
+
+  test("exchanges an authorized Discord RPC code without persisting the token", async () => {
+    let form = "";
+    const server = await startTestServer({ clientId: "discord-app", clientSecret: "deployment-secret",
+      fetch: async (_input, init) => {
+        form = String(init?.body ?? "");
+        return new Response(JSON.stringify({ access_token: "short-lived-token", expires_in: 3600 }), {
+          headers: { "content-type": "application/json" },
+        });
+      } });
+    const origin = `http://${server.hostname}:${server.port}`;
+    const response = await fetch(`${origin}/v1/discord/rpc-token`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "abcdefgh" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ accessToken: "short-lived-token", expiresIn: 3600 });
+    expect(form).toContain("client_id=discord-app");
+    expect(form).toContain("client_secret=deployment-secret");
+    expect(form).toContain("code=abcdefgh");
   });
 
   test("issues and redeems host-authenticated one-use join tickets", async () => {
