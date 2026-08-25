@@ -28,7 +28,6 @@ on:
           - linux
 
 permissions:
-  checks: write
   contents: read
 
 env:
@@ -129,41 +128,9 @@ jobs:
             linux-desktop-
             linux-dev-
       - name: Build AppImage and portable archive
-        id: linux-package-build
-        continue-on-error: true
         env:
           COLORFUL_SKIP_LINUX_BUILDER_BUILD: "1"
-        shell: bash
-        run: |
-          set +e
-          ./scripts/package-linux-docker.sh 2>&1 | tee "$RUNNER_TEMP/colorful-linux-package-build.log"
-          build_status=${PIPESTATUS[0]}
-          set -e
-          exit "$build_status"
-      - name: Publish Linux package diagnostic
-        if: steps.linux-package-build.outcome == 'failure'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const log = fs.readFileSync(`${process.env.RUNNER_TEMP}/colorful-linux-package-build.log`, 'utf8');
-            const matching = log.split(/\r?\n/).filter((line) =>
-              /ERROR|Error|error:|FAILED:|fatal:|Traceback|ModuleNotFound|not found|No such file|missing:|failed|does not match|unresolved|leaks|Permission denied/.test(line));
-            const excerpt = (matching.length ? matching : log.split(/\r?\n/))
-              .slice(-40).join('\n').slice(-20000);
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'Linux package diagnostic',
-              head_sha: context.sha,
-              status: 'completed',
-              conclusion: 'failure',
-              output: {
-                title: 'Linux AppImage packaging failed',
-                summary: `\`\`\`text\n${excerpt}\n\`\`\``
-              }
-            });
-            core.setFailed('Linux AppImage packaging failed; diagnostic check published.');
+        run: ./scripts/package-linux-docker.sh
       - uses: actions/upload-artifact@v4
         with:
           name: colorful-linux-dev-${{ github.run_number }}-${{ github.sha }}
