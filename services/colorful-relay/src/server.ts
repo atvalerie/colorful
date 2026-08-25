@@ -21,6 +21,18 @@ export interface RelaySocketData {
   rateBytes: number;
 }
 
+export interface DiscordRpcConfiguration {
+  clientId?: string;
+  clientSecret?: string;
+  fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+}
+
+export interface RelayAppOptions {
+  hostname?: string;
+  port?: number;
+  discordRpc?: DiscordRpcConfiguration;
+}
+
 type RelaySocket = Bun.ServerWebSocket<RelaySocketData>;
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -77,12 +89,17 @@ function pathParts(request: Request): string[] {
 
 export function createRelayApp(
   store: OpaqueRelayStore = new OpaqueRelayStore(),
-  listen: { hostname?: string; port?: number } = {},
+  options: RelayAppOptions = {},
 ): Bun.Serve.Options<RelaySocketData> {
+  const { discordRpc, ...listen } = options;
+  const discordClientId = discordRpc?.clientId ?? process.env.COLORFUL_DISCORD_CLIENT_ID ?? "1528095256820842606";
+  const discordClientSecret = discordRpc?.clientSecret ?? process.env.COLORFUL_DISCORD_CLIENT_SECRET ?? "";
+  const discordFetch = discordRpc?.fetch ?? fetch;
   const sockets = new Map<string, Set<RelaySocket>>();
   const startedAtMs = Date.now();
   let allocationWindowMs = startedAtMs;
   let allocationsThisMinute = 0;
+  let discordExchangesThisMinute = 0;
   let activeRelayConnections = 0;
   let relayConnectionsAccepted = 0;
   let framesForwarded = 0;
@@ -111,6 +128,38 @@ export function createRelayApp(
           framesForwarded,
           bytesForwarded,
         });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/discord/rpc-token") {
+        if (!discordClientSecret) return errorResponse(503, "discord_rpc_unavailable");
+        const now = Date.now();
+        if (now - allocationWindowMs >= 60_000) {
+          allocationWindowMs = now;
+          allocationsThisMinute = 0;
+          discordExchangesThisMinute = 0;
+        }
+        if (++discordExchangesThisMinute > 60) return errorResponse(429, "rate_limited");
+        try {
+          const body = await requestJson(request);
+          const code = typeof body.code === "string" ? body.code : "";
+          if (!/^[A-Za-z0-9._~-]{16,2048}$/.test(code)) return errorResponse(400, "invalid");
+          const response = await discordFetch("https://discord.com/api/oauth2/token", {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: discordClientId,
+              client_secret: discordClientSecret,
+              grant_type: "authorization_code",
+              code,
+            }),
+          });
+          const payload = await response.json() as { access_token?: unknown };
+          const accessToken = typeof payload.access_token === "string" ? payload.access_token : "";
+          if (!response.ok || !accessToken) return errorResponse(502, "discord_rpc_exchange_failed");
+          return json({ ok: true, accessToken });
+        } catch {
+          return errorResponse(502, "discord_rpc_exchange_failed");
+        }
       }
 
       if (request.method === "GET" && parts[0] === "party" && parts.length === 2

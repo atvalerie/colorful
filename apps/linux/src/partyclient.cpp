@@ -191,6 +191,68 @@ bool PartyClient::handlePartyLink(const QString &link)
     return true;
 }
 
+QString PartyClient::discordPartyId() const
+{
+    return partySessionFromUrl(QUrl(m_shareUrl));
+}
+
+QString PartyClient::discordJoinSecret() const
+{
+    const QUrl url(m_shareUrl);
+    const auto session = partySessionFromUrl(url);
+    const auto fragment = url.fragment(QUrl::FullyEncoded);
+    if (session.isEmpty() || fragment.isEmpty()) return {};
+    // The relay session is public routing information; the fragment is the
+    // end-to-end capability. Discord keeps this secret off the public
+    // presence and shares it only with accepted invitees.
+    const auto secret = QStringLiteral("cfp1.%1.%2").arg(session, fragment);
+    return secret.toUtf8().size() <= 128 ? secret : QString{};
+}
+
+void PartyClient::receiveDiscordJoinSecret(const QString &secret)
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("^cfp1\\.([A-Za-z0-9_-]{8,64})\\.([A-Za-z0-9_.~-]{16,128})$"));
+    const auto match = pattern.match(secret);
+    if (!match.hasMatch()) {
+        emit notification(QStringLiteral("Discord sent an invalid Colorful party invite"), QStringLiteral("error"));
+        return;
+    }
+    handlePartyLink(QStringLiteral("colorful://party/%1#%2")
+                        .arg(match.captured(1), match.captured(2)));
+}
+
+void PartyClient::receiveDiscordJoinRequest(const QVariantMap &request)
+{
+    if (!m_active || m_role != QStringLiteral("host") || !m_joinEnabled) return;
+    const auto userId = request.value(QStringLiteral("userId")).toString();
+    if (userId.isEmpty()) return;
+    for (const auto &value : std::as_const(m_discordJoinRequests))
+        if (value.toMap().value(QStringLiteral("userId")).toString() == userId) return;
+    m_discordJoinRequests.append(request);
+    emit notification(QStringLiteral("Discord join request from %1")
+                          .arg(request.value(QStringLiteral("globalName"),
+                                             request.value(QStringLiteral("username"))).toString()),
+                      QStringLiteral("info"));
+    emit stateChanged();
+}
+
+void PartyClient::respondToDiscordJoinRequest(const QString &userId, bool accepted)
+{
+    if (userId.isEmpty()) return;
+    for (qsizetype index = 0; index < m_discordJoinRequests.size(); ++index) {
+        if (m_discordJoinRequests.at(index).toMap().value(QStringLiteral("userId")).toString() != userId)
+            continue;
+        m_discordJoinRequests.removeAt(index);
+        m_backend->respondToDiscordJoinRequest(userId, accepted);
+        emit notification(accepted ? QStringLiteral("Discord party invite sent")
+                                   : QStringLiteral("Discord join request declined"),
+                          accepted ? QStringLiteral("success") : QStringLiteral("info"));
+        emit stateChanged();
+        return;
+    }
+}
+
 void PartyClient::joinParty(const QString &link, const QString &displayName,
                             const QString &relayBaseUrl)
 {
@@ -691,6 +753,7 @@ void PartyClient::leave()
     m_expiresAtMs = 0;
     m_joinEnabled = true;
     m_participants.clear();
+    m_discordJoinRequests.clear();
     m_queue.clear();
     m_currentEntryId.clear();
     m_lastTrackKey.clear();

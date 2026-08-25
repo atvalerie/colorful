@@ -24,6 +24,7 @@ class PartyClient final : public QObject
     Q_PROPERTY(QString shareUrl READ shareUrl NOTIFY stateChanged)
     Q_PROPERTY(qint64 expiresAtMs READ expiresAtMs NOTIFY stateChanged)
     Q_PROPERTY(bool joinEnabled READ joinEnabled NOTIFY stateChanged)
+    Q_PROPERTY(QVariantList discordJoinRequests READ discordJoinRequests NOTIFY stateChanged)
     Q_PROPERTY(QVariantList participants READ participants NOTIFY stateChanged)
     Q_PROPERTY(QVariantList queue READ queue NOTIFY stateChanged)
     Q_PROPERTY(QVariantList playbackQueue READ playbackQueue NOTIFY stateChanged)
@@ -47,6 +48,7 @@ public:
     QString shareUrl() const { return m_shareUrl; }
     qint64 expiresAtMs() const { return m_expiresAtMs; }
     bool joinEnabled() const { return m_joinEnabled; }
+    QVariantList discordJoinRequests() const { return m_discordJoinRequests; }
     QVariantList participants() const { return m_participants; }
     QVariantList queue() const { return m_queue; }
     QVariantList playbackQueue() const;
@@ -77,6 +79,11 @@ public:
     Q_INVOKABLE void setCoHost(const QString &participantId, bool enabled);
     Q_INVOKABLE void kick(const QString &participantId);
     Q_INVOKABLE void leave();
+    Q_INVOKABLE void respondToDiscordJoinRequest(const QString &userId, bool accepted);
+    void receiveDiscordJoinRequest(const QVariantMap &request);
+    void receiveDiscordJoinSecret(const QString &secret);
+    QString discordPartyId() const;
+    QString discordJoinSecret() const;
 
 signals:
     void stateChanged();
@@ -125,6 +132,7 @@ private:
     QString m_lastTrackKey;
     QString m_participantId;
     QVariantList m_participants;
+    QVariantList m_discordJoinRequests;
     QVariantList m_queue;
     QJsonObject m_lastPlayback;
     QHash<QString, QString> m_entryByTrackKey;

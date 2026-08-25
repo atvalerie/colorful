@@ -10,6 +10,10 @@ services:
     environment:
       COLORFUL_RELAY_HOST: 0.0.0.0
       COLORFUL_RELAY_PORT: 8787
+      # Keep this only in the deployment environment/secret manager. It is
+      # used to exchange Discord's one-time local RPC authorization code and
+      # is never shipped to desktop clients.
+      COLORFUL_DISCORD_CLIENT_SECRET: ${COLORFUL_DISCORD_CLIENT_SECRET:-}
     ports:
       - "127.0.0.1:${COLORFUL_RELAY_PORT:-8787}:8787"
     networks:

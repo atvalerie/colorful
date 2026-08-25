@@ -277,6 +277,20 @@ int main(int argc, char *argv[])
     Backend backend;
     DebugLog::write(u"startup", QStringLiteral("backend shell constructed after %1 ms").arg(startupTimer.elapsed()));
     PartyClient party(&backend);
+    const auto syncDiscordParty = [&backend, &party] {
+        const bool hosting = party.active() && party.role() == QStringLiteral("host");
+        backend.updateDiscordParty(hosting ? party.discordPartyId() : QString{},
+                                   hosting ? party.participants().size() : 0,
+                                   16,
+                                   hosting ? party.discordJoinSecret() : QString{},
+                                   hosting && party.joinEnabled());
+    };
+    QObject::connect(&party, &PartyClient::stateChanged, &backend, syncDiscordParty);
+    QObject::connect(&backend, &Backend::discordJoinRequested, &party,
+                     [&party](const QVariantMap &request) { party.receiveDiscordJoinRequest(request); });
+    QObject::connect(&backend, &Backend::discordPartyJoin, &party,
+                     [&party](const QString &secret) { party.receiveDiscordJoinSecret(secret); });
+    syncDiscordParty();
     UpdateManager updater;
     QLocalServer instanceServer;
     if (!instanceServer.listen(QString::fromLatin1(InstanceServerName))) {

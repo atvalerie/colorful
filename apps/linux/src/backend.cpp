@@ -278,6 +278,13 @@ Backend::Backend(QObject *parent)
         emit playbackChanged();
         updateDiscordPresence();
     });
+    connect(&m_discordPresence, &DiscordPresence::activityJoinRequested,
+            this, &Backend::discordJoinRequested);
+    connect(&m_discordPresence, &DiscordPresence::activityJoin,
+            this, &Backend::discordPartyJoin);
+    m_discordPartyInvitesEnabled = QSettings().value(
+        QStringLiteral("discord/partyInvitesEnabled"), false).toBool();
+    m_discordPresence.setPartyInvitesEnabled(m_discordPartyInvitesEnabled);
     connect(this, &Backend::currentTrackChanged, this, [this] {
         emit durationChanged();
         const auto currentKey = trackKey(currentTrack());
@@ -3317,6 +3324,15 @@ void Backend::setOnboardingCompleted(bool completed)
     emit onboardingCompletedChanged();
 }
 
+void Backend::setDiscordPartyInvitesEnabled(bool enabled)
+{
+    if (m_discordPartyInvitesEnabled == enabled) return;
+    m_discordPartyInvitesEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/partyInvitesEnabled"), enabled);
+    m_discordPresence.setPartyInvitesEnabled(enabled);
+    emit discordPartyInvitesEnabledChanged();
+}
+
 void Backend::setPartyDiagnosticsEnabled(bool enabled)
 {
     if (m_partyDiagnosticsEnabled == enabled) return;
@@ -4070,6 +4086,11 @@ void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
     if (track.isEmpty() || m_playback.state() == LinuxPlayback::State::Stopped) {
+        if (m_discordPresence.partyJoinEnabled()) {
+            m_discordPresence.update(QStringLiteral("Listening together"),
+                                     QStringLiteral("Colorful party"), {}, {}, 0, 0, false);
+            return;
+        }
         m_discordPresence.clear();
         return;
     }
@@ -4083,6 +4104,18 @@ void Backend::updateDiscordPresence()
         m_playback.position(),
         duration(),
         playing());
+}
+
+void Backend::updateDiscordParty(const QString &partyId, int currentSize, int maximumSize,
+                                 const QString &joinSecret, bool joinEnabled)
+{
+    m_discordPresence.setParty(partyId, currentSize, maximumSize, joinSecret, joinEnabled);
+    updateDiscordPresence();
+}
+
+void Backend::respondToDiscordJoinRequest(const QString &userId, bool accepted)
+{
+    m_discordPresence.respondToJoinRequest(userId, accepted);
 }
 
 QString Backend::trackKey(const QVariantMap &track) const

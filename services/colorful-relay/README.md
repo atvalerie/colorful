@@ -40,6 +40,7 @@ PUT  /v1/mailboxes/<id>/messages/<message-id>
 DELETE /v1/mailboxes/<id>/messages/<message-id>
 POST /v1/party-sessions
 GET  /v1/party-sessions/<id>/relay   (WebSocket upgrade)
+POST /v1/discord/rpc-token
 ```
 
 Mailbox and party creation return bearer capabilities once. Clients should
@@ -78,6 +79,16 @@ Use `COLORFUL_RELAY_HOST` and `COLORFUL_RELAY_PORT` to configure binding. Keep
 the development default bound to loopback; a public deployment must sit behind
 TLS, authentication-aware rate limiting, connection limits, and a rate-limiting
 edge. The service does not terminate application-layer end-to-end encryption.
+
+### Discord party invites
+
+`POST /v1/discord/rpc-token` exchanges a short-lived Discord local-RPC
+authorization code for the desktop client. It exists so the Discord OAuth
+client secret stays on the relay and is never placed in a Windows build,
+portable archive, or AppImage. Configure `COLORFUL_DISCORD_CLIENT_SECRET` in
+the deployment secret manager (and optionally `COLORFUL_DISCORD_CLIENT_ID`);
+the endpoint returns `503` when that secret is absent. It stores neither the
+authorization code nor the resulting access token.
 
 ## Docker Compose deployment
 

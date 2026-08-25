@@ -90,6 +90,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
     Q_PROPERTY(bool onboardingCompleted READ onboardingCompleted WRITE setOnboardingCompleted NOTIFY onboardingCompletedChanged)
     Q_PROPERTY(bool partyDiagnosticsEnabled READ partyDiagnosticsEnabled WRITE setPartyDiagnosticsEnabled NOTIFY partyDiagnosticsEnabledChanged)
+    Q_PROPERTY(bool discordPartyInvitesEnabled READ discordPartyInvitesEnabled WRITE setDiscordPartyInvitesEnabled NOTIFY discordPartyInvitesEnabledChanged)
     Q_PROPERTY(QVariantList equalizerBands READ equalizerBands NOTIFY audioProcessingChanged)
     Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
@@ -169,6 +170,7 @@ public:
     bool normalizationEnabled() const { return m_normalizationEnabled; }
     bool onboardingCompleted() const { return m_onboardingCompleted; }
     bool partyDiagnosticsEnabled() const { return m_partyDiagnosticsEnabled; }
+    bool discordPartyInvitesEnabled() const { return m_discordPartyInvitesEnabled; }
     QVariantList equalizerBands() const { return m_equalizerBands; }
     QString equalizerPreset() const { return m_equalizerPreset; }
     QVariantMap listenStats() const { return m_listenStats; }
@@ -184,6 +186,9 @@ public:
     void seekParty(qint64 positionMs);
     void setPartyPlaybackRate(double rate);
     void leavePartyPlayback();
+    void updateDiscordParty(const QString &partyId, int currentSize, int maximumSize,
+                            const QString &joinSecret, bool joinEnabled);
+    void respondToDiscordJoinRequest(const QString &userId, bool accepted);
 
     Q_INVOKABLE void startLogin();
     Q_INVOKABLE void openVerificationUrl();
@@ -276,6 +281,7 @@ public:
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
     Q_INVOKABLE void setOnboardingCompleted(bool completed);
     Q_INVOKABLE void setPartyDiagnosticsEnabled(bool enabled);
+    Q_INVOKABLE void setDiscordPartyInvitesEnabled(bool enabled);
     Q_INVOKABLE void setEqualizerBand(int index, double gainDb);
     Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
     Q_INVOKABLE void setAccentMode(const QString &mode);
@@ -325,7 +331,10 @@ signals:
     void audioProcessingChanged();
     void onboardingCompletedChanged();
     void partyDiagnosticsEnabledChanged();
+    void discordPartyInvitesEnabledChanged();
     void listenStatsChanged();
+    void discordJoinRequested(const QVariantMap &request);
+    void discordPartyJoin(const QString &secret);
     void toastRequested(const QString &message, const QString &kind);
     void seeked(qint64 positionMs);
     void quitRequested();
@@ -549,6 +558,7 @@ private:
     qint64 m_listenedMs = 0;
     bool m_playbackReady = false;
     bool m_partyDiagnosticsEnabled = false;
+    bool m_discordPartyInvitesEnabled = false;
     bool m_partyPlaybackActive = false;
     QVariantMap m_partyTrack;
     QVariantMap m_partyPreparedTrack;

@@ -57,6 +57,47 @@ describe("relay HTTP API", () => {
     expect(await response.json()).toMatchObject({ error: "not_found" });
   });
 
+  test("does not expose Discord RPC token exchange without a deployment secret", async () => {
+    const server = await startTestServer();
+    const origin = `http://${server.hostname}:${server.port}`;
+    const response = await fetch(`${origin}/v1/discord/rpc-token`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "a".repeat(32) }),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "discord_rpc_unavailable" });
+  });
+
+  test("exchanges a Discord authorization code without returning the client secret", async () => {
+    const server = Bun.serve<RelaySocketData>(createRelayApp(new OpaqueRelayStore(), {
+      hostname: "127.0.0.1",
+      port: 0,
+      discordRpc: {
+        clientId: "client-id",
+        clientSecret: "do-not-leak",
+        fetch: async (input, init) => {
+          expect(input).toBe("https://discord.com/api/oauth2/token");
+          expect(init?.method).toBe("POST");
+          expect(init?.headers).toMatchObject({ "content-type": "application/x-www-form-urlencoded" });
+          expect(String(init?.body)).toContain("client_secret=do-not-leak");
+          return new Response(JSON.stringify({ access_token: "access-token" }), { status: 200 });
+        },
+      },
+    }));
+    servers.push(server);
+    const origin = `http://${server.hostname}:${server.port}`;
+    const response = await fetch(`${origin}/v1/discord/rpc-token`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "a".repeat(32) }),
+    });
+    expect(response.status).toBe(200);
+    const payload = await response.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({ ok: true, accessToken: "access-token" });
+    expect(JSON.stringify(payload)).not.toContain("do-not-leak");
+  });
+
   test("party creation returns separate short-lived capabilities", async () => {
     const server = await startTestServer();
     const origin = `http://${server.hostname}:${server.port}`;

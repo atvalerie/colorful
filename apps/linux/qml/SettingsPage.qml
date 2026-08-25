@@ -454,6 +454,27 @@ Item {
                     width: Math.min(parent.width, 820); spacing: 12
                     Text { text: "Integrations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
                     Text { text: "Discord Rich Presence starts automatically while Discord is running."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 82
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        Column {
+                            anchors.left: parent.left; anchors.leftMargin: 15
+                            anchors.right: discordPartyInvitesSwitch.left; anchors.rightMargin: 18
+                            anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                            Text { text: "Discord party invites"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text { width: parent.width; text: "Receive Discord party invitations while colorful is running. Enabling this asks Discord for permission once."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
+                        }
+                        Rectangle {
+                            id: discordPartyInvitesSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 15; anchors.verticalCenter: parent.verticalCenter
+                            width: 42; height: 22
+                            color: colorful.discordPartyInvitesEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                            border.width: 1; border.color: colorful.discordPartyInvitesEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                            Rectangle { width: 16; height: 16; y: 3; x: colorful.discordPartyInvitesEnabled ? parent.width - width - 3 : 3; color: colorful.discordPartyInvitesEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: colorful.setDiscordPartyInvitesEnabled(!colorful.discordPartyInvitesEnabled) }
+                        }
+                    }
                 }
             }
 

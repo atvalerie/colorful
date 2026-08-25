@@ -7,6 +7,10 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonParseError>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QProcessEnvironment>
 #include <QSettings>
 #include <QtEndian>
@@ -15,6 +19,7 @@
 namespace {
 constexpr auto defaultApplicationId = "1528095256820842606";
 constexpr quint32 maximumFrameSize = 1024 * 1024;
+constexpr auto discordTokenRelay = "https://colorful.valerie.sh/v1/discord/rpc-token";
 
 #if !defined(Q_OS_WIN)
 QString discordRuntimeDirectory()
@@ -103,7 +108,10 @@ void DiscordPresence::update(const QString &title,
     }
 
     QJsonObject activity{
-        {QStringLiteral("type"), 2}, // Listening
+        // Discord's native party/invite controls are only exposed for a
+        // joinable game activity. Keep the normal Listening presence when no
+        // Colorful party is being hosted.
+        {QStringLiteral("type"), m_partyJoinEnabled ? 0 : 2},
         {QStringLiteral("details"), title.left(128)},
         {QStringLiteral("state"), (playing ? artist
                                             : artist.isEmpty() ? QStringLiteral("Paused")
@@ -125,9 +133,62 @@ void DiscordPresence::update(const QString &title,
     }
     if (!assets.isEmpty()) activity.insert(QStringLiteral("assets"), assets);
 
+    if (m_partyJoinEnabled && !m_partyId.isEmpty() && !m_partyJoinSecret.isEmpty()) {
+        activity.insert(QStringLiteral("party"), QJsonObject{
+            {QStringLiteral("id"), m_partyId},
+            {QStringLiteral("size"), QJsonArray{m_partyCurrentSize, m_partyMaximumSize}},
+        });
+        activity.insert(QStringLiteral("secrets"), QJsonObject{
+            {QStringLiteral("join"), m_partyJoinSecret},
+        });
+    }
+
     m_desiredActivity = activity;
     m_hasDesiredActivity = true;
     publishDesiredActivity();
+}
+
+void DiscordPresence::setParty(const QString &partyId, int currentSize, int maximumSize,
+                               const QString &joinSecret, bool joinEnabled)
+{
+    // Discord limits activity secrets to 128 bytes. The compact party secret
+    // deliberately excludes the public landing-page URL so it remains inside
+    // that limit and never exposes it in presence text.
+    const bool usable = joinEnabled && !partyId.isEmpty() && !joinSecret.isEmpty()
+        && joinSecret.toUtf8().size() <= 128;
+    const auto normalizedCurrentSize = std::max(1, currentSize);
+    const auto normalizedMaximumSize = std::max(normalizedCurrentSize, maximumSize);
+    if (m_partyId == partyId && m_partyJoinSecret == joinSecret
+        && m_partyCurrentSize == normalizedCurrentSize && m_partyMaximumSize == normalizedMaximumSize
+        && m_partyJoinEnabled == usable) return;
+    m_partyId = partyId;
+    m_partyJoinSecret = joinSecret;
+    m_partyCurrentSize = normalizedCurrentSize;
+    m_partyMaximumSize = normalizedMaximumSize;
+    m_partyJoinEnabled = usable;
+    if (joinEnabled && !usable) {
+        DebugLog::write(u"discord", QStringLiteral("party invite unavailable: invalid or oversized join secret"));
+    }
+    if (m_partyJoinEnabled) beginAuthorization();
+    publishDesiredActivity();
+}
+
+void DiscordPresence::setPartyInvitesEnabled(bool enabled)
+{
+    if (m_partyInvitesEnabled == enabled) return;
+    m_partyInvitesEnabled = enabled;
+    if (enabled) beginAuthorization();
+}
+
+void DiscordPresence::respondToJoinRequest(const QString &userId, bool accepted)
+{
+    if (!m_authenticated || userId.isEmpty()) return;
+    writeFrame(Opcode::Frame, {
+        {QStringLiteral("cmd"), accepted ? QStringLiteral("SEND_ACTIVITY_JOIN_INVITE")
+                                          : QStringLiteral("CLOSE_ACTIVITY_REQUEST")},
+        {QStringLiteral("args"), QJsonObject{{QStringLiteral("user_id"), userId}}},
+        {QStringLiteral("nonce"), QString::number(++m_nonce)},
+    });
 }
 
 void DiscordPresence::clear()
@@ -188,6 +249,10 @@ void DiscordPresence::handleConnected()
 void DiscordPresence::handleDisconnected()
 {
     m_ready = false;
+    m_authenticated = false;
+    m_authorizing = false;
+    m_authorizeNonce.clear();
+    m_authenticateNonce.clear();
     m_readBuffer.clear();
     if (!m_shuttingDown) scheduleReconnect();
 }
@@ -230,8 +295,9 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
     const auto document = QJsonDocument::fromJson(payload, &error);
     if (error.error != QJsonParseError::NoError || !document.isObject()) return;
     const auto message = document.object();
-    if (message.value(QStringLiteral("cmd")).toString() == QStringLiteral("DISPATCH")
-        && message.value(QStringLiteral("evt")).toString() == QStringLiteral("READY")) {
+    const auto command = message.value(QStringLiteral("cmd")).toString();
+    const auto event = message.value(QStringLiteral("evt")).toString();
+    if (command == QStringLiteral("DISPATCH") && event == QStringLiteral("READY")) {
         m_ready = true;
         DebugLog::write(u"discord", QStringLiteral("RPC ready"));
         if (m_staleProcessId > 0) {
@@ -239,7 +305,111 @@ void DiscordPresence::handleFrame(Opcode opcode, const QByteArray &payload)
             m_staleProcessId = 0;
         }
         publishDesiredActivity();
+        beginAuthorization();
+        return;
     }
+    if (command == QStringLiteral("AUTHORIZE")
+        && message.value(QStringLiteral("nonce")).toString() == m_authorizeNonce) {
+        const auto code = message.value(QStringLiteral("data")).toObject()
+                              .value(QStringLiteral("code")).toString();
+        if (code.isEmpty()) {
+            m_authorizing = false;
+            DebugLog::write(u"discord", QStringLiteral("RPC authorization returned no code"));
+        } else {
+            exchangeAuthorizationCode(code);
+        }
+        return;
+    }
+    if (command == QStringLiteral("AUTHENTICATE")
+        && message.value(QStringLiteral("nonce")).toString() == m_authenticateNonce) {
+        m_authenticated = true;
+        m_authorizing = false;
+        DebugLog::write(u"discord", QStringLiteral("RPC party authorization complete"));
+        subscribe(QStringLiteral("ACTIVITY_JOIN_REQUEST"));
+        subscribe(QStringLiteral("ACTIVITY_JOIN"));
+        return;
+    }
+    if (command == QStringLiteral("DISPATCH") && event == QStringLiteral("ACTIVITY_JOIN_REQUEST")) {
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        const auto user = data.value(QStringLiteral("user")).toObject();
+        const auto userId = user.value(QStringLiteral("id")).toString();
+        if (userId.isEmpty()) return;
+        QVariantMap request;
+        request.insert(QStringLiteral("userId"), userId);
+        request.insert(QStringLiteral("username"), user.value(QStringLiteral("username")).toString());
+        request.insert(QStringLiteral("globalName"), user.value(QStringLiteral("global_name")).toString());
+        request.insert(QStringLiteral("avatar"), user.value(QStringLiteral("avatar")).toString());
+        emit activityJoinRequested(request);
+        return;
+    }
+    if (command == QStringLiteral("DISPATCH") && event == QStringLiteral("ACTIVITY_JOIN")) {
+        const auto secret = message.value(QStringLiteral("data")).toObject()
+                                .value(QStringLiteral("secret")).toString();
+        if (!secret.isEmpty()) emit activityJoin(secret);
+        return;
+    }
+    if (event == QStringLiteral("ERROR")) {
+        const auto detail = message.value(QStringLiteral("data")).toObject()
+                                .value(QStringLiteral("message")).toString();
+        DebugLog::write(u"discord", QStringLiteral("RPC error cmd=%1: %2").arg(command, detail));
+        if (message.value(QStringLiteral("nonce")).toString() == m_authorizeNonce
+            || message.value(QStringLiteral("nonce")).toString() == m_authenticateNonce)
+            m_authorizing = false;
+    }
+}
+
+void DiscordPresence::beginAuthorization()
+{
+    if ((!m_partyJoinEnabled && !m_partyInvitesEnabled) || !m_ready || m_authenticated || m_authorizing
+        || m_socket.state() != QLocalSocket::ConnectedState) return;
+    m_authorizing = true;
+    m_authorizeNonce = QStringLiteral("authorize-%1").arg(++m_nonce);
+    writeFrame(Opcode::Frame, {
+        {QStringLiteral("cmd"), QStringLiteral("AUTHORIZE")},
+        {QStringLiteral("args"), QJsonObject{
+            {QStringLiteral("client_id"), m_applicationId},
+            {QStringLiteral("scopes"), QJsonArray{QStringLiteral("rpc"), QStringLiteral("identify")}},
+        }},
+        {QStringLiteral("nonce"), m_authorizeNonce},
+    });
+}
+
+void DiscordPresence::exchangeAuthorizationCode(const QString &code)
+{
+    QNetworkRequest request(QUrl(QString::fromLatin1(discordTokenRelay)));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    auto *reply = m_network.post(request, QJsonDocument(QJsonObject{{QStringLiteral("code"), code}})
+                                              .toJson(QJsonDocument::Compact));
+    QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        const auto body = reply->readAll();
+        const auto networkError = reply->error();
+        reply->deleteLater();
+        QJsonParseError error;
+        const auto document = QJsonDocument::fromJson(body, &error);
+        const auto accessToken = document.object().value(QStringLiteral("accessToken")).toString();
+        if (networkError != QNetworkReply::NoError || error.error != QJsonParseError::NoError
+            || accessToken.isEmpty() || !m_ready) {
+            m_authorizing = false;
+            DebugLog::write(u"discord", QStringLiteral("RPC token exchange failed"));
+            return;
+        }
+        m_authenticateNonce = QStringLiteral("authenticate-%1").arg(++m_nonce);
+        writeFrame(Opcode::Frame, {
+            {QStringLiteral("cmd"), QStringLiteral("AUTHENTICATE")},
+            {QStringLiteral("args"), QJsonObject{{QStringLiteral("access_token"), accessToken}}},
+            {QStringLiteral("nonce"), m_authenticateNonce},
+        });
+    });
+}
+
+void DiscordPresence::subscribe(const QString &event)
+{
+    writeFrame(Opcode::Frame, {
+        {QStringLiteral("cmd"), QStringLiteral("SUBSCRIBE")},
+        {QStringLiteral("evt"), event},
+        {QStringLiteral("nonce"), QString::number(++m_nonce)},
+    });
 }
 
 void DiscordPresence::publishDesiredActivity()
