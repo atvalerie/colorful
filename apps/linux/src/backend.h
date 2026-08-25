@@ -1,6 +1,7 @@
 #pragma once
 
 #include "discordpresence.h"
+#include "discordsocial.h"
 #include "corebridge.h"
 #include "linuxplayback.h"
 
@@ -314,7 +315,7 @@ public:
     Q_INVOKABLE void setLowDataMode(bool enabled);
     Q_INVOKABLE void setHardwareAccelerationEnabled(bool enabled);
     Q_INVOKABLE void setTextScale(double scale);
-    void shutdownDiscordPresence() { m_discordPresence.shutdown(); }
+    void shutdownDiscordPresence() { m_discordSocial.shutdown(); m_discordPresence.shutdown(); }
 
 signals:
     void providerReadyChanged();
@@ -474,6 +475,7 @@ private:
     qint64 m_resumePositionMs = 0;
     qint64 m_displayPositionOverride = -1;
     DiscordPresence m_discordPresence;
+    DiscordSocial m_discordSocial;
     QNetworkAccessManager m_network;
     QVariantAnimation m_accentAnimation;
     QVariantList m_searchResults;

@@ -512,7 +512,7 @@ Item {
                                     anchors.right: askToJoinSwitch.left; anchors.rightMargin: 18
                                     anchors.verticalCenter: parent.verticalCenter; spacing: 3
                                     Text { text: "Ask to Join"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
-                                    Text { width: parent.width; text: "Let friends request access to your party; you approve each request in Listen together."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                    Text { width: parent.width; text: "Enable Discord's native Ask to Join and invites; approve each request in Listen together."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
                                 }
                                 Rectangle {
                                     id: askToJoinSwitch

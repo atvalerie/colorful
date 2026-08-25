@@ -210,14 +210,16 @@ Backend::Backend(QObject *parent)
     m_discordPresenceEnabled = settings.value(QStringLiteral("discord/presenceEnabled"), true).toBool();
     m_discordTrackButtonEnabled = settings.value(QStringLiteral("discord/trackButtonEnabled"), true).toBool();
     m_discordPartyButtonEnabled = settings.value(QStringLiteral("discord/partyButtonEnabled"), true).toBool();
-    // Receiving native Discord party invites requires the authenticated RPC
-    // event subscription. Keep it opt-in so ordinary Rich Presence never
-    // triggers an unexpected Discord authorization prompt.
+    // Ask to Join begins Social SDK OAuth. It stays opt-in so a normal music
+    // listener never sees an authorization window without requesting parties.
     m_discordAskToJoinEnabled = settings.value(QStringLiteral("discord/askToJoinEnabled"), false).toBool();
-    m_discordPresence.setTrackButtonEnabled(m_discordTrackButtonEnabled);
-    m_discordPresence.setAskToJoinEnabled(m_discordAskToJoinEnabled);
-    m_discordPresence.setEnabled(m_discordPresenceEnabled);
-    connect(&m_discordPresence, &DiscordPresence::activityJoinRequested, this,
+    // Social SDK owns party discovery/invites. Keep the legacy IPC transport
+    // compiled as a future fallback, but never publish two activities at once.
+    m_discordPresence.setEnabled(false);
+    m_discordSocial.setTrackButtonEnabled(m_discordTrackButtonEnabled);
+    m_discordSocial.setAskToJoinEnabled(m_discordAskToJoinEnabled);
+    m_discordSocial.setEnabled(m_discordPresenceEnabled);
+    connect(&m_discordSocial, &DiscordSocial::activityJoinRequested, this,
             [this](const QVariantMap &user) {
         if (!m_discordPartyActive) return;
         const auto id = user.value(QStringLiteral("id")).toString();
@@ -233,7 +235,7 @@ Backend::Backend(QObject *parent)
                                            : QStringLiteral("%1 asked to join your party").arg(name),
                            QStringLiteral("info"));
     });
-    connect(&m_discordPresence, &DiscordPresence::activityJoin, this,
+    connect(&m_discordSocial, &DiscordSocial::activityJoin, this,
             [this](const QString &secret) { emit discordPartyJoinReceived(secret); });
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
@@ -3540,7 +3542,7 @@ void Backend::setDiscordPresenceEnabled(bool enabled)
     if (m_discordPresenceEnabled == enabled) return;
     m_discordPresenceEnabled = enabled;
     QSettings().setValue(QStringLiteral("discord/presenceEnabled"), enabled);
-    m_discordPresence.setEnabled(enabled);
+    m_discordSocial.setEnabled(enabled);
     updateDiscordPresence();
     emit discordSettingsChanged();
 }
@@ -3550,7 +3552,7 @@ void Backend::setDiscordTrackButtonEnabled(bool enabled)
     if (m_discordTrackButtonEnabled == enabled) return;
     m_discordTrackButtonEnabled = enabled;
     QSettings().setValue(QStringLiteral("discord/trackButtonEnabled"), enabled);
-    m_discordPresence.setTrackButtonEnabled(enabled);
+    m_discordSocial.setTrackButtonEnabled(enabled);
     emit discordSettingsChanged();
 }
 
@@ -3568,7 +3570,7 @@ void Backend::setDiscordAskToJoinEnabled(bool enabled)
     if (m_discordAskToJoinEnabled == enabled) return;
     m_discordAskToJoinEnabled = enabled;
     QSettings().setValue(QStringLiteral("discord/askToJoinEnabled"), enabled);
-    m_discordPresence.setAskToJoinEnabled(enabled);
+    m_discordSocial.setAskToJoinEnabled(enabled);
     updateDiscordPresence();
     emit discordSettingsChanged();
 }
@@ -3579,7 +3581,7 @@ void Backend::respondToDiscordJoinRequest(const QString &userId, bool approved)
         if (m_discordJoinRequests.at(index).toMap().value(QStringLiteral("id")).toString() != userId) continue;
         m_discordJoinRequests.removeAt(index);
         emit discordJoinRequestsChanged();
-        m_discordPresence.respondToJoinRequest(userId, approved);
+        m_discordSocial.respondToJoinRequest(userId, approved);
         return;
     }
 }
@@ -4579,10 +4581,10 @@ void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
     if (track.isEmpty() || m_playback.state() == LinuxPlayback::State::Stopped) {
-        m_discordPresence.clear();
+        m_discordSocial.clear();
         return;
     }
-    m_discordPresence.update(
+    m_discordSocial.update(
         track.value(QStringLiteral("title")).toString(),
         track.value(QStringLiteral("artistText")).toString(),
         track.value(QStringLiteral("albumTitle")).toString(),

@@ -57,7 +57,7 @@ New-Item $stage -ItemType Directory -Force | Out-Null
 $runtimeFiles = @(
     'colorful.exe', 'colorful_core.dll', 'colorful-credential-helper.exe',
     'colorful-provider.exe', 'mpv-2.dll', 'vulkan-1.dll',
-    'ffmpeg.exe', 'ffprobe.exe'
+    'ffmpeg.exe', 'ffprobe.exe', 'discord_partner_sdk.dll'
 )
 foreach ($name in $runtimeFiles) {
     $source = Join-Path $buildDirectory $name
@@ -70,6 +70,8 @@ Copy-Item $providerData $stage -Recurse -Force
 Copy-Item (Join-Path $repoRoot 'LICENSE') $stage -Force
 Copy-Item (Join-Path $repoRoot 'README.md') $stage -Force
 Copy-Item (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') $stage -Force
+Copy-Item (Join-Path $repoRoot 'third_party\discord_social_sdk\License-Notices.txt') `
+    (Join-Path $stage 'DISCORD_SOCIAL_SDK_NOTICES.txt') -Force
 Copy-Item (Join-Path $repoRoot 'packaging\desktop-dependencies.json') `
     (Join-Path $stage 'BUILD_DEPENDENCIES.json') -Force
 

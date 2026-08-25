@@ -69,6 +69,37 @@ if(UNIX AND NOT APPLE)
     find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
 endif()
 
+# Discord's Social SDK is the supported integration surface for native party
+# invites and Ask to Join. Keep the dependency in-tree so Windows and AppImage
+# releases are built from the same pinned SDK rather than a developer's local
+# installation.
+set(COLORFUL_DISCORD_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/discord_social_sdk")
+set(COLORFUL_DISCORD_SDK_INCLUDE "${COLORFUL_DISCORD_SDK_ROOT}/include")
+if(WIN32)
+    set(COLORFUL_DISCORD_SDK_LIBRARY "${COLORFUL_DISCORD_SDK_ROOT}/lib/release/discord_partner_sdk.lib")
+    set(COLORFUL_DISCORD_SDK_RUNTIME "${COLORFUL_DISCORD_SDK_ROOT}/bin/release/discord_partner_sdk.dll")
+else()
+    set(COLORFUL_DISCORD_SDK_LIBRARY "${COLORFUL_DISCORD_SDK_ROOT}/lib/release/libdiscord_partner_sdk.so")
+    set(COLORFUL_DISCORD_SDK_RUNTIME "${COLORFUL_DISCORD_SDK_LIBRARY}")
+endif()
+foreach(COLORFUL_DISCORD_SDK_FILE IN ITEMS
+        "${COLORFUL_DISCORD_SDK_INCLUDE}/discordpp.h"
+        "${COLORFUL_DISCORD_SDK_INCLUDE}/cdiscord.h"
+        "${COLORFUL_DISCORD_SDK_LIBRARY}"
+        "${COLORFUL_DISCORD_SDK_RUNTIME}")
+    if(NOT EXISTS "${COLORFUL_DISCORD_SDK_FILE}")
+        message(FATAL_ERROR "Pinned Discord Social SDK file is missing: ${COLORFUL_DISCORD_SDK_FILE}")
+    endif()
+endforeach()
+add_library(colorful-discord-social SHARED IMPORTED GLOBAL)
+set_target_properties(colorful-discord-social PROPERTIES
+    IMPORTED_LOCATION "${COLORFUL_DISCORD_SDK_RUNTIME}"
+    INTERFACE_INCLUDE_DIRECTORIES "${COLORFUL_DISCORD_SDK_INCLUDE}")
+if(WIN32)
+    set_target_properties(colorful-discord-social PROPERTIES
+        IMPORTED_IMPLIB "${COLORFUL_DISCORD_SDK_LIBRARY}")
+endif()
+
 set(COLORFUL_MPV_MODE "compatibility" CACHE STRING
     "libmpv validation mode: compatibility or official")
 set_property(CACHE COLORFUL_MPV_MODE PROPERTY STRINGS compatibility official)
@@ -155,8 +186,12 @@ set(COLORFUL_DESKTOP_SOURCES
     src/debuglog.h
     src/linuxplayback.cpp
     src/linuxplayback.h
+    src/credentialstore.cpp
+    src/credentialstore.h
     src/discordpresence.cpp
     src/discordpresence.h
+    src/discordsocial.cpp
+    src/discordsocial.h
 )
 if(UNIX AND NOT APPLE)
     list(APPEND COLORFUL_DESKTOP_SOURCES src/mpris.cpp src/mpris.h)
@@ -183,8 +218,6 @@ if(WIN32)
         @ONLY
     )
     list(APPEND COLORFUL_DESKTOP_SOURCES
-        src/credentialstore.cpp
-        src/credentialstore.h
         src/windowsmedia.cpp
         src/windowsmedia.h
         "${CMAKE_CURRENT_BINARY_DIR}/generated/app.manifest"
@@ -384,6 +417,7 @@ target_link_libraries(colorful-linux PRIVATE
     Qt6::Network
     colorful-mpv
     colorful-core
+    colorful-discord-social
     ${CMAKE_DL_LIBS}
 )
 if(UNIX AND NOT APPLE)
@@ -396,6 +430,8 @@ if(WIN32)
             "${COLORFUL_CORE_LIBRARY}" "$<TARGET_FILE_DIR:colorful-linux>"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${MPV_RUNTIME}" "$<TARGET_FILE_DIR:colorful-linux>"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${COLORFUL_DISCORD_SDK_RUNTIME}" "$<TARGET_FILE_DIR:colorful-linux>"
         VERBATIM
     )
     qt_add_executable(colorful-credential-helper
@@ -408,9 +444,12 @@ endif()
 
 install(TARGETS colorful-linux RUNTIME DESTINATION bin)
 if(WIN32)
-    install(FILES "${COLORFUL_CORE_LIBRARY}" "${MPV_RUNTIME}" DESTINATION bin)
+    install(FILES "${COLORFUL_CORE_LIBRARY}" "${MPV_RUNTIME}" "${COLORFUL_DISCORD_SDK_RUNTIME}" DESTINATION bin)
 else()
-    install(FILES "${COLORFUL_CORE_LIBRARY}" DESTINATION lib)
+    install(FILES "${COLORFUL_CORE_LIBRARY}" "${COLORFUL_DISCORD_SDK_RUNTIME}" DESTINATION lib)
+    install(FILES "${COLORFUL_DISCORD_SDK_ROOT}/License-Notices.txt"
+        DESTINATION share/doc/colorful
+        RENAME DISCORD_SOCIAL_SDK_NOTICES.txt)
     install(FILES applications/colorful.desktop
         DESTINATION share/applications
         RENAME sh.valerie.colorful.desktop
