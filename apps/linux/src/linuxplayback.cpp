@@ -53,7 +53,11 @@ QString mpvStringList(const QStringList &values)
 
 bool loadfileSupportsIndex(const QString &version)
 {
-    static const QRegularExpression pattern(QStringLiteral("(?:^|\\s)(\\d+)\\.(\\d+)(?:\\.|$)"));
+    // mpv's property is normally "mpv v0.41.0-…", while distro builds have
+    // also used bare version strings. The loadfile insertion-index parameter
+    // was introduced in 0.38, so recognize both without treating the leading
+    // `v` as a failed parse and accidentally sending the legacy argument ABI.
+    static const QRegularExpression pattern(QStringLiteral("\\bv?(\\d+)\\.(\\d+)(?:\\.|$)"));
     const auto match = pattern.match(version);
     if (!match.hasMatch()) return false;
     bool majorOk = false;
