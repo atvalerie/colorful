@@ -14,9 +14,7 @@ namespace {
 constexpr int PartyProtocolVersion = 2;
 constexpr qsizetype MaxPendingPartyBytes = 4 * 1024 * 1024;
 constexpr qsizetype MaxPendingPartyFrames = 512;
-constexpr qint64 PublicJoinTicketLifetimeMs = 90'000;
-constexpr qint64 PublicJoinTicketRefreshLeadMs = 30'000;
-constexpr int PublicJoinTicketRetryMs = 15'000;
+constexpr int PublicJoinHandleRetryMs = 15'000;
 
 QString canonicalPublicJoinTicket(const QString &fragment)
 {
@@ -116,12 +114,15 @@ PartyClient::PartyClient(Backend *backend, QObject *parent)
     connect(&m_clockSampler, &QTimer::timeout, this, &PartyClient::sendClockPing);
     m_driftController.setInterval(250);
     connect(&m_driftController, &QTimer::timeout, this, &PartyClient::correctPlayback);
-    m_publicTicketTimer.setSingleShot(true);
-    connect(&m_publicTicketTimer, &QTimer::timeout, this, &PartyClient::refreshPublicJoinTicket);
+    m_publicHandleRetryTimer.setSingleShot(true);
+    connect(&m_publicHandleRetryTimer, &QTimer::timeout,
+            this, &PartyClient::refreshPublicJoinTicket);
     connect(backend, &Backend::discordSettingsChanged, this, [this] {
         refreshPublicJoinTicket();
         publishDiscordPartyState();
     });
+    connect(backend, &Backend::discordPartyJoinReceived, this,
+            &PartyClient::handleDiscordJoinSecret);
     connect(backend, &Backend::currentTrackChanged, this, [this] {
         if (m_role == QStringLiteral("host") && !m_applyingRemote) {
             ++m_generation;
@@ -261,6 +262,25 @@ QString PartyClient::publicJoinTicketFromUrl(const QUrl &url)
     return canonicalPublicJoinTicket(url.fragment(QUrl::FullyEncoded));
 }
 
+QString PartyClient::publicJoinSecretUrl(const QString &secret)
+{
+    const auto ticket = canonicalPublicJoinTicket(secret);
+    return ticket.isEmpty() ? QString{}
+                            : QStringLiteral("colorful://discord/join#%1").arg(ticket);
+}
+
+void PartyClient::handleDiscordJoinSecret(const QString &secret)
+{
+    if (m_active) {
+        emit notification(QStringLiteral("Leave your current party before joining a Discord invite"),
+                          QStringLiteral("warning"));
+        return;
+    }
+    const auto link = publicJoinSecretUrl(secret);
+    if (link.isEmpty()) return;
+    emit joinLinkReceived(link);
+}
+
 bool PartyClient::handlePartyLink(const QString &link)
 {
     const QUrl url(link);
@@ -317,47 +337,9 @@ void PartyClient::joinParty(const QString &link, const QString &displayName,
             return;
         }
         m_relayBaseUrl = base.toString(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment);
-        QNetworkRequest request(QUrl(m_relayBaseUrl + QStringLiteral("/v1/party-join-tickets/redeem")));
-        request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-        auto *reply = m_network.post(request, QJsonDocument(QJsonObject{{QStringLiteral("ticketLookup"), publicJoinTicketLookup(ticket)}})
-                                             .toJson(QJsonDocument::Compact));
         m_joinTicketRedemptionInFlight = true;
         const auto requestGeneration = ++m_ticketGeneration;
-        QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
-        connect(reply, &QNetworkReply::finished, this, [this, reply, displayName, ticket, requestGeneration] {
-            const auto body = reply->readAll();
-            const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            const auto networkError = reply->error();
-            reply->deleteLater();
-            if (requestGeneration != m_ticketGeneration) return;
-            m_joinTicketRedemptionInFlight = false;
-            if (networkError != QNetworkReply::NoError || status != 200) {
-                emit notification(QStringLiteral("Could not redeem that party invite"), QStringLiteral("error"));
-                return;
-            }
-            const auto object = QJsonDocument::fromJson(body).object();
-            if (object.value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion) {
-                emit notification(QStringLiteral("This relay requires a different Colorful version"), QStringLiteral("error"));
-                return;
-            }
-            const auto redeemedSession = object.value(QStringLiteral("sessionId")).toString();
-            const auto bootstrap = object.value(QStringLiteral("bootstrapCiphertext")).toString();
-            if (redeemedSession.isEmpty() || bootstrap.isEmpty()) {
-                emit notification(QStringLiteral("Could not redeem that party invite"), QStringLiteral("error"));
-                return;
-            }
-            const auto value = dispatchCore({
-                {QStringLiteral("command"), QStringLiteral("unwrap_invite_ticket")},
-                {QStringLiteral("ticket"), ticket},
-                {QStringLiteral("bootstrap_ciphertext"), bootstrap},
-                {QStringLiteral("relay_session_id"), redeemedSession},
-            }, false);
-            if (value.isEmpty()) {
-                emit notification(QStringLiteral("Could not open that party invite"), QStringLiteral("error"));
-                return;
-            }
-            joinPartyWithFragment(redeemedSession, value.value(QStringLiteral("fragment")).toString(), displayName);
-        });
+        mintPublicJoinTicket(ticket, displayName, requestGeneration);
         return;
     }
     if (session.isEmpty()) {
@@ -384,6 +366,101 @@ void PartyClient::joinParty(const QString &link, const QString &displayName,
     connectRelay(m_relayBaseUrl, session, value.value(QStringLiteral("relayCapability")).toString());
     m_clockSampler.start();
     m_driftController.start();
+}
+
+void PartyClient::mintPublicJoinTicket(const QString &ticket, const QString &displayName,
+                                       quint64 requestGeneration)
+{
+    QNetworkRequest request(QUrl(m_relayBaseUrl
+                                 + QStringLiteral("/v1/party-join-handles/mint")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    auto *reply = m_network.post(request, QJsonDocument(QJsonObject{
+        {QStringLiteral("handleLookup"), publicJoinTicketLookup(ticket)},
+    }).toJson(QJsonDocument::Compact));
+    QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, displayName, ticket, requestGeneration] {
+        const auto body = reply->readAll();
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto networkError = reply->error();
+        reply->deleteLater();
+        if (requestGeneration != m_ticketGeneration) return;
+
+        // Any HTTP rejection can still represent a legacy one-use link or an
+        // older relay without stable handles. Preserve v0.2.11 compatibility
+        // by trying the original lookup once before reporting failure.
+        if (status >= 400) {
+            redeemPublicJoinTicket(ticket, displayName, requestGeneration);
+            return;
+        }
+        const auto object = QJsonDocument::fromJson(body).object();
+        const auto parts = ticket.split(QLatin1Char('.'));
+        const auto freshLookup = object.value(QStringLiteral("ticketLookup")).toString();
+        const auto freshTicket = parts.size() == 3
+            ? QStringLiteral("v1.%1.%2").arg(freshLookup, parts.at(2)) : QString{};
+        if (networkError != QNetworkReply::NoError || status != 201
+            || object.value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion
+            || canonicalPublicJoinTicket(freshTicket) != freshTicket) {
+            m_joinTicketRedemptionInFlight = false;
+            emit notification(QStringLiteral("Could not prepare that party invite"),
+                              QStringLiteral("error"));
+            return;
+        }
+        redeemPublicJoinTicket(freshTicket, displayName, requestGeneration);
+    });
+}
+
+void PartyClient::redeemPublicJoinTicket(const QString &ticket, const QString &displayName,
+                                         quint64 requestGeneration)
+{
+    QNetworkRequest request(QUrl(m_relayBaseUrl
+                                 + QStringLiteral("/v1/party-join-tickets/redeem")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    auto *reply = m_network.post(request, QJsonDocument(QJsonObject{
+        {QStringLiteral("ticketLookup"), publicJoinTicketLookup(ticket)},
+    }).toJson(QJsonDocument::Compact));
+    QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, displayName, ticket, requestGeneration] {
+        const auto body = reply->readAll();
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto networkError = reply->error();
+        reply->deleteLater();
+        if (requestGeneration != m_ticketGeneration) return;
+        m_joinTicketRedemptionInFlight = false;
+        if (networkError != QNetworkReply::NoError || status != 200) {
+            emit notification(QStringLiteral("Could not redeem that party invite"),
+                              QStringLiteral("error"));
+            return;
+        }
+        const auto object = QJsonDocument::fromJson(body).object();
+        if (object.value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion) {
+            emit notification(QStringLiteral("This relay requires a different Colorful version"),
+                              QStringLiteral("error"));
+            return;
+        }
+        const auto redeemedSession = object.value(QStringLiteral("sessionId")).toString();
+        const auto bootstrap = object.value(QStringLiteral("bootstrapCiphertext")).toString();
+        if (redeemedSession.isEmpty() || bootstrap.isEmpty()) {
+            emit notification(QStringLiteral("Could not redeem that party invite"),
+                              QStringLiteral("error"));
+            return;
+        }
+        const auto value = dispatchCore({
+            {QStringLiteral("command"), QStringLiteral("unwrap_invite_ticket")},
+            {QStringLiteral("ticket"), ticket},
+            {QStringLiteral("bootstrap_ciphertext"), bootstrap},
+            {QStringLiteral("relay_session_id"), redeemedSession},
+        }, false);
+        if (value.isEmpty()) {
+            emit notification(QStringLiteral("Could not open that party invite"),
+                              QStringLiteral("error"));
+            return;
+        }
+        joinPartyWithFragment(redeemedSession,
+                              value.value(QStringLiteral("fragment")).toString(),
+                              displayName);
+    });
 }
 
 void PartyClient::connectRelay(const QString &baseUrl, const QString &sessionId,
@@ -442,12 +519,16 @@ void PartyClient::applyResult(const QJsonObject &value)
     const bool ticketBecameInvalid = m_role == QStringLiteral("host")
         && (inviteRotated || !m_joinEnabled);
     if (ticketBecameInvalid) {
+        const auto oldHandle = m_publicJoinTicketLookup;
+        const auto oldSession = m_relaySessionId;
         ++m_ticketGeneration;
-        m_publicTicketTimer.stop();
+        m_publicHandleRetryTimer.stop();
         m_publicTicketRequestInFlight = false;
         m_publicJoinTicket.clear();
         m_publicJoinTicketLookup.clear();
         m_publicJoinTicketExpiresAtMs = 0;
+        if (!oldSession.isEmpty() && !oldHandle.isEmpty())
+            revokePublicJoinHandle(oldSession, oldHandle);
     }
     publishDiscordPartyState();
     if (m_role == QStringLiteral("host")
@@ -477,28 +558,36 @@ void PartyClient::publishDiscordPartyState()
 {
     const bool partyActive = m_active && !m_relaySessionId.isEmpty();
     QString joinUrl;
+    QString joinSecret;
     if (partyActive && m_role == QStringLiteral("host") && m_joinEnabled
-        && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled()
+        && m_backend->discordPresenceEnabled()
         && m_publicJoinTicketExpiresAtMs > QDateTime::currentMSecsSinceEpoch()
         && canonicalPublicJoinTicket(m_publicJoinTicket) == m_publicJoinTicket) {
-        joinUrl = QStringLiteral("https://colorful.valerie.sh/discord/join#%1")
-                      .arg(m_publicJoinTicket);
+        if (m_backend->discordPartyButtonEnabled())
+            joinUrl = QStringLiteral("https://colorful.valerie.sh/discord/join#%1")
+                          .arg(m_publicJoinTicket);
+        if (m_backend->discordAskToJoinEnabled()) joinSecret = m_publicJoinTicket;
     }
     m_backend->setDiscordPartyState(partyActive, m_relaySessionId,
-                                    qMax(1, m_participants.size()), joinUrl);
+                                    qMax(1, m_participants.size()), joinUrl, joinSecret);
 }
 
 void PartyClient::refreshPublicJoinTicket()
 {
     const auto now = QDateTime::currentMSecsSinceEpoch();
     const bool eligible = m_active && m_role == QStringLiteral("host") && m_joinEnabled
-        && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled()
+        && m_backend->discordPresenceEnabled()
+        && (m_backend->discordPartyButtonEnabled() || m_backend->discordAskToJoinEnabled())
         && !m_relaySessionId.isEmpty() && !m_relayHostCapability.isEmpty()
         && !m_inviteFragment.isEmpty() && isPublicPartyRelay(m_relayBaseUrl)
         && m_expiresAtMs >= now + 5'000;
     if (!eligible) {
         if (!m_publicJoinTicket.isEmpty() || m_publicTicketRequestInFlight) ++m_ticketGeneration;
-        m_publicTicketTimer.stop();
+        m_publicHandleRetryTimer.stop();
+        const auto oldSession = m_relaySessionId;
+        const auto oldHandle = m_publicJoinTicketLookup;
+        if (m_role == QStringLiteral("host") && !oldSession.isEmpty() && !oldHandle.isEmpty())
+            revokePublicJoinHandle(oldSession, oldHandle);
         m_publicTicketRequestInFlight = false;
         m_publicJoinTicket.clear();
         m_publicJoinTicketLookup.clear();
@@ -506,11 +595,9 @@ void PartyClient::refreshPublicJoinTicket()
         publishDiscordPartyState();
         return;
     }
-    if (m_publicTicketRequestInFlight) return;
-    if (!m_publicJoinTicket.isEmpty()
-        && m_publicJoinTicketExpiresAtMs > now + PublicJoinTicketRefreshLeadMs) {
-        m_publicTicketTimer.start(int(m_publicJoinTicketExpiresAtMs - now
-                                      - PublicJoinTicketRefreshLeadMs));
+    // Discord receives a stable, revocable handle. The landing page exchanges
+    // its lookup for a fresh one-use ticket when the button is clicked.
+    if (m_publicTicketRequestInFlight || !m_publicJoinTicket.isEmpty()) {
         publishDiscordPartyState();
         return;
     }
@@ -529,40 +616,54 @@ void PartyClient::refreshPublicJoinTicket()
         m_publicJoinTicketLookup.clear();
         m_publicJoinTicketExpiresAtMs = 0;
         publishDiscordPartyState();
-        m_publicTicketTimer.start(PublicJoinTicketRetryMs);
+        m_publicHandleRetryTimer.start(PublicJoinHandleRetryMs);
         return;
     }
 
-    const auto expiresAtMs = qMin(now + PublicJoinTicketLifetimeMs, m_expiresAtMs);
-    if (expiresAtMs < now + 5'000) return;
+    const auto expiresAtMs = m_expiresAtMs;
     const auto sessionId = m_relaySessionId;
+    const auto inviteFragment = m_inviteFragment;
     const auto requestGeneration = ++m_ticketGeneration;
     QNetworkRequest request(QUrl(m_relayBaseUrl
-                                 + QStringLiteral("/v1/party-sessions/%1/join-tickets")
+                                 + QStringLiteral("/v1/party-sessions/%1/join-handles")
                                        .arg(sessionId)));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ")
                                            + m_relayHostCapability.toUtf8());
     const QJsonObject requestBody{
-        {QStringLiteral("ticketLookup"), ticketLookup},
-        {QStringLiteral("expiresAtMs"), expiresAtMs},
+        {QStringLiteral("handleLookup"), ticketLookup},
         {QStringLiteral("bootstrapCiphertext"), bootstrap},
+        {QStringLiteral("inviteGeneration"), qint64(requestGeneration)},
     };
     auto *reply = m_network.post(request, QJsonDocument(requestBody).toJson(QJsonDocument::Compact));
     m_publicTicketRequestInFlight = true;
     QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, requestGeneration, sessionId, ticket, ticketLookup, expiresAtMs] {
+            [this, reply, requestGeneration, sessionId, inviteFragment, ticket, ticketLookup, expiresAtMs,
+             relayBaseUrl = m_relayBaseUrl, hostCapability = m_relayHostCapability] {
         const auto body = reply->readAll();
         const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const auto networkError = reply->error();
         reply->deleteLater();
-        if (requestGeneration != m_ticketGeneration) return;
+        if (requestGeneration != m_ticketGeneration) {
+            // A request can finish after leave() or Discord sharing was
+            // disabled. In those terminal cases no replacement registration
+            // can revoke the just-created record for us.
+            const bool terminal = !m_active || m_role != QStringLiteral("host")
+                || !m_joinEnabled || !m_backend->discordPresenceEnabled()
+                || (!m_backend->discordPartyButtonEnabled()
+                    && !m_backend->discordAskToJoinEnabled());
+            if (terminal)
+                revokePublicJoinHandle(sessionId, ticketLookup, relayBaseUrl, hostCapability);
+            return;
+        }
         m_publicTicketRequestInFlight = false;
         const auto object = QJsonDocument::fromJson(body).object();
         const bool stillEligible = m_active && m_role == QStringLiteral("host")
             && m_joinEnabled && m_relaySessionId == sessionId
-            && m_backend->discordPresenceEnabled() && m_backend->discordPartyButtonEnabled();
+            && m_inviteFragment == inviteFragment
+            && m_backend->discordPresenceEnabled()
+            && (m_backend->discordPartyButtonEnabled() || m_backend->discordAskToJoinEnabled());
         if (!stillEligible || networkError != QNetworkReply::NoError || status != 201
             || object.value(QStringLiteral("protocolVersion")).toInt() != PartyProtocolVersion
             || object.value(QStringLiteral("expiresAtMs")).toInteger() != expiresAtMs) {
@@ -570,17 +671,41 @@ void PartyClient::refreshPublicJoinTicket()
             m_publicJoinTicketLookup.clear();
             m_publicJoinTicketExpiresAtMs = 0;
             publishDiscordPartyState();
-            if (stillEligible) m_publicTicketTimer.start(PublicJoinTicketRetryMs);
+            if (stillEligible)
+                m_publicHandleRetryTimer.start(PublicJoinHandleRetryMs);
             return;
         }
+        m_publicHandleRetryTimer.stop();
         m_publicJoinTicket = ticket;
         m_publicJoinTicketLookup = ticketLookup;
         m_publicJoinTicketExpiresAtMs = expiresAtMs;
         publishDiscordPartyState();
-        const auto delay = qMax<qint64>(5'000, expiresAtMs
-                                                  - QDateTime::currentMSecsSinceEpoch()
-                                                  - PublicJoinTicketRefreshLeadMs);
-        m_publicTicketTimer.start(int(delay));
+    });
+}
+
+void PartyClient::revokePublicJoinHandle(const QString &sessionId, const QString &handleLookup,
+                                         const QString &relayBaseUrl,
+                                         const QString &hostCapability)
+{
+    const auto base = relayBaseUrl.isEmpty() ? m_relayBaseUrl : relayBaseUrl;
+    const auto capability = hostCapability.isEmpty() ? m_relayHostCapability : hostCapability;
+    if (sessionId.isEmpty() || handleLookup.isEmpty() || base.isEmpty() || capability.isEmpty()) return;
+    QNetworkRequest request(QUrl(base
+        + QStringLiteral("/v1/party-sessions/%1/join-handles/revoke").arg(sessionId)));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ")
+                                           + capability.toUtf8());
+    auto *reply = m_network.post(request, QJsonDocument(QJsonObject{
+        {QStringLiteral("handleLookup"), handleLookup},
+    }).toJson(QJsonDocument::Compact));
+    QTimer::singleShot(15'000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto error = reply->error();
+        reply->deleteLater();
+        if (error != QNetworkReply::NoError && status != 404)
+            emit notification(QStringLiteral("Could not revoke the Discord party invite"),
+                              QStringLiteral("warning"));
     });
 }
 
@@ -1015,8 +1140,12 @@ void PartyClient::kick(const QString &participantId)
 
 void PartyClient::leave()
 {
+    const auto oldSession = m_relaySessionId;
+    const auto oldHandle = m_publicJoinTicketLookup;
+    if (m_role == QStringLiteral("host") && !oldSession.isEmpty() && !oldHandle.isEmpty())
+        revokePublicJoinHandle(oldSession, oldHandle);
     ++m_ticketGeneration;
-    m_publicTicketTimer.stop();
+    m_publicHandleRetryTimer.stop();
     m_publicJoinTicket.clear();
     m_publicJoinTicketLookup.clear();
     m_publicJoinTicketExpiresAtMs = 0;

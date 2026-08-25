@@ -6,6 +6,7 @@ import {
   MAX_MAILBOX_MESSAGES,
   MAX_MESSAGE_BYTES,
   MAX_JOIN_TICKETS_PER_PARTY,
+  MAX_JOIN_HANDLE_TICKETS_PER_HANDLE,
   MAX_JOIN_TICKET_TTL_MS,
   MIN_JOIN_TICKET_TTL_MS,
   MAX_TOTAL_JOIN_TICKET_BYTES,
@@ -17,6 +18,7 @@ import {
   randomToken,
   sha256,
   validJoinTicketLookup,
+  validJoinHandleLookup,
   validJoinTicketBootstrap,
   validMessageId,
 } from "./protocol";
@@ -52,6 +54,20 @@ interface PartySession {
   createdAtMs: number;
   expiresAtMs: number;
   joinTicketDigests: Set<string>;
+  stableJoinHandleDigest?: string;
+}
+
+interface StableJoinHandle {
+  handleDigest: string;
+  sessionId: string;
+  // Invite generation is opaque to the relay. It is retained only to make a
+  // host refresh idempotent and to prevent an older refresh racing a newer
+  // invite into replacing it.
+  inviteGeneration?: string | number;
+  expiresAtMs: number;
+  bootstrapCiphertext: string;
+  bootstrapBytes: number;
+  ticketDigests: Set<string>;
 }
 
 interface JoinTicket {
@@ -60,6 +76,7 @@ interface JoinTicket {
   expiresAtMs: number;
   bootstrapCiphertext: string;
   bootstrapBytes: number;
+  stableHandleDigest?: string;
 }
 
 export class OpaqueRelayStore {
@@ -70,6 +87,7 @@ export class OpaqueRelayStore {
   private queuedMessages = 0;
   private queuedBytes = 0;
   private readonly joinTicketsByDigest = new Map<string, JoinTicket>();
+  private readonly stableJoinHandlesByDigest = new Map<string, StableJoinHandle>();
   private joinTicketBytes = 0;
 
   public async createMailbox(ttlSeconds?: unknown): Promise<MailboxDescriptor> {
@@ -109,6 +127,159 @@ export class OpaqueRelayStore {
     });
     this.partiesCreated += 1;
     return { sessionId, hostCapability, guestCapability, expiresAtMs };
+  }
+
+  /**
+   * Register the long-lived opaque lookup used by a Discord button. The
+   * encrypted bootstrap is retained as ciphertext only. A new lookup replaces
+   * the prior lookup for this party and revokes all tickets minted from it.
+   *
+   * `inviteGeneration` is optional for compatibility with older hosts. When
+   * supplied as a number, an older generation cannot overwrite a newer one.
+   */
+  public async registerJoinHandle(
+    sessionId: string,
+    capability: string,
+    handleLookup: unknown,
+    bootstrapCiphertext: unknown,
+    inviteGeneration?: unknown,
+  ): Promise<{ handleLookup: string; publicHandle: string; expiresAtMs: number; inviteGeneration?: string | number }> {
+    const party = this.parties.get(sessionId);
+    if (!party) throw new StoreError("not_found");
+    const now = Date.now();
+    if (party.expiresAtMs <= now) {
+      this.deleteParty(sessionId);
+      throw new StoreError("expired");
+    }
+    if (await sha256(capability) !== party.hostCapabilityDigest) throw new StoreError("not_found");
+    if (!validJoinHandleLookup(handleLookup) || !validJoinTicketBootstrap(bootstrapCiphertext))
+      throw new StoreError("invalid");
+    const generation = normalizeInviteGeneration(inviteGeneration);
+    let previous = party.stableJoinHandleDigest
+      ? this.stableJoinHandlesByDigest.get(party.stableJoinHandleDigest)
+      : undefined;
+    if (previous && generation !== undefined && typeof previous.inviteGeneration === "number"
+        && typeof generation === "number" && generation < previous.inviteGeneration)
+      throw new StoreError("conflict");
+
+    const handleDigest = await sha256(handleLookup);
+    // Hashing yields to the event loop. Re-read the current generation before
+    // committing so a slower, older registration cannot overwrite a newer
+    // invite that completed while this request was hashing.
+    const current = party.stableJoinHandleDigest
+      ? this.stableJoinHandlesByDigest.get(party.stableJoinHandleDigest)
+      : undefined;
+    if (current !== previous) {
+      if (current && generation !== undefined && typeof current.inviteGeneration === "number"
+          && typeof generation === "number" && generation < current.inviteGeneration)
+        throw new StoreError("conflict");
+      previous = current;
+    }
+    if (party.expiresAtMs <= Date.now()) {
+      this.deleteParty(sessionId);
+      throw new StoreError("expired");
+    }
+    const collision = this.stableJoinHandlesByDigest.get(handleDigest);
+    if (collision && collision.sessionId !== sessionId) throw new StoreError("conflict");
+    // Refreshing a handle also replaces its encrypted bootstrap and revokes
+    // any tickets minted from the previous record, even when a host retries
+    // with the same lookup.
+    if (previous) this.removeStableJoinHandle(previous);
+    if (collision) this.removeStableJoinHandle(collision);
+
+    const bootstrapBytes = new TextEncoder().encode(bootstrapCiphertext).byteLength;
+    const entry: StableJoinHandle = {
+      handleDigest,
+      sessionId,
+      ...(generation === undefined ? {} : { inviteGeneration: generation }),
+      expiresAtMs: party.expiresAtMs,
+      bootstrapCiphertext,
+      bootstrapBytes,
+      ticketDigests: new Set(),
+    };
+    this.stableJoinHandlesByDigest.set(handleDigest, entry);
+    party.stableJoinHandleDigest = handleDigest;
+    return {
+      handleLookup,
+      publicHandle: handleLookup,
+      expiresAtMs: entry.expiresAtMs,
+      ...(generation === undefined ? {} : { inviteGeneration: generation }),
+    };
+  }
+
+  /** Revoke the current Discord handle and every derived one-use ticket. */
+  public async revokeJoinHandle(
+    sessionId: string,
+    capability: string,
+    expectedHandleLookup?: unknown,
+  ): Promise<boolean> {
+    const party = this.parties.get(sessionId);
+    if (!party) throw new StoreError("not_found");
+    if (await sha256(capability) !== party.hostCapabilityDigest) throw new StoreError("not_found");
+    const handle = party.stableJoinHandleDigest
+      ? this.stableJoinHandlesByDigest.get(party.stableJoinHandleDigest)
+      : undefined;
+    if (!handle) return false;
+    if (expectedHandleLookup !== undefined) {
+      if (!validJoinHandleLookup(expectedHandleLookup)) throw new StoreError("invalid");
+      if (await sha256(expectedHandleLookup) !== handle.handleDigest) return false;
+    }
+    // The digest check above yields while hashing. A refresh may have replaced
+    // the handle during that yield; never let this stale revoke clear the new
+    // generation.
+    if (party.stableJoinHandleDigest !== handle.handleDigest
+        || this.stableJoinHandlesByDigest.get(handle.handleDigest) !== handle)
+      return false;
+    this.removeStableJoinHandle(handle);
+    return true;
+  }
+
+  /**
+   * Mint a fresh one-use ticket at click time. The handle itself is never
+   * consumed, so concurrent clicks receive independent ticket lookups.
+   */
+  public async mintJoinTicketFromHandle(
+    handleLookup: unknown,
+  ): Promise<{ ticketLookup: string; expiresAtMs: number }> {
+    if (!validJoinHandleLookup(handleLookup)) throw new StoreError("invalid");
+    const handleDigest = await sha256(handleLookup);
+    const handle = this.stableJoinHandlesByDigest.get(handleDigest);
+    const now = Date.now();
+    if (!handle) throw new StoreError("not_found");
+    const party = this.parties.get(handle.sessionId);
+    if (!party || party.expiresAtMs <= now || handle.expiresAtMs <= now) {
+      if (party && party.expiresAtMs <= now) this.deleteParty(handle.sessionId);
+      else this.removeStableJoinHandle(handle);
+      throw new StoreError("not_found");
+    }
+    this.removeExpiredJoinTickets(party, now);
+    if (handle.ticketDigests.size >= MAX_JOIN_HANDLE_TICKETS_PER_HANDLE)
+      throw new StoreError("quota");
+    const ticketLookup = randomToken();
+    const ticketDigest = await sha256(ticketLookup);
+    // A refresh/revoke can run while the digest is being computed. Do not
+    // commit a ticket for a handle that stopped being current meanwhile.
+    if (this.stableJoinHandlesByDigest.get(handleDigest) !== handle
+        || party.stableJoinHandleDigest !== handleDigest)
+      throw new StoreError("not_found");
+    const expiresAtMs = Math.min(now + MAX_JOIN_TICKET_TTL_MS, handle.expiresAtMs, party.expiresAtMs);
+    if (expiresAtMs <= now) throw new StoreError("expired");
+    const bootstrapBytes = new TextEncoder().encode(handle.bootstrapCiphertext).byteLength;
+    if (this.joinTicketBytes + bootstrapBytes > MAX_TOTAL_JOIN_TICKET_BYTES)
+      throw new StoreError("quota");
+    const entry: JoinTicket = {
+      ticketDigest,
+      sessionId: handle.sessionId,
+      expiresAtMs,
+      bootstrapCiphertext: handle.bootstrapCiphertext,
+      bootstrapBytes,
+      stableHandleDigest: handleDigest,
+    };
+    this.joinTicketsByDigest.set(ticketDigest, entry);
+    party.joinTicketDigests.add(ticketDigest);
+    handle.ticketDigests.add(ticketDigest);
+    this.joinTicketBytes += bootstrapBytes;
+    return { ticketLookup, expiresAtMs };
   }
 
   public async issueJoinTicket(
@@ -333,6 +504,10 @@ export class OpaqueRelayStore {
         if (ticket) this.removeJoinTicket(ticket);
         else party.joinTicketDigests.delete(digest);
       }
+      if (party.stableJoinHandleDigest) {
+        const handle = this.stableJoinHandlesByDigest.get(party.stableJoinHandleDigest);
+        if (handle) this.removeStableJoinHandle(handle);
+      }
     }
     this.parties.delete(sessionId);
   }
@@ -341,6 +516,28 @@ export class OpaqueRelayStore {
     if (!this.joinTicketsByDigest.delete(ticket.ticketDigest)) return;
     const party = this.parties.get(ticket.sessionId);
     party?.joinTicketDigests.delete(ticket.ticketDigest);
+    if (ticket.stableHandleDigest) {
+      this.stableJoinHandlesByDigest.get(ticket.stableHandleDigest)?.ticketDigests.delete(ticket.ticketDigest);
+    }
     this.joinTicketBytes -= ticket.bootstrapBytes;
   }
+
+  private removeStableJoinHandle(handle: StableJoinHandle): void {
+    if (!this.stableJoinHandlesByDigest.delete(handle.handleDigest)) return;
+    const party = this.parties.get(handle.sessionId);
+    if (party?.stableJoinHandleDigest === handle.handleDigest)
+      delete party.stableJoinHandleDigest;
+    for (const digest of [...handle.ticketDigests]) {
+      const ticket = this.joinTicketsByDigest.get(digest);
+      if (ticket) this.removeJoinTicket(ticket);
+      else handle.ticketDigests.delete(digest);
+    }
+  }
+}
+
+function normalizeInviteGeneration(value: unknown): string | number | undefined {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
+  if (typeof value === "string" && /^[A-Za-z0-9._~-]{1,128}$/.test(value)) return value;
+  if (value === undefined || value === null) return undefined;
+  throw new StoreError("invalid");
 }

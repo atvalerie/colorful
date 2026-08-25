@@ -102,4 +102,64 @@ describe("opaque relay store", () => {
       party.sessionId, party.guestCapability, randomToken(), Date.now() + 30_000, "bootstrap",
     )).rejects.toMatchObject({ code: "not_found" });
   });
+
+  test("stable handle mints independent one-use tickets and revokes stale generations", async () => {
+    const store = new OpaqueRelayStore();
+    const party = await store.createParty();
+    const firstHandle = randomToken();
+    await store.registerJoinHandle(party.sessionId, party.hostCapability, firstHandle, "sealed-v1", 1);
+    const [first, second] = await Promise.all([
+      store.mintJoinTicketFromHandle(firstHandle),
+      store.mintJoinTicketFromHandle(firstHandle),
+    ]);
+    expect(first.ticketLookup).not.toBe(second.ticketLookup);
+    await expect(store.redeemJoinTicket(first.ticketLookup)).resolves.toMatchObject({
+      sessionId: party.sessionId, bootstrapCiphertext: "sealed-v1",
+    });
+    await expect(store.redeemJoinTicket(first.ticketLookup)).rejects.toMatchObject({ code: "not_found" });
+
+    const secondHandle = randomToken();
+    await store.registerJoinHandle(party.sessionId, party.hostCapability, secondHandle, "sealed-v2", 2);
+    await expect(store.mintJoinTicketFromHandle(firstHandle)).rejects.toMatchObject({ code: "not_found" });
+    await expect(store.mintJoinTicketFromHandle(secondHandle)).resolves.toMatchObject({
+      ticketLookup: expect.any(String),
+    });
+    await expect(store.registerJoinHandle(party.sessionId, party.hostCapability, randomToken(), "sealed-old", 1))
+      .rejects.toMatchObject({ code: "conflict" });
+  });
+
+  test("revoking a stable handle also revokes already minted tickets", async () => {
+    const store = new OpaqueRelayStore();
+    const party = await store.createParty();
+    const handleA = randomToken();
+    const handleB = randomToken();
+    await store.registerJoinHandle(party.sessionId, party.hostCapability, handleA, "sealed-a");
+    const ticket = await store.mintJoinTicketFromHandle(handleA);
+    await store.registerJoinHandle(party.sessionId, party.hostCapability, handleB, "sealed-b");
+    // A delayed revoke from the old generation must not delete B.
+    await expect(store.revokeJoinHandle(party.sessionId, party.hostCapability, handleA)).resolves.toBe(false);
+    await expect(store.mintJoinTicketFromHandle(handleB)).resolves.toMatchObject({ ticketLookup: expect.any(String) });
+    await expect(store.revokeJoinHandle(party.sessionId, party.hostCapability, handleB)).resolves.toBe(true);
+    await expect(store.mintJoinTicketFromHandle(handleB)).rejects.toMatchObject({ code: "not_found" });
+    await expect(store.redeemJoinTicket(ticket.ticketLookup)).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  test("treats the stable-handle and ticket expiry instant as expired", async () => {
+    const store = new OpaqueRelayStore();
+    const party = await store.createParty();
+    const handle = randomToken();
+    await store.registerJoinHandle(party.sessionId, party.hostCapability, handle, "sealed");
+    const internals = store as unknown as {
+      stableJoinHandlesByDigest: Map<string, { expiresAtMs: number }>;
+      joinTicketsByDigest: Map<string, { expiresAtMs: number }>;
+    };
+    internals.stableJoinHandlesByDigest.get(await sha256(handle))!.expiresAtMs = Date.now();
+    await expect(store.mintJoinTicketFromHandle(handle)).rejects.toMatchObject({ code: "not_found" });
+
+    await store.registerJoinHandle(party.sessionId, party.hostCapability, handle, "sealed");
+    const ticket = await store.mintJoinTicketFromHandle(handle);
+    const ticketDigest = await sha256(ticket.ticketLookup);
+    internals.joinTicketsByDigest.get(ticketDigest)!.expiresAtMs = Date.now();
+    await expect(store.redeemJoinTicket(ticket.ticketLookup)).rejects.toMatchObject({ code: "not_found" });
+  });
 });

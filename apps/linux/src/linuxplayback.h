@@ -132,6 +132,7 @@ private:
     QString m_audioDevice = QStringLiteral("auto");
     bool m_audioExclusive = false;
     bool m_replayGainEnabled = false;
+    bool m_loadfileSupportsIndex = false;
     std::optional<double> m_replayGainDb;
     std::optional<double> m_peakAmplitude;
     std::optional<double> m_preparedReplayGainDb;

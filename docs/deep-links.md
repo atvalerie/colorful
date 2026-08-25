@@ -44,5 +44,7 @@ page preserves `location.hash` client-side and carries it into the custom URI;
 the fragment is never sent in the HTTPS request. On redemption, colorful sends
 only `ticket-lookup` to the relay. The relay returns encrypted bootstrap
 ciphertext, and the client uses the locally retained `bootstrap-key` to unwrap
-the private invite. Native Discord Ask-to-Join remains unimplemented; it would
-need authenticated Discord RPC or Social SDK support.
+the private invite. Native Discord Ask-to-Join uses the same opaque stable
+handle as a Discord activity join secret. Discord shares that secret only after
+the host approves the request; Colorful then mints a fresh one-use ticket and
+opens this same join path.

@@ -150,6 +150,31 @@ Rectangle {
             }
         }
 
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: party.active && party.role === "host" && colorful.discordJoinRequests.length > 0
+            spacing: 6
+            Text { text: "Discord join requests"; color: "#f5f5f5"; font.weight: Font.DemiBold; font.pixelSize: Math.round(13 * colorful.textScale) }
+            Repeater {
+                model: colorful.discordJoinRequests
+                delegate: Rectangle {
+                    required property var modelData
+                    Layout.fillWidth: true; Layout.preferredHeight: 52
+                    color: Qt.rgba(1,1,1,0.028); border.width: 1; border.color: Qt.rgba(1,1,1,0.1)
+                    RowLayout {
+                        anchors.fill: parent; anchors.margins: 9; spacing: 7
+                        Text {
+                            Layout.fillWidth: true
+                            text: modelData.globalName || modelData.username || "Discord user"
+                            color: "#f5f5f5"; font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight
+                        }
+                        ColorButton { text: "Decline"; quiet: true; implicitWidth: 62; implicitHeight: 30; onClicked: colorful.respondToDiscordJoinRequest(modelData.id, false) }
+                        ColorButton { text: "Approve"; implicitWidth: 68; implicitHeight: 30; onClicked: colorful.respondToDiscordJoinRequest(modelData.id, true) }
+                    }
+                }
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 142

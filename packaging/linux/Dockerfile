@@ -1,13 +1,15 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ubuntu:22.04
+FROM ubuntu:22.04@sha256:b060fffe8e1561c9c3e6dea6db487b900100fc26830b9ea2ec966c151ab4c020 AS colorful-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG QT_VERSION=6.8.3
 ARG AQT_VERSION=3.3.0
 ARG CMAKE_VERSION=3.31.6
-ARG RUST_VERSION=1.97.0
+ARG MESON_VERSION=1.7.0
+ARG RUST_VERSION=1.97.1
 ARG BUN_VERSION=1.3.14
+ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -17,7 +19,6 @@ RUN apt-get update \
         ca-certificates \
         curl \
         desktop-file-utils \
-        ffmpeg \
         file \
         git \
         libdbus-1-3 \
@@ -28,7 +29,6 @@ RUN apt-get update \
         libgl1 \
         libgl-dev \
         libglib2.0-0 \
-        libmpv-dev \
         libopengl0 \
         libopengl-dev \
         libsecret-tools \
@@ -45,17 +45,50 @@ RUN apt-get update \
         libxkbcommon-x11-0 \
         libxi6 \
         libxrender1 \
+        libasound2-dev \
+        libass-dev \
+        libgnutls28-dev \
+        libpulse-dev \
+        libunwind-dev \
+        libxxhash-dev \
+        nasm \
         ninja-build \
         patchelf \
         pkg-config \
+        python3-jinja2 \
         python3 \
         python3-pip \
         tar \
+        yasm \
         unzip \
         xauth \
         xz-utils \
         xvfb \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir "meson==$MESON_VERSION"
+
+FROM colorful-base AS colorful-ffmpeg
+
+COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json
+COPY packaging/linux/build-mpv-source.sh /tmp/build-mpv-source.sh
+RUN bash /tmp/build-mpv-source.sh ffmpeg \
+    && rm -f /tmp/build-mpv-source.sh /tmp/desktop-dependencies.json
+
+FROM colorful-base AS colorful-libplacebo
+COPY --from=colorful-ffmpeg /opt/colorful-mpv /opt/colorful-mpv
+COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json
+COPY packaging/linux/build-mpv-source.sh /tmp/build-mpv-source.sh
+RUN bash /tmp/build-mpv-source.sh libplacebo \
+    && rm -f /tmp/build-mpv-source.sh /tmp/desktop-dependencies.json
+
+FROM colorful-libplacebo AS colorful-mpv
+COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json
+COPY packaging/linux/build-mpv-source.sh /tmp/build-mpv-source.sh
+RUN bash /tmp/build-mpv-source.sh mpv \
+    && rm -f /tmp/build-mpv-source.sh /tmp/desktop-dependencies.json
+
+FROM colorful-mpv AS final
 
 RUN python3 -m pip install --no-cache-dir \
         "aqtinstall==$AQT_VERSION" \
@@ -65,11 +98,14 @@ RUN python3 -m pip install --no-cache-dir \
         --modules qtimageformats
 
 ENV QT_ROOT=/opt/Qt/${QT_VERSION}/gcc_64
+ENV COLORFUL_MPV_PREFIX=/opt/colorful-mpv
+ENV COLORFUL_RUST_TOOLCHAIN=/opt/rustup/toolchains/${RUST_VERSION}-x86_64-unknown-linux-gnu
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-ENV PATH=${QT_ROOT}/bin:/opt/cargo/bin:/opt/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=${QT_ROOT}/bin:${COLORFUL_RUST_TOOLCHAIN}/bin:/opt/cargo/bin:/opt/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV CMAKE_PREFIX_PATH=${QT_ROOT}
-ENV PKG_CONFIG_PATH=${QT_ROOT}/lib/pkgconfig
+ENV PKG_CONFIG_PATH=${COLORFUL_MPV_PREFIX}/lib/pkgconfig:${COLORFUL_MPV_PREFIX}/share/pkgconfig:${QT_ROOT}/lib/pkgconfig
+ENV LD_LIBRARY_PATH=${COLORFUL_MPV_PREFIX}/lib
 ENV QML2_IMPORT_PATH=${QT_ROOT}/qml
 ENV QT_PLUGIN_PATH=${QT_ROOT}/plugins
 ENV RUSTUP_HOME=/opt/rustup
@@ -80,12 +116,15 @@ RUN curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
     && sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
         --default-toolchain "$RUST_VERSION" \
     && rm /tmp/rustup.sh \
+    && test "$(command -v rustc)" = "$COLORFUL_RUST_TOOLCHAIN/bin/rustc" \
+    && test "$(command -v cargo)" = "$COLORFUL_RUST_TOOLCHAIN/bin/cargo" \
     && rustc --version \
     && cargo --version
 
 RUN curl --fail --location --retry 3 \
         "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" \
         -o /tmp/bun.zip \
+    && echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum --check --strict - \
     && unzip -q /tmp/bun.zip -d /tmp/bun \
     && install -Dm755 /tmp/bun/bun-linux-x64/bun /opt/bun/bin/bun \
     && rm -rf /tmp/bun /tmp/bun.zip \

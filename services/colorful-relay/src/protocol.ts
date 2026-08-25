@@ -23,6 +23,13 @@ export const MAX_TOTAL_JOIN_TICKET_BYTES = 16 * 1024 * 1024;
 export const MAX_JOIN_TICKET_ISSUANCES_PER_MINUTE = 120;
 export const MAX_JOIN_TICKET_REDEMPTIONS_PER_MINUTE = 240;
 export const MAX_JOIN_TICKET_REDEMPTIONS_IN_FLIGHT = 64;
+// Stable public handles can be clicked repeatedly, but each click still
+// creates a bounded one-use ticket. Keep this separate from the legacy
+// host-issued ticket quota so a long-lived Discord button is not exhausted by
+// a handful of normal clicks.
+export const MAX_JOIN_HANDLE_TICKETS_PER_HANDLE = 64;
+export const MAX_JOIN_HANDLE_MINTS_PER_MINUTE = 240;
+export const MAX_JOIN_HANDLE_MINTS_IN_FLIGHT = 64;
 export const MAX_TOTAL_MAILBOX_BYTES = 256 * 1024 * 1024;
 export const MAX_ALLOCATIONS_PER_MINUTE = 600;
 
@@ -84,6 +91,12 @@ export function validJoinTicketLookup(value: unknown): value is string {
     return false;
   }
 }
+
+// Stable handles use the same opaque, URL-safe 32-byte lookup as the legacy
+// public ticket. The bootstrap key is deliberately never sent to the relay;
+// clients retain it in the URL fragment and combine it with a freshly minted
+// lookup when opening Colorful.
+export const validJoinHandleLookup = validJoinTicketLookup;
 
 export function validJoinTicketBootstrap(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0

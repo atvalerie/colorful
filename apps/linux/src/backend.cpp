@@ -71,10 +71,15 @@ bool ensureWritableDirectory(const QString &path, QString *error)
 QString safeTrackPath(const QVariantMap &track)
 {
     const auto id = track.value(QStringLiteral("id")).toString();
-    QString safe;
-    safe.reserve(id.size());
-    for (const auto character : id) safe.append(character.isLetterOrNumber() ? character : QChar('_'));
-    return QStringLiteral("/org/mpris/MediaPlayer2/track/%1").arg(safe.isEmpty() ? QStringLiteral("unknown") : safe);
+    if (id.isEmpty()) return QStringLiteral("/org/mpris/MediaPlayer2/track/unknown");
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto identity = (provider + QChar::Null + id).toUtf8();
+    const auto digest = QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex();
+    // D-Bus object-path components only permit ASCII letters, digits, and
+    // underscores. Hash the provider identity instead of passing arbitrary
+    // Unicode provider ids into libdbus.
+    return QStringLiteral("/org/mpris/MediaPlayer2/track/id_%1")
+        .arg(QString::fromLatin1(digest));
 }
 
 QStringList playbackHttpHeaders(const QJsonObject &source)
@@ -205,8 +210,28 @@ Backend::Backend(QObject *parent)
     m_discordPresenceEnabled = settings.value(QStringLiteral("discord/presenceEnabled"), true).toBool();
     m_discordTrackButtonEnabled = settings.value(QStringLiteral("discord/trackButtonEnabled"), true).toBool();
     m_discordPartyButtonEnabled = settings.value(QStringLiteral("discord/partyButtonEnabled"), true).toBool();
+    m_discordAskToJoinEnabled = settings.value(QStringLiteral("discord/askToJoinEnabled"), true).toBool();
     m_discordPresence.setTrackButtonEnabled(m_discordTrackButtonEnabled);
+    m_discordPresence.setAskToJoinEnabled(m_discordAskToJoinEnabled);
     m_discordPresence.setEnabled(m_discordPresenceEnabled);
+    connect(&m_discordPresence, &DiscordPresence::activityJoinRequested, this,
+            [this](const QVariantMap &user) {
+        if (!m_discordPartyActive) return;
+        const auto id = user.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) return;
+        for (const auto &pending : std::as_const(m_discordJoinRequests)) {
+            if (pending.toMap().value(QStringLiteral("id")).toString() == id) return;
+        }
+        m_discordJoinRequests.append(user);
+        emit discordJoinRequestsChanged();
+        const auto name = user.value(QStringLiteral("globalName"),
+                                     user.value(QStringLiteral("username"))).toString();
+        emit toastRequested(name.isEmpty() ? QStringLiteral("Discord user asked to join your party")
+                                           : QStringLiteral("%1 asked to join your party").arg(name),
+                           QStringLiteral("info"));
+    });
+    connect(&m_discordPresence, &DiscordPresence::activityJoin, this,
+            [this](const QString &secret) { emit discordPartyJoinReceived(secret); });
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
     m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
@@ -1138,11 +1163,13 @@ QVariantMap Backend::mprisMetadata() const
 #else
     metadata.insert(QStringLiteral("mpris:trackid"), safeTrackPath(track));
 #endif
-    metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")));
-    metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")));
-    metadata.insert(QStringLiteral("xesam:album"), track.value(QStringLiteral("albumTitle")));
-    if (!m_lowDataMode)
-        metadata.insert(QStringLiteral("mpris:artUrl"), track.value(QStringLiteral("coverUrl")));
+    metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")).toString());
+    metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")).toStringList());
+    const auto album = track.value(QStringLiteral("albumTitle")).toString();
+    if (!album.isEmpty()) metadata.insert(QStringLiteral("xesam:album"), album);
+    const auto artworkUrl = track.value(QStringLiteral("coverUrl")).toString();
+    if (!m_lowDataMode && !artworkUrl.isEmpty())
+        metadata.insert(QStringLiteral("mpris:artUrl"), artworkUrl);
     metadata.insert(QStringLiteral("mpris:length"), track.value(QStringLiteral("durationMs")).toLongLong() * 1000);
     return metadata;
 }
@@ -3533,13 +3560,40 @@ void Backend::setDiscordPartyButtonEnabled(bool enabled)
     emit discordSettingsChanged();
 }
 
-void Backend::setDiscordPartyState(bool active, const QString &partyId, int partySize,
-                                   const QString &joinPartyUrl)
+void Backend::setDiscordAskToJoinEnabled(bool enabled)
 {
+    if (m_discordAskToJoinEnabled == enabled) return;
+    m_discordAskToJoinEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/askToJoinEnabled"), enabled);
+    m_discordPresence.setAskToJoinEnabled(enabled);
+    updateDiscordPresence();
+    emit discordSettingsChanged();
+}
+
+void Backend::respondToDiscordJoinRequest(const QString &userId, bool approved)
+{
+    for (int index = 0; index < m_discordJoinRequests.size(); ++index) {
+        if (m_discordJoinRequests.at(index).toMap().value(QStringLiteral("id")).toString() != userId) continue;
+        m_discordJoinRequests.removeAt(index);
+        emit discordJoinRequestsChanged();
+        m_discordPresence.respondToJoinRequest(userId, approved);
+        return;
+    }
+}
+
+void Backend::setDiscordPartyState(bool active, const QString &partyId, int partySize,
+                                   const QString &joinPartyUrl, const QString &joinSecret)
+{
+    const bool partyChanged = !active || partyId.trimmed() != m_discordPartyId;
     m_discordPartyActive = active;
     m_discordPartyId = active ? partyId.trimmed() : QString{};
     m_discordPartySize = active ? std::clamp(partySize, 0, 64) : 0;
     m_discordJoinPartyUrl = active && m_discordPartyButtonEnabled ? joinPartyUrl : QString{};
+    m_discordJoinSecret = active && m_discordAskToJoinEnabled ? joinSecret : QString{};
+    if (partyChanged && !m_discordJoinRequests.isEmpty()) {
+        m_discordJoinRequests.clear();
+        emit discordJoinRequestsChanged();
+    }
     updateDiscordPresence();
 }
 
@@ -4538,7 +4592,8 @@ void Backend::updateDiscordPresence()
         discordTrackUrl(track),
         m_discordPartyActive ? m_discordPartyId : QString{},
         m_discordPartyActive ? m_discordPartySize : 0,
-        m_discordPartyActive ? m_discordJoinPartyUrl : QString{});
+        m_discordPartyActive ? m_discordJoinPartyUrl : QString{},
+        m_discordPartyActive ? m_discordJoinSecret : QString{});
 }
 
 QString Backend::trackKey(const QVariantMap &track) const
