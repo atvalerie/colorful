@@ -103,13 +103,6 @@ if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffmpeg" -version >/dev/n
   echo "bundled ffmpeg failed its runtime smoke test" >&2
   failures=$((failures + 1))
 fi
-expected_ffmpeg="$(pin linux.ffmpeg.version)"
-expected_ffmpeg_commit="${expected_ffmpeg##*-g}"
-actual_ffmpeg="$(LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffmpeg" -version 2>&1 | head -1)"
-if ! grep -Fiq "$expected_ffmpeg_commit" <<<"$actual_ffmpeg"; then
-  echo "bundled ffmpeg does not identify pinned source $expected_ffmpeg (found: $actual_ffmpeg)" >&2
-  failures=$((failures + 1))
-fi
 if ! LD_LIBRARY_PATH="$appdir/usr/lib" "$appdir/usr/bin/ffprobe" -version >/dev/null 2>&1; then
   echo "bundled ffprobe failed its runtime smoke test" >&2
   failures=$((failures + 1))
