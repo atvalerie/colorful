@@ -213,12 +213,15 @@ Backend::Backend(QObject *parent)
     // Ask to Join begins Social SDK OAuth. It stays opt-in so a normal music
     // listener never sees an authorization window without requesting parties.
     m_discordAskToJoinEnabled = settings.value(QStringLiteral("discord/askToJoinEnabled"), false).toBool();
-    // Social SDK owns party discovery/invites. Keep the legacy IPC transport
-    // compiled as a future fallback, but never publish two activities at once.
-    m_discordPresence.setEnabled(false);
+    // Ordinary playback stays a Listening activity through local RPC. Switch
+    // to Social SDK only while a party is active: that gives Discord the
+    // documented Playing/party representation it needs for native invites.
+    m_discordPresence.setTrackButtonEnabled(m_discordTrackButtonEnabled);
+    m_discordPresence.setAskToJoinEnabled(false);
+    m_discordPresence.setEnabled(m_discordPresenceEnabled);
     m_discordSocial.setTrackButtonEnabled(m_discordTrackButtonEnabled);
     m_discordSocial.setAskToJoinEnabled(m_discordAskToJoinEnabled);
-    m_discordSocial.setEnabled(m_discordPresenceEnabled);
+    m_discordSocial.setEnabled(false);
     connect(&m_discordSocial, &DiscordSocial::activityJoinRequested, this,
             [this](const QVariantMap &user) {
         if (!m_discordPartyActive) return;
@@ -3542,7 +3545,6 @@ void Backend::setDiscordPresenceEnabled(bool enabled)
     if (m_discordPresenceEnabled == enabled) return;
     m_discordPresenceEnabled = enabled;
     QSettings().setValue(QStringLiteral("discord/presenceEnabled"), enabled);
-    m_discordSocial.setEnabled(enabled);
     updateDiscordPresence();
     emit discordSettingsChanged();
 }
@@ -3552,6 +3554,7 @@ void Backend::setDiscordTrackButtonEnabled(bool enabled)
     if (m_discordTrackButtonEnabled == enabled) return;
     m_discordTrackButtonEnabled = enabled;
     QSettings().setValue(QStringLiteral("discord/trackButtonEnabled"), enabled);
+    m_discordPresence.setTrackButtonEnabled(enabled);
     m_discordSocial.setTrackButtonEnabled(enabled);
     emit discordSettingsChanged();
 }
@@ -4580,10 +4583,34 @@ QString Backend::discordTrackUrl(const QVariantMap &track)
 void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
+    const bool useSocialParty = m_discordPresenceEnabled && m_discordPartyActive
+        && m_discordAskToJoinEnabled;
+    // Never let the two transports publish concurrently. A normal listening
+    // activity should not claim a joinable party, while a party must use the
+    // Social SDK's Playing type, privacy, and desktop-support fields.
+    m_discordPresence.setEnabled(m_discordPresenceEnabled && !useSocialParty);
+    m_discordSocial.setEnabled(useSocialParty);
     if (track.isEmpty() || m_playback.state() == LinuxPlayback::State::Stopped) {
         m_discordSocial.clear();
+        m_discordPresence.clear();
         return;
     }
+    if (!useSocialParty) {
+        m_discordSocial.clear();
+        m_discordPresence.update(
+            track.value(QStringLiteral("title")).toString(),
+            track.value(QStringLiteral("artistText")).toString(),
+            track.value(QStringLiteral("albumTitle")).toString(),
+            m_lowDataMode ? QString()
+                          : track.value(QStringLiteral("coverRemoteUrl"),
+                                        track.value(QStringLiteral("coverUrl"))).toString(),
+            m_playback.position(),
+            duration(),
+            playing(),
+            discordTrackUrl(track));
+        return;
+    }
+    m_discordPresence.clear();
     m_discordSocial.update(
         track.value(QStringLiteral("title")).toString(),
         track.value(QStringLiteral("artistText")).toString(),

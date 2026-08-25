@@ -221,6 +221,7 @@ void DiscordSocial::update(const QString &title, const QString &artist, const QS
 
 void DiscordSocial::clear()
 {
+    if (!m_hasActivity) return;
     m_hasActivity = false;
     m_private->pendingRequests.clear();
     if (m_private->client) m_private->client->ClearRichPresence();
