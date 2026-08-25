@@ -99,9 +99,10 @@ RUN python3 -m pip install --no-cache-dir \
 
 ENV QT_ROOT=/opt/Qt/${QT_VERSION}/gcc_64
 ENV COLORFUL_MPV_PREFIX=/opt/colorful-mpv
+ENV COLORFUL_RUST_TOOLCHAIN=/opt/rustup/toolchains/${RUST_VERSION}-x86_64-unknown-linux-gnu
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-ENV PATH=${QT_ROOT}/bin:/opt/cargo/bin:/opt/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=${QT_ROOT}/bin:${COLORFUL_RUST_TOOLCHAIN}/bin:/opt/cargo/bin:/opt/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV CMAKE_PREFIX_PATH=${QT_ROOT}
 ENV PKG_CONFIG_PATH=${COLORFUL_MPV_PREFIX}/lib/pkgconfig:${COLORFUL_MPV_PREFIX}/share/pkgconfig:${QT_ROOT}/lib/pkgconfig
 ENV LD_LIBRARY_PATH=${COLORFUL_MPV_PREFIX}/lib
@@ -115,6 +116,8 @@ RUN curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
     && sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
         --default-toolchain "$RUST_VERSION" \
     && rm /tmp/rustup.sh \
+    && test "$(command -v rustc)" = "$COLORFUL_RUST_TOOLCHAIN/bin/rustc" \
+    && test "$(command -v cargo)" = "$COLORFUL_RUST_TOOLCHAIN/bin/cargo" \
     && rustc --version \
     && cargo --version
 

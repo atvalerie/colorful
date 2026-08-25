@@ -46,6 +46,7 @@ requireText("packaging/linux/Dockerfile", `ARG AQT_VERSION=${pins.toolchains.aqt
 requireText("packaging/linux/Dockerfile", `ARG CMAKE_VERSION=${pins.toolchains.cmake}`);
 requireText("packaging/linux/Dockerfile", `ARG MESON_VERSION=${pins.toolchains.meson}`);
 requireText("packaging/linux/Dockerfile", `ARG RUST_VERSION=${pins.toolchains.rust}`);
+requireText("packaging/linux/Dockerfile", "ENV COLORFUL_RUST_TOOLCHAIN=/opt/rustup/toolchains/${RUST_VERSION}-x86_64-unknown-linux-gnu");
 requireText("packaging/linux/Dockerfile", `ARG BUN_VERSION=${pins.toolchains.bun}`);
 requireText("packaging/linux/Dockerfile", `ARG BUN_SHA256=${pins.linux.bun.sha256}`);
 requireText("packaging/linux/Dockerfile", "COPY packaging/desktop-dependencies.json /tmp/desktop-dependencies.json");
