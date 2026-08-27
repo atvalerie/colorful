@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cursorFromNextLink, deduplicateAlbums, deduplicateTracks, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapPlaylists, mapTracks, mergeRelatedTracks, type AlbumSummary, type TrackSummary } from "../src/browse";
+import { cursorFromNextLink, deduplicateAlbums, deduplicateTracks, formatTrackTitle, isoDurationToMs, mapAlbums, mapArtists, mapPlaylists, mapTracks, mergeRelatedTracks, orderTracksByIsrc, type AlbumSummary, type TrackSummary } from "../src/browse";
 
 describe("TIDAL browse mapping", () => {
   test("parses ISO durations", () => {
@@ -127,6 +127,20 @@ describe("TIDAL browse mapping", () => {
     ])).toEqual([
       expect.objectContaining({ id: "explicit-hires" }),
       expect.objectContaining({ id: "live" }),
+    ]);
+  });
+
+  test("orders Spotify recommendation matches by requested ISRC and skips misses", () => {
+    const track = (id: string, isrc: string, explicit = false): TrackSummary => ({
+      id, title: id, version: null, artists: ["Artist"], artistCredits: [], albumId: "album",
+      albumTitle: "Album", durationMs: 180_000, isrc, coverUrl: null, explicit, mediaTags: [],
+    });
+    expect(orderTracksByIsrc([
+      track("second", "ISRC00000002"),
+      track("first-clean", "ISRC00000001"),
+      track("first-explicit", "ISRC00000001", true),
+    ], ["isrc00000001", "missing000001", "ISRC00000002"], 10).map(({ id }) => id)).toEqual([
+      "first-explicit", "second",
     ]);
   });
 

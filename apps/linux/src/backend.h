@@ -40,6 +40,7 @@ class Backend final : public QObject
     Q_PROPERTY(QVariantMap soundcloudHub READ soundcloudHub NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool soundcloudHubLoading READ soundcloudHubLoading NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool soundcloudMoreLoading READ soundcloudMoreLoading NOTIFY soundcloudAccountChanged)
+    Q_PROPERTY(bool spotifyLinked READ spotifyLinked NOTIFY spotifyAccountChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
@@ -91,6 +92,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool hardwareAccelerationEnabled READ hardwareAccelerationEnabled WRITE setHardwareAccelerationEnabled NOTIFY appearanceChanged)
     Q_PROPERTY(double textScale READ textScale WRITE setTextScale NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
+    Q_PROPERTY(QString recommendationMode READ recommendationMode WRITE setRecommendationMode NOTIFY recommendationModeChanged)
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
     Q_PROPERTY(bool soundcloudOriginalDownloads READ soundcloudOriginalDownloads WRITE setSoundcloudOriginalDownloads NOTIFY downloadPreferencesChanged)
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
@@ -128,6 +130,7 @@ public:
     QVariantMap soundcloudHub() const { return m_soundcloudHub; }
     bool soundcloudHubLoading() const { return m_soundcloudHubLoading; }
     bool soundcloudMoreLoading() const { return m_soundcloudMoreLoading; }
+    bool spotifyLinked() const { return m_spotifyLinked; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList searchAlbums() const { return m_searchAlbums; }
@@ -179,6 +182,7 @@ public:
     bool hardwareAccelerationEnabled() const { return m_hardwareAccelerationEnabled; }
     double textScale() const { return m_textScale; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
+    QString recommendationMode() const { return m_recommendationMode; }
     QString streamQuality() const { return m_streamQuality; }
     bool soundcloudOriginalDownloads() const { return m_soundcloudOriginalDownloads; }
     bool normalizationEnabled() const { return m_normalizationEnabled; }
@@ -223,6 +227,8 @@ public:
     Q_INVOKABLE void loadSoundCloudHub(bool refresh = false);
     Q_INVOKABLE void loadMoreSoundCloud(const QString &section);
     Q_INVOKABLE void openSoundCloudSetupGuide();
+    Q_INVOKABLE void startSpotifyBrowserLogin();
+    Q_INVOKABLE void unlinkSpotify();
     Q_INVOKABLE void dismissEntitlementWarning();
     Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
@@ -298,6 +304,7 @@ public:
     Q_INVOKABLE void loadLyrics(bool refresh = false);
     Q_INVOKABLE void copySongLink(const QVariantMap &track);
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
+    Q_INVOKABLE void setRecommendationMode(const QString &mode);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
     Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
@@ -327,6 +334,7 @@ signals:
     void authDetailsChanged();
     void youtubeAccountChanged();
     void soundcloudAccountChanged();
+    void spotifyAccountChanged();
     void statusMessageChanged();
     void searchResultsChanged();
     void catalogPageChanged();
@@ -354,6 +362,7 @@ signals:
     void accentChanged();
     void appearanceChanged();
     void autoplayEnabledChanged();
+    void recommendationModeChanged();
     void streamQualityChanged();
     void downloadPreferencesChanged();
     void audioProcessingChanged();
@@ -528,6 +537,7 @@ private:
     bool m_soundcloudHubLoading = false;
     bool m_soundcloudMoreLoading = false;
     bool m_soundcloudLinked = false;
+    bool m_spotifyLinked = false;
     QVariantMap m_listenStats;
     QVariantMap m_lyrics;
     QString m_lyricsTrackKey;
@@ -564,6 +574,7 @@ private:
     QString m_pendingArtworkUrl;
     QPointer<QNetworkReply> m_accentReply;
     bool m_autoplayEnabled = true;
+    QString m_recommendationMode = QStringLiteral("fallback");
     QString m_streamQuality = QStringLiteral("best");
     bool m_soundcloudOriginalDownloads = false;
     bool m_reconcilingDownloads = false;

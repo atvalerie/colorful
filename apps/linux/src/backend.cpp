@@ -194,6 +194,13 @@ Backend::Backend(QObject *parent)
     m_textScale = std::clamp(settings.value(QStringLiteral("appearance/textScale"), m_textScale).toDouble(), 0.9, 1.3);
     if (m_accentMode == QStringLiteral("fixed")) m_accent = m_fixedAccent;
     m_autoplayEnabled = settings.value(QStringLiteral("playback/autoplay"), true).toBool();
+    m_recommendationMode = settings.value(QStringLiteral("playback/recommendationMode"),
+                                          QStringLiteral("fallback")).toString();
+    if (m_recommendationMode != QStringLiteral("tidal")
+        && m_recommendationMode != QStringLiteral("spotify")
+        && m_recommendationMode != QStringLiteral("fallback")) {
+        m_recommendationMode = QStringLiteral("fallback");
+    }
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
@@ -1276,6 +1283,11 @@ void Backend::providerHostStarted()
             m_soundcloudLinked = soundcloudLinked;
             emit soundcloudAccountChanged();
         }
+        const auto spotifyLinked = data.value(QStringLiteral("spotifyLinked")).toBool();
+        if (m_spotifyLinked != spotifyLinked) {
+            m_spotifyLinked = spotifyLinked;
+            emit spotifyAccountChanged();
+        }
         if (!data.value(QStringLiteral("browseConfigured")).toBool()) {
             setStatus(QStringLiteral("TIDAL browse configuration is unavailable."));
         } else if (!data.value(QStringLiteral("deviceConfigured")).toBool()) {
@@ -1455,6 +1467,28 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
             emit toastRequested(QStringLiteral("SoundCloud connected"), QStringLiteral("success"));
             loadSoundCloudHub(true);
         }
+    } else if (event == QStringLiteral("spotify.auth.restored")
+               || event == QStringLiteral("spotify.auth.completed")) {
+        const auto completed = event.endsWith(QStringLiteral("completed"));
+        m_spotifyLinked = true;
+        if (m_authProvider == QStringLiteral("spotify")) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
+        emit spotifyAccountChanged();
+        setStatus(completed
+                      ? QStringLiteral("Spotify recommendations connected")
+                      : QStringLiteral("Spotify recommendation account restored"));
+        if (completed) {
+            emit toastRequested(QStringLiteral("Spotify recommendations connected"),
+                                QStringLiteral("success"));
+        }
+    } else if (event == QStringLiteral("spotify.auth.failed")) {
+        if (m_authProvider == QStringLiteral("spotify")) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
+        setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("browser.auth.progress")) {
         const auto data = message.value(QStringLiteral("data")).toObject();
         if (m_authPending && data.value(QStringLiteral("provider")).toString() == m_authProvider) {
@@ -1604,14 +1638,21 @@ void Backend::startSoundCloudBrowserLogin()
     startBrowserLogin(QStringLiteral("soundcloud"));
 }
 
+void Backend::startSpotifyBrowserLogin()
+{
+    startBrowserLogin(QStringLiteral("spotify"));
+}
+
 void Backend::startBrowserLogin(const QString &provider)
 {
-    if (provider != QStringLiteral("youtube") && provider != QStringLiteral("soundcloud")) return;
+    if (provider != QStringLiteral("youtube") && provider != QStringLiteral("soundcloud")
+        && provider != QStringLiteral("spotify")) return;
     if (m_authPending) cancelLogin();
     setBusy(true);
-    setStatus(QStringLiteral("Opening an isolated browser for %1…")
-                  .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
-                                                               : QStringLiteral("SoundCloud")));
+    const auto providerName = provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+        : provider == QStringLiteral("soundcloud") ? QStringLiteral("SoundCloud")
+                                                     : QStringLiteral("Spotify");
+    setStatus(QStringLiteral("Opening an isolated browser for %1…").arg(providerName));
     request(provider + QStringLiteral(".auth.browser.start"), {}, [this, provider](const QJsonObject &message) {
         setBusy(false);
         if (!message.value(QStringLiteral("ok")).toBool()) {
@@ -1624,9 +1665,23 @@ void Backend::startBrowserLogin(const QString &provider)
         m_verificationUrl.clear();
         emit authDetailsChanged();
         emit authPendingChanged();
-        setStatus(QStringLiteral("Waiting for %1 browser sign-in…")
-                      .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
-                                                                   : QStringLiteral("SoundCloud")));
+        const auto providerName = provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+            : provider == QStringLiteral("soundcloud") ? QStringLiteral("SoundCloud")
+                                                         : QStringLiteral("Spotify");
+        setStatus(QStringLiteral("Waiting for %1 browser sign-in…").arg(providerName));
+    });
+}
+
+void Backend::unlinkSpotify()
+{
+    request(QStringLiteral("spotify.auth.unlink"), {}, [this](const QJsonObject &message) {
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            return;
+        }
+        m_spotifyLinked = false;
+        emit spotifyAccountChanged();
+        notify(QStringLiteral("Spotify recommendation account disconnected"));
     });
 }
 
@@ -1830,7 +1885,8 @@ void Backend::cancelLogin()
 {
     if (!m_authPending) return;
     const bool capturedBrowserLogin = m_verificationUrl.isEmpty()
-        && (m_authProvider == QStringLiteral("youtube") || m_authProvider == QStringLiteral("soundcloud"));
+        && (m_authProvider == QStringLiteral("youtube") || m_authProvider == QStringLiteral("soundcloud")
+            || m_authProvider == QStringLiteral("spotify"));
     const auto type = capturedBrowserLogin ? QStringLiteral("browser.auth.cancel")
         : m_authProvider == QStringLiteral("youtube") ? QStringLiteral("youtube.auth.cancel")
         : QStringLiteral("auth.cancel");
@@ -2211,6 +2267,7 @@ void Backend::openCatalog(const QString &kind, const QString &id, bool preserveC
         {QStringLiteral("provider"), provider},
         {QStringLiteral("kind"), kind},
         {QStringLiteral("id"), resourceId},
+        {QStringLiteral("recommendationMode"), m_recommendationMode},
     }, [this, generation, preserveCurrent, hasCachedPage](const QJsonObject &message) {
         if (generation != m_catalogGeneration) return;
         m_catalogLoading = false;
@@ -4277,6 +4334,8 @@ void Backend::requestRelated(bool continueWhenReady)
     if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
     request(QStringLiteral("related"), {{QStringLiteral("provider"), seedProvider},
                                          {QStringLiteral("trackId"), seedTrackId},
+                                         {QStringLiteral("isrc"), seed.value(QStringLiteral("isrc")).toString()},
+                                         {QStringLiteral("recommendationMode"), m_recommendationMode},
                                          {QStringLiteral("limit"), seedProvider == QStringLiteral("youtube") ? 50 : 20}},
             [this, seedEntryId, generation, seedProvider, seedTrackId](const QJsonObject &message) {
         if (generation != m_relatedGeneration) return;
@@ -4428,6 +4487,22 @@ void Backend::setAutoplayEnabled(bool enabled)
     QSettings().setValue(QStringLiteral("playback/autoplay"), enabled);
     emit autoplayEnabledChanged();
     if (enabled) prepareNextSource();
+}
+
+void Backend::setRecommendationMode(const QString &mode)
+{
+    if (mode != QStringLiteral("tidal") && mode != QStringLiteral("spotify")
+        && mode != QStringLiteral("fallback")) return;
+    if (m_recommendationMode == mode) return;
+    m_recommendationMode = mode;
+    QSettings().setValue(QStringLiteral("playback/recommendationMode"), mode);
+    clearCatalogCache(QStringLiteral("tidal"));
+    ++m_relatedGeneration;
+    m_relatedPending = false;
+    m_relatedContinueWhenReady = false;
+    m_relatedSeedEntryId = -1;
+    emit recommendationModeChanged();
+    if (m_autoplayEnabled) prepareNextSource();
 }
 
 void Backend::setStreamQuality(const QString &quality)

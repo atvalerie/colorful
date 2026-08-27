@@ -107,6 +107,13 @@ pub enum PartyEventBody {
     JoinPolicyChanged {
         enabled: bool,
     },
+    JoinApprovalPolicyChanged {
+        required: bool,
+    },
+    JoinRequestRejected {
+        participant_id: String,
+        reason: String,
+    },
     TrackQueued {
         entry_id: String,
         track: PartyTrack,
@@ -118,6 +125,8 @@ pub enum PartyEventBody {
     StateSnapshot {
         participants: Vec<PartyParticipant>,
         join_enabled: bool,
+        #[serde(default)]
+        approval_required: bool,
         entries: Vec<PartyQueueEntry>,
         playback: Option<PartyPlaybackState>,
     },
@@ -329,6 +338,7 @@ pub struct PartyInvite {
     host_signing_public_key: [u8; KEY_BYTES],
     party_key: Zeroizing<[u8; KEY_BYTES]>,
     key_epoch: u64,
+    approval_required: bool,
 }
 
 /// An ephemeral relay ticket and the encrypted invite bootstrap sent with it.
@@ -529,6 +539,8 @@ struct InviteWire {
     host_signing_public_key: [u8; KEY_BYTES],
     party_key: [u8; KEY_BYTES],
     key_epoch: u64,
+    #[serde(default)]
+    approval_required: bool,
 }
 
 impl PartyInvite {
@@ -571,6 +583,7 @@ impl PartyInvite {
             host_signing_public_key: wire.host_signing_public_key,
             party_key: Zeroizing::new(wire.party_key),
             key_epoch: wire.key_epoch,
+            approval_required: wire.approval_required,
         };
         wire.party_key.fill(0);
         Ok(invite)
@@ -578,6 +591,10 @@ impl PartyInvite {
 
     pub fn channel(&self) -> PartyChannel {
         PartyChannel::new(self.party_id.clone(), *self.party_key, self.key_epoch)
+    }
+
+    pub fn approval_required(&self) -> bool {
+        self.approval_required
     }
 }
 
@@ -590,6 +607,7 @@ pub struct PartyHost {
     key_epoch: u64,
     sequence: u64,
     join_enabled: bool,
+    approval_required: bool,
     participants: HashMap<String, PartyParticipant>,
     seen_operations: HashSet<String>,
     events: Vec<PartyEvent>,
@@ -622,6 +640,7 @@ impl PartyHost {
             key_epoch: 0,
             sequence: 0,
             join_enabled: true,
+            approval_required: false,
             participants,
             seen_operations: HashSet::new(),
             events: Vec::new(),
@@ -647,6 +666,7 @@ impl PartyHost {
             host_signing_public_key: self.signing_key.verifying_key().to_bytes(),
             party_key: *self.party_key,
             key_epoch: self.key_epoch,
+            approval_required: self.approval_required,
         };
         let bytes = Zeroizing::new(serde_json::to_vec(&wire).map_err(PartyError::Json)?);
         wire.party_key.fill(0);
@@ -675,6 +695,15 @@ impl PartyHost {
 
     pub fn join_enabled(&self) -> bool {
         self.join_enabled
+    }
+
+    pub fn approval_required(&self) -> bool {
+        self.approval_required
+    }
+
+    pub fn set_approval_required(&mut self, required: bool) -> Result<PartyEvent, PartyError> {
+        self.approval_required = required;
+        self.sign_event(PartyEventBody::JoinApprovalPolicyChanged { required })
     }
 
     pub fn queue_track(&mut self, track: PartyTrack) -> Result<PartyEvent, PartyError> {
@@ -726,6 +755,20 @@ impl PartyHost {
         self.sign_event(PartyEventBody::ParticipantJoined { participant })
     }
 
+    pub fn validate_join_request(&self, request: &JoinRequest) -> Result<(), PartyError> {
+        if !self.join_enabled {
+            return Err(PartyError::JoiningDisabled);
+        }
+        verify_join(request, &self.party_id)
+    }
+
+    pub fn reject_join(&mut self, participant_id: &str, reason: String) -> Result<PartyEvent, PartyError> {
+        self.sign_event(PartyEventBody::JoinRequestRejected {
+            participant_id: participant_id.to_owned(),
+            reason,
+        })
+    }
+
     pub fn snapshot(&mut self) -> Result<PartyEvent, PartyError> {
         let mut entries = Vec::new();
         let mut playback = None;
@@ -773,6 +816,7 @@ impl PartyHost {
         let snapshot = self.sign_event(PartyEventBody::StateSnapshot {
             participants,
             join_enabled: self.join_enabled,
+            approval_required: self.approval_required,
             entries,
             playback,
         })?;
@@ -986,6 +1030,7 @@ pub struct PartyReplica {
     host_public_key: [u8; KEY_BYTES],
     sequence: u64,
     pub join_enabled: bool,
+    pub approval_required: bool,
     pub ended: bool,
     pub participants: HashMap<String, PartyParticipant>,
     pub queue: Vec<(String, PartyTrack, String)>,
@@ -999,6 +1044,7 @@ impl PartyReplica {
             host_public_key: invite.host_signing_public_key,
             sequence: 0,
             join_enabled: true,
+            approval_required: invite.approval_required,
             ended: false,
             participants: HashMap::new(),
             queue: Vec::new(),
@@ -1039,7 +1085,9 @@ impl PartyReplica {
                     .ok_or(PartyError::UnknownParticipant)?
                     .role = *role
             }
-            PartyEventBody::JoinPolicyChanged { enabled } => self.join_enabled = *enabled,
+                PartyEventBody::JoinPolicyChanged { enabled } => self.join_enabled = *enabled,
+            PartyEventBody::JoinApprovalPolicyChanged { required } => self.approval_required = *required,
+            PartyEventBody::JoinRequestRejected { .. } => {}
             PartyEventBody::TrackQueued {
                 entry_id,
                 track,
@@ -1059,10 +1107,11 @@ impl PartyReplica {
                     })
                     .collect()
             }
-            PartyEventBody::StateSnapshot {
-                participants,
-                join_enabled,
-                entries,
+                PartyEventBody::StateSnapshot {
+                    participants,
+                    join_enabled,
+                    approval_required,
+                    entries,
                 playback,
             } => {
                 self.participants = participants
@@ -1070,6 +1119,7 @@ impl PartyReplica {
                     .map(|participant| (participant.participant_id.clone(), participant.clone()))
                     .collect();
                 self.join_enabled = *join_enabled;
+                self.approval_required = *approval_required;
                 self.queue = entries
                     .iter()
                     .map(|entry| {

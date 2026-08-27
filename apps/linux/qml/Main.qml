@@ -2010,7 +2010,7 @@ ApplicationWindow {
 
     Popup {
         id: authPopup
-        readonly property bool browserFlow: (colorful.authProvider === "youtube" || colorful.authProvider === "soundcloud")
+        readonly property bool browserFlow: (colorful.authProvider === "youtube" || colorful.authProvider === "soundcloud" || colorful.authProvider === "spotify")
                                             && colorful.verificationUrl.length === 0
         anchors.centerIn: Overlay.overlay
         width: 420
@@ -2033,7 +2033,8 @@ ApplicationWindow {
 
             Text {
                 text: colorful.authProvider === "youtube" ? "Connect YouTube Music"
-                      : colorful.authProvider === "soundcloud" ? "Connect SoundCloud" : "Connect TIDAL"
+                      : colorful.authProvider === "soundcloud" ? "Connect SoundCloud"
+                      : colorful.authProvider === "spotify" ? "Connect Spotify recommendations" : "Connect TIDAL"
                 color: window.ink
                 font.weight: Font.Bold
                 font.pixelSize: Math.round(22 * colorful.textScale)
@@ -2041,7 +2042,9 @@ ApplicationWindow {
             Text {
                 Layout.fillWidth: true
                 text: authPopup.browserFlow
-                      ? "Finish signing in inside the isolated browser window. colorful watches only this temporary window and never receives your password."
+                      ? colorful.authProvider === "spotify"
+                        ? "Finish signing in inside the isolated browser window. colorful keeps its private cookie profile for silent recommendation-session refreshes; your password never touches colorful."
+                        : "Finish signing in inside the isolated browser window. colorful watches only this temporary window and never receives your password."
                       : colorful.authProvider === "youtube"
                         ? "Approve your own Google OAuth application, then return here. Your password never touches colorful."
                         : "Approve colorful in TIDAL, then return here. Your password never touches this app."

@@ -76,7 +76,7 @@ export function browserLoginCapture(
   return /^oauth\s+/i.test(authorization) && token ? { provider, token } : null;
 }
 
-type BrowserPlatform = "win32" | "darwin" | "linux" | string;
+export type BrowserPlatform = "win32" | "darwin" | "linux" | string;
 
 export function browserExecutableCandidates(
   platform: BrowserPlatform = process.platform,
@@ -138,6 +138,18 @@ export function browserExecutableCandidates(
   return [...new Set(values.map((value) => candidatePath.resolve(value)))];
 }
 
+/** Select the first installed Chromium-family browser from a candidate list. */
+export function selectChromiumExecutable(
+  candidates: string[],
+  exists: (path: string) => boolean = existsSync,
+): string {
+  const browser = candidates.find(exists);
+  if (!browser) {
+    throw new Error("Could not find a Chromium-based browser. Install Chrome, Edge, Chromium, Brave, Vivaldi, or Opera; set COLORFUL_BROWSER_EXECUTABLE; or use the manual session field.");
+  }
+  return browser;
+}
+
 function isHeliumBrowser(browser: string): boolean {
   return /[\\/]Helium[\\/]/i.test(browser) || /^helium(?:-browser)?(?:\.exe)?$/i.test(basename(browser));
 }
@@ -183,7 +195,7 @@ async function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-async function availableLoopbackPort(signal: AbortSignal): Promise<number> {
+export async function availableLoopbackPort(signal: AbortSignal): Promise<number> {
   if (signal.aborted) throw abortError();
   const server = createServer();
   await new Promise<void>((resolveListen, reject) => {
@@ -215,7 +227,7 @@ async function availableLoopbackPort(signal: AbortSignal): Promise<number> {
   return port;
 }
 
-async function pageTarget(port: number, expectedHost: string, signal: AbortSignal): Promise<string> {
+export async function pageTarget(port: number, expectedHost: string, signal: AbortSignal): Promise<string> {
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
@@ -234,7 +246,7 @@ async function pageTarget(port: number, expectedHost: string, signal: AbortSigna
   throw new Error("The browser sign-in tab did not become available");
 }
 
-class CdpClient {
+export class CdpClient {
   private readonly socket: WebSocket;
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
