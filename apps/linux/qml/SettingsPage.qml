@@ -7,6 +7,7 @@ Item {
     id: root
     property int tab: 0
     property url pendingTravelImportFile: ""
+    readonly property var aboutBuild: colorful.buildInfo || {}
     readonly property var pages: [
         ["Accounts", "Provider connections"],
         ["Playback", "Queue and audio behavior"],
@@ -14,7 +15,7 @@ Item {
         ["Appearance", "Color and interface"],
         ["Storage", "Cache and offline music"],
         ["Sync", "Devices and handoff"],
-        ["About", "colorful and licenses"]
+        ["About", "Build, runtime, and licenses"]
     ]
 
     function fieldBackground(field) {
@@ -100,7 +101,7 @@ Item {
                     id: accountsBody
                     width: Math.min(parent.width, 820); spacing: 14
                     Text { text: "Accounts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
-                    Text { text: "Provider sessions remain on this device. Tokens use the system credential service; browser sign-ins use isolated app-owned profiles."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "Provider credentials remain on this device and are stored by the system credential service."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     ProviderAccountCard {
                         Layout.fillWidth: true
                         providerName: "TIDAL"
@@ -502,26 +503,97 @@ Item {
                     id: integrationsBody
                     width: Math.min(parent.width, 820); spacing: 12
                     Text { text: "Integrations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
-                    Text { text: "Discord Rich Presence starts automatically while Discord is running."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "Choose what colorful shares through the running Discord desktop client."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 82
+                        Layout.fillWidth: true; implicitHeight: discordIntegrationsColumn.implicitHeight + 30
+                        Layout.preferredHeight: implicitHeight
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                         Column {
-                            anchors.left: parent.left; anchors.leftMargin: 15
-                            anchors.right: discordPartyInvitesSwitch.left; anchors.rightMargin: 18
-                            anchors.verticalCenter: parent.verticalCenter; spacing: 3
-                            Text { text: "Discord party invites"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
-                            Text { width: parent.width; text: "Receive Discord party invitations while colorful is running. Enabling this asks Discord for permission once."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
-                        }
-                        Rectangle {
-                            id: discordPartyInvitesSwitch
-                            anchors.right: parent.right; anchors.rightMargin: 15; anchors.verticalCenter: parent.verticalCenter
-                            width: 42; height: 22
-                            color: colorful.discordPartyInvitesEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
-                            border.width: 1; border.color: colorful.discordPartyInvitesEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
-                            Rectangle { width: 16; height: 16; y: 3; x: colorful.discordPartyInvitesEnabled ? parent.width - width - 3 : 3; color: colorful.discordPartyInvitesEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
-                            HoverHandler { cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: colorful.setDiscordPartyInvitesEnabled(!colorful.discordPartyInvitesEnabled) }
+                            id: discordIntegrationsColumn
+                            anchors.fill: parent; anchors.margins: 15; spacing: 12
+                            Item {
+                                width: parent.width; height: 54
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 0
+                                    anchors.right: presenceSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "Discord Rich Presence"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Show what you are listening to in your Discord profile while Discord is running."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: presenceSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22
+                                    color: colorful.discordPresenceEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordPresenceEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordPresenceEnabled ? parent.width - width - 3 : 3; color: colorful.discordPresenceEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordPresenceEnabled = !colorful.discordPresenceEnabled }
+                                }
+                            }
+                            Item {
+                                width: parent.width; height: 70
+                                opacity: colorful.discordPresenceEnabled ? 1 : 0.42
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 18
+                                    anchors.right: partyButtonSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "Join Party button"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Let friends join your active listening party from Discord."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: partyButtonSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22; enabled: colorful.discordPresenceEnabled
+                                    color: colorful.discordPartyButtonEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordPartyButtonEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordPartyButtonEnabled ? parent.width - width - 3 : 3; color: colorful.discordPartyButtonEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordPartyButtonEnabled = !colorful.discordPartyButtonEnabled }
+                                }
+                            }
+                            Item {
+                                width: parent.width; height: 70
+                                opacity: colorful.discordPresenceEnabled ? 1 : 0.42
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 18
+                                    anchors.right: askToJoinSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "Native Discord parties"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Enable Discord's native Ask to Join and invites when you host a party; approve requests in Listen together."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: askToJoinSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22; enabled: colorful.discordPresenceEnabled
+                                    color: colorful.discordAskToJoinEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordAskToJoinEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordAskToJoinEnabled ? parent.width - width - 3 : 3; color: colorful.discordAskToJoinEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordAskToJoinEnabled = !colorful.discordAskToJoinEnabled }
+                                }
+                            }
+                            Item {
+                                width: parent.width; height: 70
+                                opacity: colorful.discordPresenceEnabled ? 1 : 0.42
+                                Column {
+                                    anchors.left: parent.left; anchors.leftMargin: 18
+                                    anchors.right: trackButtonSwitch.left; anchors.rightMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter; spacing: 3
+                                    Text { text: "View Track button"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { width: parent.width; text: "Let other users open the current track directly at its provider."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                                }
+                                Rectangle {
+                                    id: trackButtonSwitch
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    width: 42; height: 22; enabled: colorful.discordPresenceEnabled
+                                    color: colorful.discordTrackButtonEnabled ? colorful.accent : Qt.rgba(1, 1, 1, 0.1)
+                                    border.width: 1; border.color: colorful.discordTrackButtonEnabled ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.18)
+                                    Rectangle { width: 16; height: 16; y: 3; x: colorful.discordTrackButtonEnabled ? parent.width - width - 3 : 3; color: colorful.discordTrackButtonEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: colorful.discordTrackButtonEnabled = !colorful.discordTrackButtonEnabled }
+                                }
+                            }
                         }
                     }
                 }
@@ -882,40 +954,126 @@ Item {
                             elide: Text.ElideRight
                         }
                     }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: updatesColumn.implicitHeight + 30
+                        color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
+                        ColumnLayout {
+                            id: updatesColumn
+                            anchors.fill: parent; anchors.margins: 15; spacing: 8
+                            Text { text: "Updates"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
+                            Text {
+                                Layout.fillWidth: true
+                                text: updater.channel === "preview" ? "Preview follows development releases and may change more often." : "Stable receives tagged releases intended for everyday use."
+                                color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                            Row {
+                                Layout.fillWidth: true; spacing: 0
+                                Rectangle {
+                                    width: stableChannelText.implicitWidth + 28; height: 36
+                                    color: updater.channel === "stable" ? Qt.rgba(1, 1, 1, 0.075) : stableChannelHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                    border.width: 1; border.color: updater.channel === "stable" ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                    Text { id: stableChannelText; anchors.centerIn: parent; text: "Stable"; color: "#f5f5f5"; font.bold: updater.channel === "stable"; font.pixelSize: Math.round(11 * colorful.textScale) }
+                                    HoverHandler { id: stableChannelHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: if (updater.channel !== "stable") updater.channel = "stable" }
+                                }
+                                Rectangle {
+                                    width: previewChannelText.implicitWidth + 28; height: 36
+                                    color: updater.channel === "preview" ? Qt.rgba(1, 1, 1, 0.075) : previewChannelHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                    border.width: 1; border.color: updater.channel === "preview" ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                    Text { id: previewChannelText; anchors.centerIn: parent; text: "Preview"; color: "#f5f5f5"; font.bold: updater.channel === "preview"; font.pixelSize: Math.round(11 * colorful.textScale) }
+                                    HoverHandler { id: previewChannelHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: if (updater.channel !== "preview") updater.channel = "preview" }
+                                }
+                            }
+                            Text {
+                                visible: updater.channel === "preview"
+                                Layout.fillWidth: true
+                                text: "Preview builds can include unfinished changes. Switch back to Stable at any time; returning may install an older version."
+                                color: Qt.rgba(1, 0.72, 0.38, 0.82); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                            Text {
+                                visible: Boolean((updater.release || {}).downgrade)
+                                Layout.fillWidth: true
+                                text: "A Stable release is available to return from this Preview build."
+                                color: Qt.rgba(1, 1, 1, 0.5); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
                     AccountCard {
                         Layout.fillWidth: true
-                        title: "Build"
+                        title: "Build identity"
                         rows: [
-                            ["Version", colorful.buildInfo.version || "unknown"],
-                            ["Channel", colorful.buildInfo.channel || "release"],
-                            ["Commit", colorful.buildInfo.commit || "unknown"],
-                            ["System", colorful.buildInfo.system || "Linux"],
-                            ["Architecture", colorful.buildInfo.architecture || "unknown"],
-                            ["Compiler", colorful.buildInfo.compiler || "unknown"]
+                            ["Semantic version", aboutBuild.semanticVersion || "unknown"],
+                            ["Display version", aboutBuild.version || "unknown"],
+                            ["Git tag / state", aboutBuild.tag || "Not on a tagged commit"],
+                            ["Channel", aboutBuild.channel || "unknown"],
+                            ["Build number", aboutBuild.buildNumber || "Not set"],
+                            ["Commit (short)", aboutBuild.commitShort || aboutBuild.commit || "unknown"],
+                            ["Commit (full)", aboutBuild.commitFull || "unknown"],
+                            ["Built (UTC)", aboutBuild.buildDate || "unknown"]
                         ]
                     }
                     AccountCard {
                         Layout.fillWidth: true
-                        title: "Runtime components"
+                        title: "Environment"
                         rows: [
-                            ["Interface", "Qt " + (colorful.buildInfo.qt || "unknown") + " / Qt Quick"],
-                            ["Playback", "libmpv " + (colorful.buildInfo.mpv || "unknown")],
-                            ["Core", "Rust / SQLite"],
-                            ["Provider host", "Bun / TypeScript"]
+                            ["Platform", aboutBuild.platform || "unknown"],
+                            ["Operating system", aboutBuild.system || "unknown"],
+                            ["Architecture", aboutBuild.architecture || "unknown"],
+                            ["Compiler", aboutBuild.compiler || "unknown"]
+                        ]
+                    }
+                    AccountCard {
+                        Layout.fillWidth: true
+                        title: "Runtime"
+                        rows: [
+                            ["Qt / UI", "Qt " + (aboutBuild.qt || "unknown") + " / Qt Quick"],
+                            ["Playback", aboutBuild.mpv ? "libmpv " + aboutBuild.mpv : "libmpv (not reported)"]
                         ]
                     }
                     AccountCard {
                         Layout.fillWidth: true
                         title: "Licenses"
                         rows: [
-                            ["colorful", colorful.buildInfo.license || "GPL-3.0-or-later"],
-                            ["Qt", "LGPL-3.0 / GPL-3.0"],
-                            ["libmpv", "GPL-compatible build"],
-                            ["Bun", "MIT"],
-                            ["Nunito", "OFL-1.1"]
+                            ["colorful", aboutBuild.license || "GPL-3.0-or-later"],
+                            ["Qt", "LGPL-3.0 / GPL-3.0"]
                         ]
                     }
-                    Text { Layout.fillWidth: true; text: "This personal project is entirely AI-made. It exists because its owner needed a stable music client that worked for them."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        ColorButton {
+                            text: "Repository"
+                            quiet: true
+                            visible: Boolean(aboutBuild.repository)
+                            onClicked: Qt.openUrlExternally(aboutBuild.repository)
+                        }
+                        ColorButton {
+                            text: "Releases"
+                            quiet: true
+                            visible: Boolean(aboutBuild.releases)
+                            onClicked: Qt.openUrlExternally(aboutBuild.releases)
+                        }
+                        ColorButton {
+                            text: "Issues"
+                            quiet: true
+                            visible: Boolean(aboutBuild.issues)
+                            onClicked: Qt.openUrlExternally(aboutBuild.issues)
+                        }
+                        ColorButton {
+                            text: "License"
+                            quiet: true
+                            visible: Boolean(aboutBuild.licenseUrl)
+                            onClicked: Qt.openUrlExternally(aboutBuild.licenseUrl)
+                        }
+                        ColorButton {
+                            text: "Third-party notices"
+                            quiet: true
+                            visible: Boolean(aboutBuild.noticesUrl)
+                            onClicked: Qt.openUrlExternally(aboutBuild.noticesUrl)
+                        }
+                    }
                 }
             }
         }

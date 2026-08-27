@@ -23,6 +23,24 @@ execute_process(
 if(NOT COLORFUL_GIT_COMMIT)
     set(COLORFUL_GIT_COMMIT "unknown")
 endif()
+execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    OUTPUT_VARIABLE COLORFUL_GIT_COMMIT_FULL
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT COLORFUL_GIT_COMMIT_FULL)
+    set(COLORFUL_GIT_COMMIT_FULL "unknown")
+endif()
+execute_process(
+    COMMAND git describe --tags --exact-match --match "v[0-9]*" --dirty=-dirty
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    OUTPUT_VARIABLE COLORFUL_GIT_TAG
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+string(TIMESTAMP COLORFUL_BUILD_DATE "%Y-%m-%d %H:%M:%S UTC" UTC)
 
 set(COLORFUL_BUILD_CHANNEL "$ENV{COLORFUL_BUILD_CHANNEL}")
 if(NOT COLORFUL_BUILD_CHANNEL)
@@ -42,13 +60,6 @@ else()
     set(COLORFUL_DISPLAY_VERSION "${PROJECT_VERSION}")
 endif()
 
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
-configure_file(
-    src/buildinfo_generated.h.in
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/buildinfo_generated.h"
-    @ONLY
-)
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -58,8 +69,53 @@ if(UNIX AND NOT APPLE)
     find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
 endif()
 
+# Discord's Social SDK is the supported integration surface for native party
+# invites and Ask to Join. Keep the dependency in-tree so Windows and AppImage
+# releases are built from the same pinned SDK rather than a developer's local
+# installation.
+set(COLORFUL_DISCORD_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/discord_social_sdk")
+set(COLORFUL_DISCORD_SDK_INCLUDE "${COLORFUL_DISCORD_SDK_ROOT}/include")
+if(WIN32)
+    set(COLORFUL_DISCORD_SDK_LIBRARY "${COLORFUL_DISCORD_SDK_ROOT}/lib/release/discord_partner_sdk.lib")
+    set(COLORFUL_DISCORD_SDK_RUNTIME "${COLORFUL_DISCORD_SDK_ROOT}/bin/release/discord_partner_sdk.dll")
+else()
+    set(COLORFUL_DISCORD_SDK_LIBRARY "${COLORFUL_DISCORD_SDK_ROOT}/lib/release/libdiscord_partner_sdk.so")
+    set(COLORFUL_DISCORD_SDK_RUNTIME "${COLORFUL_DISCORD_SDK_LIBRARY}")
+endif()
+foreach(COLORFUL_DISCORD_SDK_FILE IN ITEMS
+        "${COLORFUL_DISCORD_SDK_INCLUDE}/discordpp.h"
+        "${COLORFUL_DISCORD_SDK_INCLUDE}/cdiscord.h"
+        "${COLORFUL_DISCORD_SDK_LIBRARY}"
+        "${COLORFUL_DISCORD_SDK_RUNTIME}")
+    if(NOT EXISTS "${COLORFUL_DISCORD_SDK_FILE}")
+        message(FATAL_ERROR "Pinned Discord Social SDK file is missing: ${COLORFUL_DISCORD_SDK_FILE}")
+    endif()
+endforeach()
+add_library(colorful-discord-social SHARED IMPORTED GLOBAL)
+set_target_properties(colorful-discord-social PROPERTIES
+    IMPORTED_LOCATION "${COLORFUL_DISCORD_SDK_RUNTIME}"
+    INTERFACE_INCLUDE_DIRECTORIES "${COLORFUL_DISCORD_SDK_INCLUDE}")
+if(WIN32)
+    set_target_properties(colorful-discord-social PROPERTIES
+        IMPORTED_IMPLIB "${COLORFUL_DISCORD_SDK_LIBRARY}")
+endif()
+
+set(COLORFUL_MPV_MODE "compatibility" CACHE STRING
+    "libmpv validation mode: compatibility or official")
+set_property(CACHE COLORFUL_MPV_MODE PROPERTY STRINGS compatibility official)
+set(COLORFUL_EXPECTED_MPV_VERSION "" CACHE STRING
+    "Exact libmpv version required for official builds")
+if(NOT COLORFUL_MPV_MODE MATCHES "^(compatibility|official)$")
+    message(FATAL_ERROR "COLORFUL_MPV_MODE must be compatibility or official")
+endif()
+if(COLORFUL_MPV_MODE STREQUAL "official" AND NOT COLORFUL_EXPECTED_MPV_VERSION)
+    message(FATAL_ERROR "Official builds must set COLORFUL_EXPECTED_MPV_VERSION")
+endif()
+
 if(WIN32)
     set(COLORFUL_MPV_ROOT "" CACHE PATH "Root of a Windows libmpv development package")
+    set(COLORFUL_MPV_VERSION "unverified-windows-sdk" CACHE STRING
+        "Version identity of the Windows libmpv development package")
     find_path(MPV_INCLUDE_DIR mpv/client.h
         HINTS "${COLORFUL_MPV_ROOT}/include")
     find_library(MPV_LIBRARY NAMES mpv libmpv mpv-2
@@ -74,12 +130,39 @@ if(WIN32)
         IMPORTED_LOCATION "${MPV_LIBRARY}"
         INTERFACE_INCLUDE_DIRECTORIES "${MPV_INCLUDE_DIR}"
     )
-    set(MPV_VERSION "Windows bundle")
+    set(MPV_VERSION "${COLORFUL_MPV_VERSION}")
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
+    pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv>=2.0.0)
     add_library(colorful-mpv ALIAS PkgConfig::MPV)
+    set(MPV_CLIENT_API_VERSION "${MPV_VERSION}")
+    if(COLORFUL_MPV_MODE STREQUAL "official")
+        pkg_get_variable(MPV_INSTALL_PREFIX mpv prefix)
+        set(MPV_SOURCE_MARKER
+            "${MPV_INSTALL_PREFIX}/share/colorful/mpv-source-version")
+        if(NOT EXISTS "${MPV_SOURCE_MARKER}")
+            message(FATAL_ERROR
+                "Official libmpv source marker is missing: ${MPV_SOURCE_MARKER}")
+        endif()
+        file(READ "${MPV_SOURCE_MARKER}" MPV_VERSION)
+        string(STRIP "${MPV_VERSION}" MPV_VERSION)
+    else()
+        set(MPV_VERSION "client-api-${MPV_CLIENT_API_VERSION}")
+    endif()
 endif()
+if(COLORFUL_MPV_MODE STREQUAL "official"
+        AND NOT MPV_VERSION STREQUAL COLORFUL_EXPECTED_MPV_VERSION)
+    message(FATAL_ERROR
+        "Official builds require libmpv ${COLORFUL_EXPECTED_MPV_VERSION}; found ${MPV_VERSION}")
+endif()
+message(STATUS "libmpv ${MPV_VERSION} (${COLORFUL_MPV_MODE} mode)")
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    src/buildinfo_generated.h.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/buildinfo_generated.h"
+    @ONLY
+)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -103,8 +186,12 @@ set(COLORFUL_DESKTOP_SOURCES
     src/debuglog.h
     src/linuxplayback.cpp
     src/linuxplayback.h
+    src/credentialstore.cpp
+    src/credentialstore.h
     src/discordpresence.cpp
     src/discordpresence.h
+    src/discordsocial.cpp
+    src/discordsocial.h
 )
 if(UNIX AND NOT APPLE)
     list(APPEND COLORFUL_DESKTOP_SOURCES src/mpris.cpp src/mpris.h)
@@ -131,8 +218,6 @@ if(WIN32)
         @ONLY
     )
     list(APPEND COLORFUL_DESKTOP_SOURCES
-        src/credentialstore.cpp
-        src/credentialstore.h
         src/windowsmedia.cpp
         src/windowsmedia.h
         "${CMAKE_CURRENT_BINARY_DIR}/generated/app.manifest"
@@ -214,6 +299,18 @@ if(BUILD_TESTING)
     )
     add_test(NAME colorful-updater COMMAND colorful-updater-test)
     set_tests_properties(colorful-updater PROPERTIES TIMEOUT 20)
+
+    qt_add_executable(colorful-discord-presence-test
+        tests/discordpresencetest.cpp
+        src/discordpresence.cpp
+        src/discordpresence.h
+        src/debuglog.cpp
+        src/debuglog.h
+    )
+    target_include_directories(colorful-discord-presence-test PRIVATE src)
+    target_link_libraries(colorful-discord-presence-test PRIVATE Qt6::Core Qt6::Network)
+    add_test(NAME colorful-discord-presence COMMAND colorful-discord-presence-test)
+    set_tests_properties(colorful-discord-presence PROPERTIES TIMEOUT 10)
 endif()
 target_include_directories(colorful-linux PRIVATE
     ../../crates/colorful-core/include
@@ -320,6 +417,7 @@ target_link_libraries(colorful-linux PRIVATE
     Qt6::Network
     colorful-mpv
     colorful-core
+    colorful-discord-social
     ${CMAKE_DL_LIBS}
 )
 if(UNIX AND NOT APPLE)
@@ -332,6 +430,8 @@ if(WIN32)
             "${COLORFUL_CORE_LIBRARY}" "$<TARGET_FILE_DIR:colorful-linux>"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${MPV_RUNTIME}" "$<TARGET_FILE_DIR:colorful-linux>"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${COLORFUL_DISCORD_SDK_RUNTIME}" "$<TARGET_FILE_DIR:colorful-linux>"
         VERBATIM
     )
     qt_add_executable(colorful-credential-helper
@@ -344,9 +444,12 @@ endif()
 
 install(TARGETS colorful-linux RUNTIME DESTINATION bin)
 if(WIN32)
-    install(FILES "${COLORFUL_CORE_LIBRARY}" "${MPV_RUNTIME}" DESTINATION bin)
+    install(FILES "${COLORFUL_CORE_LIBRARY}" "${MPV_RUNTIME}" "${COLORFUL_DISCORD_SDK_RUNTIME}" DESTINATION bin)
 else()
-    install(FILES "${COLORFUL_CORE_LIBRARY}" DESTINATION lib)
+    install(FILES "${COLORFUL_CORE_LIBRARY}" "${COLORFUL_DISCORD_SDK_RUNTIME}" DESTINATION lib)
+    install(FILES "${COLORFUL_DISCORD_SDK_ROOT}/License-Notices.txt"
+        DESTINATION share/doc/colorful
+        RENAME DISCORD_SOCIAL_SDK_NOTICES.txt)
     install(FILES applications/colorful.desktop
         DESTINATION share/applications
         RENAME sh.valerie.colorful.desktop

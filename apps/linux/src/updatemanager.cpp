@@ -20,6 +20,8 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
+#include <QRegularExpression>
+#include <optional>
 
 namespace {
 constexpr qint64 AutomaticCheckIntervalMs = 6 * 60 * 60 * 1000;
@@ -27,6 +29,16 @@ constexpr int DownloadAttempts = 3;
 constexpr int DownloadInactivityTimeoutMs = 5 * 60 * 1000;
 const QUrl LatestReleaseUrl(QStringLiteral(
     "https://api.github.com/repos/atvalerie/colorful/releases/latest"));
+const QUrl PreviewReleaseUrl(QStringLiteral(
+    "https://api.github.com/repos/atvalerie/colorful/releases/tags/dev-nightly"));
+
+struct ParsedRelease {
+    QString channel;
+    QString version;
+    QString baseVersion;
+    qint64 build = -1;
+    QString sha;
+};
 
 QList<int> versionParts(QString version)
 {
@@ -56,6 +68,88 @@ bool isNewerVersion(const QString &candidate, const QString &current)
     return false;
 }
 
+bool isAtLeastVersion(const QString &candidate, const QString &current)
+{
+    return candidate == current || isNewerVersion(candidate, current);
+}
+
+std::optional<ParsedRelease> parseRelease(const QJsonObject &object, const QString &channel)
+{
+    const auto tag = object.value(QStringLiteral("tag_name")).toString();
+    if (channel == QStringLiteral("stable")) {
+        static const QRegularExpression stableTag(QStringLiteral("^v([0-9]+\\.[0-9]+\\.[0-9]+)$"));
+        const auto match = stableTag.match(tag);
+        if (!match.hasMatch() || versionParts(match.captured(1)).size() != 3) return std::nullopt;
+        return ParsedRelease{channel, match.captured(1), match.captured(1), -1, {}};
+    }
+    if (channel != QStringLiteral("preview") || tag != QStringLiteral("dev-nightly"))
+        return std::nullopt;
+    static const QRegularExpression previewTitle(
+        QStringLiteral("^colorful ([0-9]+\\.[0-9]+\\.[0-9]+)-dev\\.([0-9]+)\\+([0-9A-Fa-f]{12})$"));
+    const auto match = previewTitle.match(object.value(QStringLiteral("name")).toString());
+    if (!match.hasMatch() || versionParts(match.captured(1)).size() != 3) return std::nullopt;
+    bool buildOk = false;
+    const auto build = match.captured(2).toLongLong(&buildOk);
+    if (!buildOk || build < 0) return std::nullopt;
+    return ParsedRelease{channel,
+                         QStringLiteral("%1-dev.%2+%3")
+                             .arg(match.captured(1), match.captured(2), match.captured(3).toLower()),
+                         match.captured(1), build, match.captured(3).toLower()};
+}
+
+bool candidateAvailable(const ParsedRelease &candidate,
+                        const QString &currentChannel,
+                        const QString &currentBaseVersion,
+                        qint64 currentBuild)
+{
+    if (candidate.channel == QStringLiteral("stable")) {
+        // A preview build returning to stable is explicit even when both
+        // builds share the same semantic base version.
+        if (currentChannel == QStringLiteral("preview")) return true;
+        return isNewerVersion(candidate.baseVersion, currentBaseVersion);
+    }
+    if (currentChannel == QStringLiteral("stable"))
+        return isAtLeastVersion(candidate.baseVersion, currentBaseVersion);
+    if (isNewerVersion(candidate.baseVersion, currentBaseVersion)) return true;
+    return candidate.baseVersion == currentBaseVersion && candidate.build > currentBuild;
+}
+
+std::optional<QJsonObject> selectAsset(const QJsonArray &assets, const QString &channel,
+                                       const QString &wantedSuffix)
+{
+    QString wantedName;
+    if (channel == QStringLiteral("preview")) {
+        if (wantedSuffix == QStringLiteral("-setup.exe"))
+            wantedName = QStringLiteral("colorful-windows-x64-preview-setup.exe");
+        else if (wantedSuffix == QStringLiteral(".AppImage"))
+            wantedName = QStringLiteral("colorful-linux-x86_64-preview.AppImage");
+    }
+    for (const auto &value : assets) {
+        const auto asset = value.toObject();
+        const auto name = asset.value(QStringLiteral("name")).toString();
+        const bool matches = channel == QStringLiteral("preview")
+            ? !wantedName.isEmpty() && name == wantedName
+            : !wantedSuffix.isEmpty() && name.endsWith(wantedSuffix, Qt::CaseInsensitive);
+        if (matches) return asset;
+    }
+    return std::nullopt;
+}
+
+QVariantMap parsedReleaseMap(const ParsedRelease &release)
+{
+    return {
+        {QStringLiteral("channel"), release.channel},
+        {QStringLiteral("version"), release.version},
+        {QStringLiteral("baseVersion"), release.baseVersion},
+        {QStringLiteral("build"), release.build},
+        {QStringLiteral("sha"), release.sha},
+        {QStringLiteral("releaseKey"), release.channel + QLatin1Char(':')
+            + (release.channel == QStringLiteral("preview")
+                   ? release.baseVersion + QStringLiteral("-dev.") + QString::number(release.build)
+                   : release.version)},
+    };
+}
+
 QString normalizedDigest(QString digest)
 {
     if (digest.startsWith(QStringLiteral("sha256:"), Qt::CaseInsensitive))
@@ -67,10 +161,75 @@ QString normalizedDigest(QString digest)
 UpdateManager::UpdateManager(QObject *parent)
     : QObject(parent)
 {
+    QSettings settings;
+    m_channel = settings.value(QStringLiteral("updates/channel"), QStringLiteral("stable")).toString();
+    if (m_channel != QStringLiteral("stable") && m_channel != QStringLiteral("preview"))
+        m_channel = QStringLiteral("stable");
     QTimer::singleShot(8000, this, [this] { checkForUpdates(false); });
 }
 
 UpdateManager::~UpdateManager() = default;
+
+QVariantMap UpdateManager::parseReleaseForTest(const QJsonObject &object, const QString &channel)
+{
+    const auto parsed = parseRelease(object, channel);
+    return parsed ? parsedReleaseMap(*parsed) : QVariantMap{};
+}
+
+bool UpdateManager::candidateAvailableForTest(const QVariantMap &candidate,
+                                              const QString &currentChannel,
+                                              const QString &currentBaseVersion,
+                                              qint64 currentBuild)
+{
+    const auto channel = candidate.value(QStringLiteral("channel")).toString();
+    const auto base = candidate.value(QStringLiteral("baseVersion")).toString();
+    if (channel.isEmpty() || base.isEmpty()) return false;
+    ParsedRelease parsed{
+        channel,
+        candidate.value(QStringLiteral("version")).toString(),
+        base,
+        candidate.value(QStringLiteral("build"), -1).toLongLong(),
+        candidate.value(QStringLiteral("sha")).toString(),
+    };
+    return candidateAvailable(parsed, currentChannel, currentBaseVersion, currentBuild);
+}
+
+QString UpdateManager::selectAssetNameForTest(const QJsonObject &release, const QString &channel,
+                                              const QString &wantedSuffix)
+{
+    const auto asset = selectAsset(release.value(QStringLiteral("assets")).toArray(), channel,
+                                   wantedSuffix);
+    return asset ? asset->value(QStringLiteral("name")).toString() : QString();
+}
+
+QString UpdateManager::lastCheckKey(const QString &channel)
+{
+    return QStringLiteral("updates/lastCheck%1Ms").arg(channel == QStringLiteral("preview")
+                                                          ? QStringLiteral("Preview")
+                                                          : QStringLiteral("Stable"));
+}
+
+QString UpdateManager::dismissedKey(const QString &channel)
+{
+    return QStringLiteral("updates/dismissed%1Version").arg(channel == QStringLiteral("preview")
+                                                              ? QStringLiteral("Preview")
+                                                              : QStringLiteral("Stable"));
+}
+
+void UpdateManager::setChannel(const QString &channel)
+{
+    if (channel != QStringLiteral("stable") && channel != QStringLiteral("preview")) return;
+    if (m_state == QStringLiteral("downloading") || m_state == QStringLiteral("installing")) return;
+    if (m_channel == channel) return;
+    m_channel = channel;
+    ++m_checkGeneration;
+    QSettings().setValue(QStringLiteral("updates/channel"), m_channel);
+    m_release.clear();
+    m_progress = 0;
+    m_forcedCheckPending = true;
+    setState(QStringLiteral("idle"));
+    QTimer::singleShot(0, this, [this] { checkForUpdates(true); });
+}
 
 bool UpdateManager::canInstall() const
 {
@@ -91,14 +250,20 @@ void UpdateManager::setState(const QString &state, const QString &status)
 
 void UpdateManager::checkForUpdates(bool force)
 {
-    if (m_reply || m_state == QStringLiteral("downloading")) return;
+    if (m_reply || m_state == QStringLiteral("downloading")) {
+        if (force) m_forcedCheckPending = true;
+        return;
+    }
+    m_forcedCheckPending = false;
     QSettings settings;
     const auto now = QDateTime::currentMSecsSinceEpoch();
-    const auto lastCheck = settings.value(QStringLiteral("updates/lastCheckMs"), 0).toLongLong();
+    const auto channel = m_channel;
+    const auto generation = m_checkGeneration;
+    const auto lastCheck = settings.value(lastCheckKey(channel), 0).toLongLong();
     if (!force && now - lastCheck < AutomaticCheckIntervalMs) return;
 
     setState(QStringLiteral("checking"), QStringLiteral("Checking for updates…"));
-    QNetworkRequest request(LatestReleaseUrl);
+    QNetworkRequest request(channel == QStringLiteral("preview") ? PreviewReleaseUrl : LatestReleaseUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("colorful/%1").arg(QString::fromLatin1(COLORFUL_VERSION)));
     request.setRawHeader("Accept", "application/vnd.github+json");
@@ -108,15 +273,20 @@ void UpdateManager::checkForUpdates(bool force)
     request.setTransferTimeout(15000);
     auto *reply = m_network.get(request);
     m_reply = reply;
-    connect(reply, &QNetworkReply::finished, this, [this, reply, force] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, force, channel, generation] {
         m_reply.clear();
-        handleReleaseResponse(reply, force);
+        if (generation == m_checkGeneration)
+            handleReleaseResponse(reply, force, channel, generation);
         reply->deleteLater();
+        if (m_forcedCheckPending)
+            QTimer::singleShot(0, this, [this] { checkForUpdates(true); });
     });
 }
 
-void UpdateManager::handleReleaseResponse(QNetworkReply *reply, bool force)
+void UpdateManager::handleReleaseResponse(QNetworkReply *reply, bool force, const QString &channel,
+                                          quint64 generation)
 {
+    if (generation != m_checkGeneration) return;
     const auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (reply->error() != QNetworkReply::NoError || statusCode != 200) {
         DebugLog::write(u"updates", QStringLiteral("check failed status=%1 error=%2")
@@ -126,20 +296,36 @@ void UpdateManager::handleReleaseResponse(QNetworkReply *reply, bool force)
                  force ? QStringLiteral("Could not check for updates") : QString());
         return;
     }
-    QSettings().setValue(QStringLiteral("updates/lastCheckMs"), QDateTime::currentMSecsSinceEpoch());
+    QSettings().setValue(lastCheckKey(channel), QDateTime::currentMSecsSinceEpoch());
     const auto document = QJsonDocument::fromJson(reply->readAll());
     if (!document.isObject()) {
         setState(QStringLiteral("error"), QStringLiteral("The update response was invalid"));
         return;
     }
     const auto object = document.object();
-    const auto tag = object.value(QStringLiteral("tag_name")).toString();
-    const auto version = tag.startsWith(u'v') ? tag.sliced(1) : tag;
-    if (!isNewerVersion(version, QString::fromLatin1(COLORFUL_VERSION))) {
-        setState(QStringLiteral("current"),
-                 force ? QStringLiteral("You’re running the latest release") : QString());
+    const auto parsed = parseRelease(object, channel);
+    if (!parsed) {
+        setState(QStringLiteral("error"), QStringLiteral("The update response was invalid"));
         return;
     }
+    const auto currentChannel = QStringLiteral(COLORFUL_BUILD_CHANNEL) == QStringLiteral("dev")
+        ? QStringLiteral("preview") : QStringLiteral("stable");
+    const auto currentBaseVersion = QString::fromLatin1(COLORFUL_SEMANTIC_VERSION);
+    bool currentBuildOk = false;
+    const auto currentBuild = QString::fromLatin1(COLORFUL_BUILD_NUMBER).toLongLong(&currentBuildOk);
+    const auto available = candidateAvailable(*parsed, currentChannel, currentBaseVersion,
+                                              currentBuildOk ? currentBuild : -1);
+    if (!available) {
+        m_release.clear();
+        const auto currentStatus = channel == QStringLiteral("preview")
+            ? QStringLiteral("You’re running the latest preview build")
+            : QStringLiteral("You’re running the latest release");
+        setState(QStringLiteral("current"), force ? currentStatus : QString());
+        return;
+    }
+
+    const auto version = parsed->version;
+    const auto tag = object.value(QStringLiteral("tag_name")).toString();
 
     QString wantedSuffix;
 #if defined(Q_OS_WIN)
@@ -147,19 +333,18 @@ void UpdateManager::handleReleaseResponse(QNetworkReply *reply, bool force)
 #elif defined(Q_OS_LINUX)
     wantedSuffix = QStringLiteral(".AppImage");
 #endif
-    QJsonObject selectedAsset;
-    for (const auto &value : object.value(QStringLiteral("assets")).toArray()) {
-        const auto asset = value.toObject();
-        if (!wantedSuffix.isEmpty()
-            && asset.value(QStringLiteral("name")).toString().endsWith(
-                wantedSuffix, Qt::CaseInsensitive)) {
-            selectedAsset = asset;
-            break;
-        }
-    }
+    const auto selectedAsset = selectAsset(object.value(QStringLiteral("assets")).toArray(), channel,
+                                           wantedSuffix).value_or(QJsonObject{});
 
     m_release = {
+        {QStringLiteral("channel"), parsed->channel},
         {QStringLiteral("version"), version},
+        {QStringLiteral("baseVersion"), parsed->baseVersion},
+        {QStringLiteral("build"), parsed->build},
+        {QStringLiteral("sha"), parsed->sha},
+        {QStringLiteral("downgrade"), currentChannel == QStringLiteral("preview")
+                                            && parsed->channel == QStringLiteral("stable")},
+        {QStringLiteral("releaseKey"), parsedReleaseMap(*parsed).value(QStringLiteral("releaseKey"))},
         {QStringLiteral("name"), object.value(QStringLiteral("name")).toString(tag)},
         {QStringLiteral("notes"), object.value(QStringLiteral("body")).toString()},
         {QStringLiteral("url"), object.value(QStringLiteral("html_url")).toString()},
@@ -169,18 +354,19 @@ void UpdateManager::handleReleaseResponse(QNetworkReply *reply, bool force)
         {QStringLiteral("assetDigest"), selectedAsset.value(QStringLiteral("digest")).toString()},
         {QStringLiteral("assetSize"), selectedAsset.value(QStringLiteral("size")).toInteger()},
     };
-    const auto dismissed = QSettings().value(QStringLiteral("updates/dismissedVersion")).toString();
+    const auto dismissed = QSettings().value(dismissedKey(channel)).toString();
     DebugLog::write(u"updates", QStringLiteral("available version=%1 asset=%2")
                                     .arg(version, m_release.value(QStringLiteral("assetName")).toString()));
     setState(QStringLiteral("available"), QStringLiteral("colorful %1 is available").arg(version));
-    if (force || dismissed != version) emit updateFound();
+    if (force || dismissed != m_release.value(QStringLiteral("releaseKey")).toString()) emit updateFound();
 }
 
 void UpdateManager::dismiss()
 {
     const auto version = m_release.value(QStringLiteral("version")).toString();
     if (!version.isEmpty())
-        QSettings().setValue(QStringLiteral("updates/dismissedVersion"), version);
+        QSettings().setValue(dismissedKey(m_release.value(QStringLiteral("channel")).toString()),
+                            m_release.value(QStringLiteral("releaseKey")).toString());
     setState(QStringLiteral("dismissed"));
 }
 
@@ -344,6 +530,8 @@ void UpdateManager::finishDownload(QNetworkReply *reply)
     setState(QStringLiteral("ready"), QStringLiteral("Update downloaded to %1").arg(m_downloadPath));
     if (m_openDownloadedLocation)
         QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_downloadPath).absolutePath()));
+    if (m_forcedCheckPending)
+        QTimer::singleShot(0, this, [this] { checkForUpdates(true); });
 }
 
 bool UpdateManager::launchInstaller(const QString &path)

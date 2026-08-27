@@ -1,4 +1,6 @@
 **
 !packaging/
+!packaging/desktop-dependencies.json
 !packaging/linux/
 !packaging/linux/Dockerfile
+!packaging/linux/build-mpv-source.sh

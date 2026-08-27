@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$pins = Get-Content (Join-Path $repoRoot 'packaging\desktop-dependencies.json') -Raw | ConvertFrom-Json
 if (-not $NoBuild) {
     & (Join-Path $PSScriptRoot 'build-windows-qt.ps1') -Configuration $Configuration
 }
@@ -15,6 +16,13 @@ if (-not $NoBuild) {
 $buildDirectory = Join-Path $repoRoot 'build\windows-qt'
 $executable = Join-Path $buildDirectory 'colorful.exe'
 if (-not (Test-Path $executable)) { throw "colorful.exe was not found at $executable" }
+$buildInfo = Join-Path $buildDirectory 'generated\buildinfo_generated.h'
+if ($env:COLORFUL_MPV_MODE -eq 'official') {
+    if (-not (Test-Path $buildInfo) -or
+        -not (Select-String -Path $buildInfo -SimpleMatch $pins.mpv.sourceVersion -Quiet)) {
+        throw "Generated build metadata does not contain official libmpv $($pins.mpv.sourceVersion)."
+    }
+}
 
 $version = (Get-Content (Join-Path $repoRoot 'VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') {
@@ -49,26 +57,34 @@ New-Item $stage -ItemType Directory -Force | Out-Null
 $runtimeFiles = @(
     'colorful.exe', 'colorful_core.dll', 'colorful-credential-helper.exe',
     'colorful-provider.exe', 'mpv-2.dll', 'vulkan-1.dll',
-    'ffmpeg.exe', 'ffprobe.exe'
+    'ffmpeg.exe', 'ffprobe.exe', 'discord_partner_sdk.dll'
 )
 foreach ($name in $runtimeFiles) {
     $source = Join-Path $buildDirectory $name
     if (-not (Test-Path $source)) { throw "Required runtime file is missing: $source" }
     Copy-Item $source $stage -Force
 }
+$providerData = Join-Path $buildDirectory 'colorful-provider-data'
+if (-not (Test-Path $providerData)) { throw "Required provider data is missing: $providerData" }
+Copy-Item $providerData $stage -Recurse -Force
 Copy-Item (Join-Path $repoRoot 'LICENSE') $stage -Force
 Copy-Item (Join-Path $repoRoot 'README.md') $stage -Force
 Copy-Item (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') $stage -Force
+Copy-Item (Join-Path $repoRoot 'third_party\discord_social_sdk\License-Notices.txt') `
+    (Join-Path $stage 'DISCORD_SOCIAL_SDK_NOTICES.txt') -Force
+Copy-Item (Join-Path $repoRoot 'packaging\desktop-dependencies.json') `
+    (Join-Path $stage 'BUILD_DEPENDENCIES.json') -Force
 
 $qtRoot = $env:COLORFUL_QT_ROOT
 if (-not $qtRoot) {
-    $qtRoot = Get-ChildItem (Join-Path $env:USERPROFILE 'Qt') -Directory -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending |
-        ForEach-Object { Join-Path $_.FullName 'msvc2022_64' } |
-        Where-Object { Test-Path (Join-Path $_ 'bin\windeployqt.exe') } |
-        Select-Object -First 1
+    $qtRoot = Join-Path $env:USERPROFILE "Qt\$($pins.toolchains.qt)\msvc2022_64"
 }
 if (-not $qtRoot) { throw 'Qt for MSVC was not found. Set COLORFUL_QT_ROOT.' }
+$qmake = Join-Path $qtRoot 'bin\qmake.exe'
+$qtVersion = if (Test-Path $qmake) { (& $qmake -query QT_VERSION).Trim() } else { '' }
+if ($qtVersion -ne $pins.toolchains.qt) {
+    throw "Qt $($pins.toolchains.qt) is required for packaging; found '$qtVersion' at $qtRoot."
+}
 $deploy = Join-Path $qtRoot 'bin\windeployqt.exe'
 $deployArgs = @('--dir', $stage, '--qmldir', (Join-Path $repoRoot 'apps\linux\qml'), '--compiler-runtime')
 $deployArgs += if ($Configuration -eq 'Release') { '--release' } else { '--debug' }

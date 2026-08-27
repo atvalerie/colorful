@@ -4,6 +4,8 @@
 #include <QCryptographicHash>
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
@@ -35,6 +37,7 @@ public:
 
     void start()
     {
+        if (!runCoreContractTests()) return fail("updater channel/parser contract failed");
         m_manager.m_allowLaunch = false;
         m_manager.m_openDownloadedLocation = false;
         m_manager.m_release.insert(QStringLiteral("version"), QStringLiteral("test"));
@@ -79,6 +82,64 @@ public:
     }
 
 private:
+    static bool runCoreContractTests()
+    {
+        const auto stable = UpdateManager::parseReleaseForTest(
+            QJsonObject{{QStringLiteral("tag_name"), QStringLiteral("v0.2.11")},
+                        {QStringLiteral("name"), QStringLiteral("colorful 0.2.11")}},
+            QStringLiteral("stable"));
+        if (stable.value(QStringLiteral("channel")).toString() != QStringLiteral("stable")
+            || stable.value(QStringLiteral("version")).toString() != QStringLiteral("0.2.11")
+            || !UpdateManager::candidateAvailableForTest(stable, QStringLiteral("stable"),
+                                                         QStringLiteral("0.2.10"), -1)
+            || UpdateManager::candidateAvailableForTest(stable, QStringLiteral("stable"),
+                                                        QStringLiteral("0.2.11"), -1))
+            return false;
+
+        const auto preview = UpdateManager::parseReleaseForTest(
+            QJsonObject{{QStringLiteral("tag_name"), QStringLiteral("dev-nightly")},
+                        {QStringLiteral("name"), QStringLiteral("colorful 0.2.10-dev.42+0123456789ab")}},
+            QStringLiteral("preview"));
+        if (preview.value(QStringLiteral("channel")).toString() != QStringLiteral("preview")
+            || preview.value(QStringLiteral("build")).toLongLong() != 42
+            || preview.value(QStringLiteral("sha")).toString() != QStringLiteral("0123456789ab")
+            || !UpdateManager::candidateAvailableForTest(preview, QStringLiteral("stable"),
+                                                         QStringLiteral("0.2.10"), -1)
+            || !UpdateManager::candidateAvailableForTest(preview, QStringLiteral("preview"),
+                                                         QStringLiteral("0.2.10"), 41)
+            || UpdateManager::candidateAvailableForTest(preview, QStringLiteral("preview"),
+                                                        QStringLiteral("0.2.10"), 42))
+            return false;
+
+        const auto malformed = UpdateManager::parseReleaseForTest(
+            QJsonObject{{QStringLiteral("tag_name"), QStringLiteral("dev-nightly")},
+                        {QStringLiteral("name"), QStringLiteral("colorful 0.2.10-dev.42+short")}},
+            QStringLiteral("preview"));
+        if (!malformed.isEmpty()) return false;
+
+        const auto stableReturn = UpdateManager::parseReleaseForTest(
+            QJsonObject{{QStringLiteral("tag_name"), QStringLiteral("v0.2.10")}},
+            QStringLiteral("stable"));
+        if (!UpdateManager::candidateAvailableForTest(stableReturn, QStringLiteral("preview"),
+                                                      QStringLiteral("0.2.10"), 42))
+            return false;
+
+        const auto previewAssets = QJsonObject{
+            {QStringLiteral("assets"), QJsonArray{
+                QJsonObject{{QStringLiteral("name"), QStringLiteral("old-preview.AppImage")}},
+                QJsonObject{{QStringLiteral("name"), QStringLiteral("colorful-linux-x86_64-preview.AppImage")}},
+                QJsonObject{{QStringLiteral("name"), QStringLiteral("old-preview-setup.exe")}},
+                QJsonObject{{QStringLiteral("name"), QStringLiteral("colorful-windows-x64-preview-setup.exe")}},
+            }},
+        };
+        return UpdateManager::selectAssetNameForTest(previewAssets, QStringLiteral("preview"),
+                                                     QStringLiteral(".AppImage"))
+                   == QStringLiteral("colorful-linux-x86_64-preview.AppImage")
+            && UpdateManager::selectAssetNameForTest(previewAssets, QStringLiteral("preview"),
+                                                     QStringLiteral("-setup.exe"))
+                   == QStringLiteral("colorful-windows-x64-preview-setup.exe");
+    }
+
     void fail(const char *message)
     {
         qCritical("%s", message);

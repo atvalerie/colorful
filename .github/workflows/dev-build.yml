@@ -30,21 +30,21 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: desktop-dev-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   COLORFUL_BUILD_CHANNEL: dev
   COLORFUL_BUILD_NUMBER: ${{ github.run_number }}
+  COLORFUL_MPV_MODE: official
 
 jobs:
   quality:
     name: Portable test suites
+    concurrency:
+      group: desktop-dev-quality-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt
       - uses: oven-sh/setup-bun@v2
@@ -63,6 +63,7 @@ jobs:
           cargo test --workspace --locked
       - name: Check providers and relay
         run: |
+          bun scripts/check-desktop-dependency-pins.ts
           bun test packages/provider-kit
           bun run --cwd packages/provider-kit typecheck
           bun test packages/provider-host
@@ -72,6 +73,9 @@ jobs:
 
   linux:
     name: Build Linux dev packages
+    concurrency:
+      group: desktop-dev-linux-${{ github.ref }}
+      cancel-in-progress: true
     if: github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'linux'
     runs-on: ubuntu-24.04
     steps:
@@ -79,6 +83,30 @@ jobs:
         with:
           fetch-depth: 1
       - uses: docker/setup-buildx-action@v3
+      - name: Build pinned FFmpeg layer
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/linux/Dockerfile
+          target: colorful-ffmpeg
+          cache-from: type=gha,scope=colorful-linux-builder
+          cache-to: type=gha,mode=max,scope=colorful-linux-builder
+      - name: Build pinned libplacebo layer
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/linux/Dockerfile
+          target: colorful-libplacebo
+          cache-from: type=gha,scope=colorful-linux-builder
+          cache-to: type=gha,mode=max,scope=colorful-linux-builder
+      - name: Build pinned mpv layer
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/linux/Dockerfile
+          target: colorful-mpv
+          cache-from: type=gha,scope=colorful-linux-builder
+          cache-to: type=gha,mode=max,scope=colorful-linux-builder
       - name: Build cached Linux packaging image
         uses: docker/build-push-action@v6
         with:
@@ -95,7 +123,7 @@ jobs:
             .cache/container/target
             .cache/container/bun
             .cache/container/linuxdeploy
-          key: linux-desktop-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/linux/Dockerfile') }}
+          key: linux-desktop-${{ hashFiles('Cargo.lock', 'packages/provider-host/bun.lock', 'packaging/desktop-dependencies.json', 'packaging/linux/Dockerfile', 'packaging/linux/build-mpv-source.sh', 'scripts/provision-linux-packaging.sh') }}
           restore-keys: |
             linux-desktop-
             linux-dev-
@@ -115,13 +143,16 @@ jobs:
 
   windows:
     name: Build Windows dev packages
+    concurrency:
+      group: desktop-dev-windows-${{ github.ref }}
+      cancel-in-progress: true
     if: github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'windows'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -130,8 +161,9 @@ jobs:
           path: |
             ~\Qt\6.8.3\msvc2022_64
             ~\colorful-deps
-          key: windows-desktop-deps-v2-qt-6.8.3
+          key: windows-desktop-deps-v3-qt-6.8.3-${{ hashFiles('packaging/desktop-dependencies.json') }}
           restore-keys: |
+            windows-desktop-deps-v3-qt-6.8.3-
             windows-desktop-deps-v2-
             windows-desktop-deps-v1-
       - uses: Swatinem/rust-cache@v2
@@ -139,7 +171,7 @@ jobs:
           shared-key: windows-desktop-dev
       - name: Install installer compiler
         shell: powershell
-        run: choco install innosetup --yes --no-progress
+        run: choco install innosetup --version=6.7.1 --yes --no-progress
       - name: Install provider dependencies
         shell: powershell
         run: bun install --cwd packages/provider-host --frozen-lockfile
@@ -171,3 +203,87 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  publish-preview:
+    name: Publish rolling Preview release
+    concurrency:
+      group: colorful-preview-publish
+      cancel-in-progress: false
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs:
+      - quality
+      - linux
+      - windows
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Download current dev packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: colorful-*-dev-${{ github.run_number }}-${{ github.sha }}
+          path: preview-artifacts
+          merge-multiple: true
+      - name: Prepare canonical Preview assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p publish-assets
+
+          copy_single() {
+            local pattern="$1"
+            local destination="$2"
+            local matches=()
+            mapfile -d '' matches < <(find preview-artifacts -type f -name "$pattern" -print0)
+            if [[ ${#matches[@]} -ne 1 ]]; then
+              echo "Expected exactly one $pattern artifact, found ${#matches[@]}" >&2
+              exit 1
+            fi
+            cp "${matches[0]}" "publish-assets/$destination"
+          }
+
+          copy_single '*.AppImage' 'colorful-linux-x86_64-preview.AppImage'
+          copy_single '*-portable.tar.gz' 'colorful-linux-x86_64-preview-portable.tar.gz'
+          copy_single '*-setup.exe' 'colorful-windows-x64-preview-setup.exe'
+          copy_single '*-portable.zip' 'colorful-windows-x64-preview-portable.zip'
+      - name: Publish dev-nightly prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='dev-nightly'
+          version="$(tr -d '\r\n' < VERSION)"
+          short_sha="${GITHUB_SHA:0:12}"
+          preview_version="${version}-dev.${GITHUB_RUN_NUMBER}+${short_sha}"
+
+          {
+            echo "Rolling Preview build from the dev branch."
+            echo
+            echo "- Version: ${preview_version}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > preview-notes.md
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" publish-assets/* \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" \
+              --title "colorful ${preview_version}" \
+              --notes-file preview-notes.md \
+              --prerelease \
+              --latest=false \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" publish-assets/* \
+              --target "$GITHUB_SHA" \
+              --title "colorful ${preview_version}" \
+              --notes-file preview-notes.md \
+              --prerelease \
+              --latest=false \
+              --repo "$GITHUB_REPOSITORY"
+          fi

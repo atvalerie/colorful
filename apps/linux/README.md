@@ -124,10 +124,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\provision-windows-qt.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
 ```
 
-The provisioner installs a local Qt 6.8.3 MSVC build and libmpv development
-bundle. The build output is `build\windows-qt\colorful.exe`; Qt libraries,
-libmpv, the Rust core, the DPAPI credential helper, and the compiled provider
-host are deployed beside it. FFmpeg and ffprobe are bundled as well.
+The provisioner installs the exact Qt, libmpv, Vulkan, FFmpeg, CMake, and Ninja
+versions recorded in `packaging/desktop-dependencies.json`, and verifies every
+downloaded binary archive by SHA-256. The build output is
+`build\windows-qt\colorful.exe`; Qt libraries, libmpv, the Rust core, the DPAPI
+credential helper, and the compiled provider host are deployed beside it.
 Use `-NoBuild` for an immediate relaunch.
 
 Windows playback is lossless when the source and selected output support it.
@@ -155,7 +156,10 @@ The lyrics control beside the queue opens a mutually exclusive side panel.
 colorful prefers the provider's own lyrics: timestamped TIDAL lyrics and native
 YouTube Music lyrics are used when present, with LRCLIB as a fallback for all
 providers. Synced lines follow playback and support a ±250 ms display offset;
-successful results are cached in shared local storage for offline reuse.
+successful results are cached in shared local storage for offline reuse. When a
+provider does not include transliteration, the desktop provider host generates
+romanized Japanese, Korean, Chinese, and Thai lines locally. The lyrics panel
+can switch between the original and romanized text without losing timestamps.
 
 ## Offline files and low-data mode
 

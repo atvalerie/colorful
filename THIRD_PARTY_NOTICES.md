@@ -15,6 +15,16 @@ or dynamically load third-party components under their own licenses.
 - fflate — MIT; <https://github.com/101arrowz/fflate>
 - Buf (`@bufbuild/protobuf`) — Apache-2.0 AND BSD-3-Clause;
   <https://github.com/bufbuild/protobuf-es>
+- tinyld — MIT; <https://github.com/komodojp/tinyld>
+- Kuroshiro and kuroshiro-analyzer-kuromoji — MIT;
+  <https://github.com/hexenq/kuroshiro>
+- Kuromoji and its bundled dictionary — Apache-2.0;
+  <https://github.com/takuyaa/kuromoji.js>
+- es-hangul — MIT; <https://github.com/toss/es-hangul>
+- hanja — MIT; <https://github.com/rockpicado/hanja>
+- pinyin-pro — MIT; <https://github.com/zh-lx/pinyin-pro>
+- `@dehoist/romanize-thai` — MPL-2.0;
+  <https://www.npmjs.com/package/@dehoist/romanize-thai>
 - SQLite — public domain; <https://sqlite.org/copyright.html>
 - Nunito — SIL Open Font License 1.1; the license is embedded with the font
   and available at `assets/fonts/OFL.txt` in the source tree.

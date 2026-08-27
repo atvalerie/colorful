@@ -1,6 +1,7 @@
 #pragma once
 
 #include "discordpresence.h"
+#include "discordsocial.h"
 #include "corebridge.h"
 #include "linuxplayback.h"
 
@@ -39,7 +40,6 @@ class Backend final : public QObject
     Q_PROPERTY(QVariantMap soundcloudHub READ soundcloudHub NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool soundcloudHubLoading READ soundcloudHubLoading NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool soundcloudMoreLoading READ soundcloudMoreLoading NOTIFY soundcloudAccountChanged)
-    Q_PROPERTY(bool spotifyLinked READ spotifyLinked NOTIFY spotifyAccountChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
@@ -66,6 +66,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool tidalMoreLoading READ tidalMoreLoading NOTIFY tidalHubChanged)
     Q_PROPERTY(int currentQueueIndex READ currentQueueIndex NOTIFY currentTrackChanged)
     Q_PROPERTY(QVariantMap currentTrack READ currentTrack NOTIFY currentTrackChanged)
+    Q_PROPERTY(bool currentTrackSaved READ currentTrackSaved NOTIFY currentTrackSavedChanged)
     Q_PROPERTY(QVariantMap lyrics READ lyrics NOTIFY lyricsChanged)
     Q_PROPERTY(bool lyricsLoading READ lyricsLoading NOTIFY lyricsChanged)
     Q_PROPERTY(QString lyricsError READ lyricsError NOTIFY lyricsChanged)
@@ -90,13 +91,16 @@ class Backend final : public QObject
     Q_PROPERTY(bool hardwareAccelerationEnabled READ hardwareAccelerationEnabled WRITE setHardwareAccelerationEnabled NOTIFY appearanceChanged)
     Q_PROPERTY(double textScale READ textScale WRITE setTextScale NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
-    Q_PROPERTY(QString recommendationMode READ recommendationMode WRITE setRecommendationMode NOTIFY recommendationModeChanged)
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
     Q_PROPERTY(bool soundcloudOriginalDownloads READ soundcloudOriginalDownloads WRITE setSoundcloudOriginalDownloads NOTIFY downloadPreferencesChanged)
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
     Q_PROPERTY(bool onboardingCompleted READ onboardingCompleted WRITE setOnboardingCompleted NOTIFY onboardingCompletedChanged)
     Q_PROPERTY(bool partyDiagnosticsEnabled READ partyDiagnosticsEnabled WRITE setPartyDiagnosticsEnabled NOTIFY partyDiagnosticsEnabledChanged)
-    Q_PROPERTY(bool discordPartyInvitesEnabled READ discordPartyInvitesEnabled WRITE setDiscordPartyInvitesEnabled NOTIFY discordPartyInvitesEnabledChanged)
+    Q_PROPERTY(bool discordPresenceEnabled READ discordPresenceEnabled WRITE setDiscordPresenceEnabled NOTIFY discordSettingsChanged)
+    Q_PROPERTY(bool discordTrackButtonEnabled READ discordTrackButtonEnabled WRITE setDiscordTrackButtonEnabled NOTIFY discordSettingsChanged)
+    Q_PROPERTY(bool discordPartyButtonEnabled READ discordPartyButtonEnabled WRITE setDiscordPartyButtonEnabled NOTIFY discordSettingsChanged)
+    Q_PROPERTY(bool discordAskToJoinEnabled READ discordAskToJoinEnabled WRITE setDiscordAskToJoinEnabled NOTIFY discordSettingsChanged)
+    Q_PROPERTY(QVariantList discordJoinRequests READ discordJoinRequests NOTIFY discordJoinRequestsChanged)
     Q_PROPERTY(QVariantList equalizerBands READ equalizerBands NOTIFY audioProcessingChanged)
     Q_PROPERTY(QString equalizerPreset READ equalizerPreset NOTIFY audioProcessingChanged)
     Q_PROPERTY(QVariantMap listenStats READ listenStats NOTIFY listenStatsChanged)
@@ -124,7 +128,6 @@ public:
     QVariantMap soundcloudHub() const { return m_soundcloudHub; }
     bool soundcloudHubLoading() const { return m_soundcloudHubLoading; }
     bool soundcloudMoreLoading() const { return m_soundcloudMoreLoading; }
-    bool spotifyLinked() const { return m_spotifyLinked; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList searchAlbums() const { return m_searchAlbums; }
@@ -151,6 +154,7 @@ public:
     bool tidalMoreLoading() const { return m_tidalMoreLoading; }
     int currentQueueIndex() const { return m_currentIndex; }
     QVariantMap currentTrack() const;
+    bool currentTrackSaved() const;
     QVariantMap lyrics() const { return m_lyrics; }
     bool lyricsLoading() const { return m_lyricsLoading; }
     QString lyricsError() const { return m_lyricsError; }
@@ -175,13 +179,16 @@ public:
     bool hardwareAccelerationEnabled() const { return m_hardwareAccelerationEnabled; }
     double textScale() const { return m_textScale; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
-    QString recommendationMode() const { return m_recommendationMode; }
     QString streamQuality() const { return m_streamQuality; }
     bool soundcloudOriginalDownloads() const { return m_soundcloudOriginalDownloads; }
     bool normalizationEnabled() const { return m_normalizationEnabled; }
     bool onboardingCompleted() const { return m_onboardingCompleted; }
     bool partyDiagnosticsEnabled() const { return m_partyDiagnosticsEnabled; }
-    bool discordPartyInvitesEnabled() const { return m_discordPartyInvitesEnabled; }
+    bool discordPresenceEnabled() const { return m_discordPresenceEnabled; }
+    bool discordTrackButtonEnabled() const { return m_discordTrackButtonEnabled; }
+    bool discordPartyButtonEnabled() const { return m_discordPartyButtonEnabled; }
+    bool discordAskToJoinEnabled() const { return m_discordAskToJoinEnabled; }
+    QVariantList discordJoinRequests() const { return m_discordJoinRequests; }
     QVariantList equalizerBands() const { return m_equalizerBands; }
     QString equalizerPreset() const { return m_equalizerPreset; }
     QVariantMap listenStats() const { return m_listenStats; }
@@ -197,9 +204,8 @@ public:
     void seekParty(qint64 positionMs);
     void setPartyPlaybackRate(double rate);
     void leavePartyPlayback();
-    void updateDiscordParty(const QString &partyId, int currentSize, int maximumSize,
-                            const QString &joinSecret, bool joinEnabled);
-    void respondToDiscordJoinRequest(const QString &userId, bool accepted);
+    void setDiscordPartyState(bool active, const QString &partyId, int partySize,
+                              const QString &joinPartyUrl = {}, const QString &joinSecret = {});
 
     Q_INVOKABLE void startLogin();
     Q_INVOKABLE void openVerificationUrl();
@@ -217,8 +223,6 @@ public:
     Q_INVOKABLE void loadSoundCloudHub(bool refresh = false);
     Q_INVOKABLE void loadMoreSoundCloud(const QString &section);
     Q_INVOKABLE void openSoundCloudSetupGuide();
-    Q_INVOKABLE void startSpotifyBrowserLogin();
-    Q_INVOKABLE void unlinkSpotify();
     Q_INVOKABLE void dismissEntitlementWarning();
     Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
@@ -239,6 +243,7 @@ public:
     Q_INVOKABLE void playCatalogTrack(const QVariantMap &track);
     Q_INVOKABLE void startRadio(const QVariantMap &track);
     Q_INVOKABLE void saveCatalogTrack(const QVariantMap &track);
+    Q_INVOKABLE void toggleCurrentTrackSaved();
     Q_INVOKABLE void playCatalogCollection();
     Q_INVOKABLE void enqueueSearchResult(int index);
     Q_INVOKABLE void playSearchResult(int index);
@@ -293,13 +298,16 @@ public:
     Q_INVOKABLE void loadLyrics(bool refresh = false);
     Q_INVOKABLE void copySongLink(const QVariantMap &track);
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
-    Q_INVOKABLE void setRecommendationMode(const QString &mode);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
     Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
     Q_INVOKABLE void setOnboardingCompleted(bool completed);
     Q_INVOKABLE void setPartyDiagnosticsEnabled(bool enabled);
-    Q_INVOKABLE void setDiscordPartyInvitesEnabled(bool enabled);
+    Q_INVOKABLE void setDiscordPresenceEnabled(bool enabled);
+    Q_INVOKABLE void setDiscordTrackButtonEnabled(bool enabled);
+    Q_INVOKABLE void setDiscordPartyButtonEnabled(bool enabled);
+    Q_INVOKABLE void setDiscordAskToJoinEnabled(bool enabled);
+    Q_INVOKABLE void respondToDiscordJoinRequest(const QString &userId, bool approved);
     Q_INVOKABLE void setEqualizerBand(int index, double gainDb);
     Q_INVOKABLE void applyEqualizerPreset(const QString &preset);
     Q_INVOKABLE void setAccentMode(const QString &mode);
@@ -307,7 +315,7 @@ public:
     Q_INVOKABLE void setLowDataMode(bool enabled);
     Q_INVOKABLE void setHardwareAccelerationEnabled(bool enabled);
     Q_INVOKABLE void setTextScale(double scale);
-    void shutdownDiscordPresence() { m_discordPresence.shutdown(); }
+    void shutdownDiscordPresence() { m_discordSocial.shutdown(); m_discordPresence.shutdown(); }
 
 signals:
     void providerReadyChanged();
@@ -319,7 +327,6 @@ signals:
     void authDetailsChanged();
     void youtubeAccountChanged();
     void soundcloudAccountChanged();
-    void spotifyAccountChanged();
     void statusMessageChanged();
     void searchResultsChanged();
     void catalogPageChanged();
@@ -332,6 +339,7 @@ signals:
     void downloadDirectoryChanged();
     void tidalHubChanged();
     void currentTrackChanged();
+    void currentTrackSavedChanged();
     void lyricsChanged();
     void playbackChanged();
     void positionChanged();
@@ -346,16 +354,15 @@ signals:
     void accentChanged();
     void appearanceChanged();
     void autoplayEnabledChanged();
-    void recommendationModeChanged();
     void streamQualityChanged();
     void downloadPreferencesChanged();
     void audioProcessingChanged();
     void onboardingCompletedChanged();
     void partyDiagnosticsEnabledChanged();
-    void discordPartyInvitesEnabledChanged();
+    void discordSettingsChanged();
+    void discordJoinRequestsChanged();
+    void discordPartyJoinReceived(const QString &secret);
     void listenStatsChanged();
-    void discordJoinRequested(const QVariantMap &request);
-    void discordPartyJoin(const QString &secret);
     void toastRequested(const QString &message, const QString &kind);
     void seeked(qint64 positionMs);
     void quitRequested();
@@ -436,6 +443,7 @@ private:
     void loadAccent(const QString &artworkUrl);
     void animateAccent(const QColor &color);
     void updateDiscordPresence();
+    static QString discordTrackUrl(const QVariantMap &track);
     void resumeListeningSession();
     void suspendListeningSession();
     void finishListeningSession();
@@ -467,6 +475,7 @@ private:
     qint64 m_resumePositionMs = 0;
     qint64 m_displayPositionOverride = -1;
     DiscordPresence m_discordPresence;
+    DiscordSocial m_discordSocial;
     QNetworkAccessManager m_network;
     QVariantAnimation m_accentAnimation;
     QVariantList m_searchResults;
@@ -519,7 +528,6 @@ private:
     bool m_soundcloudHubLoading = false;
     bool m_soundcloudMoreLoading = false;
     bool m_soundcloudLinked = false;
-    bool m_spotifyLinked = false;
     QVariantMap m_listenStats;
     QVariantMap m_lyrics;
     QString m_lyricsTrackKey;
@@ -556,7 +564,6 @@ private:
     QString m_pendingArtworkUrl;
     QPointer<QNetworkReply> m_accentReply;
     bool m_autoplayEnabled = true;
-    QString m_recommendationMode = QStringLiteral("fallback");
     QString m_streamQuality = QStringLiteral("best");
     bool m_soundcloudOriginalDownloads = false;
     bool m_reconcilingDownloads = false;
@@ -584,7 +591,16 @@ private:
     qint64 m_listenedMs = 0;
     bool m_playbackReady = false;
     bool m_partyDiagnosticsEnabled = false;
-    bool m_discordPartyInvitesEnabled = false;
+    bool m_discordPresenceEnabled = true;
+    bool m_discordTrackButtonEnabled = true;
+    bool m_discordPartyButtonEnabled = true;
+    bool m_discordAskToJoinEnabled = true;
+    bool m_discordPartyActive = false;
+    QString m_discordPartyId;
+    int m_discordPartySize = 0;
+    QString m_discordJoinPartyUrl;
+    QString m_discordJoinSecret;
+    QVariantList m_discordJoinRequests;
     bool m_partyPlaybackActive = false;
     QVariantMap m_partyTrack;
     QVariantMap m_partyPreparedTrack;

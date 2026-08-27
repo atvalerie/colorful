@@ -17,23 +17,43 @@ public:
     ~DiscordPresence() override;
 
     void shutdown();
+    void setEnabled(bool enabled);
+    void setTrackButtonEnabled(bool enabled);
+    void setAskToJoinEnabled(bool enabled);
+    void respondToJoinRequest(const QString &userId, bool approved);
     void update(const QString &title,
                 const QString &artist,
                 const QString &album,
                 const QString &artworkUrl,
                 qint64 positionMs,
                 qint64 durationMs,
-                bool playing);
-    void setParty(const QString &partyId, int currentSize, int maximumSize,
-                  const QString &joinSecret, bool joinEnabled);
-    void setPartyInvitesEnabled(bool enabled);
-    void respondToJoinRequest(const QString &userId, bool accepted);
+                bool playing,
+                const QString &trackUrl = {},
+                const QString &partyId = {},
+                int partySize = 0,
+                const QString &joinPartyUrl = {},
+                const QString &joinSecret = {});
     void clear();
-    bool partyJoinEnabled() const { return m_partyJoinEnabled; }
+
+    // Kept pure so the activity contract can be tested without a Discord
+    // process or IPC socket.
+    static QJsonObject buildActivity(const QString &title,
+                                     const QString &artist,
+                                     const QString &album,
+                                     const QString &artworkUrl,
+                                     qint64 positionMs,
+                                     qint64 durationMs,
+                                     bool playing,
+                                     const QString &trackUrl,
+                                     bool trackButtonEnabled,
+                                     const QString &partyId = {},
+                                     int partySize = 0,
+                                     const QString &joinPartyUrl = {},
+                                     const QString &joinSecret = {});
 
 signals:
-    void activityJoinRequested(const QVariantMap &request);
-    void activityJoin(const QString &secret);
+    void activityJoinRequested(const QVariantMap &user);
+    void activityJoin(const QString &joinSecret);
 
 private:
     enum class Opcode : quint32 { Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4 };
@@ -43,10 +63,11 @@ private:
     void handleDisconnected();
     void handleReadyRead();
     void handleFrame(Opcode opcode, const QByteArray &payload);
-    void publishDesiredActivity();
-    void beginAuthorization();
+    void beginAuthentication();
     void exchangeAuthorizationCode(const QString &code);
-    void subscribe(const QString &event);
+    void subscribeToPartyEvents();
+    void publishDesiredActivity();
+    void rebuildButtons();
     void clearActivityForProcess(qint64 processId);
     bool flushActivity(int timeoutMs);
     void writeFrame(Opcode opcode, const QJsonObject &payload);
@@ -57,24 +78,24 @@ private:
     QTimer m_reconnectTimer;
     QByteArray m_readBuffer;
     QJsonObject m_desiredActivity;
-    QString m_partyId;
-    QString m_partyJoinSecret;
-    int m_partyCurrentSize = 1;
-    int m_partyMaximumSize = 16;
     QString m_applicationId;
     QStringList m_candidates;
     qsizetype m_candidateIndex = 0;
     quint64 m_nonce = 0;
-    QString m_authorizeNonce;
-    QString m_authenticateNonce;
     qint64 m_staleProcessId = 0;
     bool m_enabled = true;
+    bool m_trackButtonEnabled = true;
+    bool m_askToJoinEnabled = false;
     bool m_ready = false;
-    bool m_authorizing = false;
     bool m_authenticated = false;
-    bool m_partyJoinEnabled = false;
-    bool m_partyInvitesEnabled = false;
+    bool m_authorizationRequested = false;
+    bool m_authorizationFailed = false;
     bool m_hasDesiredActivity = false;
     bool m_shuttingDown = false;
     bool m_unavailableLogged = false;
+    QString m_trackUrl;
+    QString m_partyId;
+    int m_partySize = 0;
+    QString m_joinPartyUrl;
+    QString m_joinSecret;
 };

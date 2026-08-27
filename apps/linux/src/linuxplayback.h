@@ -21,6 +21,7 @@ public:
     ~LinuxPlayback() override;
 
     bool isAvailable() const { return m_mpv != nullptr; }
+    QString version() const;
     bool hasSource() const { return !m_source.isEmpty(); }
     bool playing() const { return m_state == State::Playing; }
     State state() const { return m_state; }
@@ -131,6 +132,7 @@ private:
     QString m_audioDevice = QStringLiteral("auto");
     bool m_audioExclusive = false;
     bool m_replayGainEnabled = false;
+    bool m_loadfileSupportsIndex = false;
     std::optional<double> m_replayGainDb;
     std::optional<double> m_peakAmplitude;
     std::optional<double> m_preparedReplayGainDb;

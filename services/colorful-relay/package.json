@@ -6,6 +6,6 @@
   "scripts": {
     "start": "bun src/main.ts",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bun ../../packages/provider-kit/node_modules/typescript/bin/tsc --noEmit"
   }
 }

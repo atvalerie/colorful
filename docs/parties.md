@@ -8,7 +8,10 @@ next-track preloading. Late joiners receive one signed current-state snapshot
 instead of replaying every historical queue revision. A native two-client integration test synchronizes a
 signed clock sample through the real opaque relay. This remains an experimental
 MVP: ownership transfer, output-latency calibration, direct transports, and
-production relay deployment are not complete.
+production relay deployment are not complete. Discord's public **Join Party**
+button uses an expiring ticket. Native **Ask to Join** uses authenticated local
+Discord RPC: the host approves or declines a request in Colorful, and Discord
+then passes the existing encrypted bootstrap handle to the requester.
 
 ## Implemented core
 
@@ -56,7 +59,12 @@ production relay deployment are not complete.
 - post-kick party-key rotation with one X25519-wrapped replacement-key envelope
   per remaining participant, excluding the removed participant; and
 - HTTPS share links at `colorful.valerie.sh`, with the E2E secret remaining in
-  the URL fragment and a `colorful://`/repository landing page.
+  the URL fragment and a `colorful://`/repository landing page;
+- a public Discord Join Party ticket, controlled by the Discord **Join Party
+  button** setting, in the form `v1.<lookup>.<bootstrapKey>`. It is single-use,
+  expires after 90 seconds, and is issued only for the production HTTPS relay.
+  The relay stores a lookup hash and encrypted bootstrap ciphertext; it never
+  receives `bootstrapKey` or the combined ticket.
 
 The shared party key provides confidentiality from the relay. It does not prove
 host authority because every participant knows it, so authoritative events are
@@ -88,6 +96,7 @@ binary WebSocket forwarding without inspecting frames.
 4. Add LAN discovery/direct transport, then ICE/STUN, while retaining the
    existing relay as fallback.
 5. Add richer suggestion UI and unavailable-track presentation.
+6. Add LAN/P2P transport and relay fallback beyond the current WebSocket path.
 
 Kicking rotates the frame-encryption key before subsequent application traffic.
 The removed peer can still observe opaque relay traffic but receives no wrapped

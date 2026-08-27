@@ -27,7 +27,7 @@ Windows-specific integration includes:
 
 - Visual Studio 2022 with Desktop development with C++ (MSVC x64)
 - a current Windows 10/11 SDK
-- Rust stable with the `x86_64-pc-windows-msvc` host
+- Rust 1.97.1 with the `x86_64-pc-windows-msvc` host (selected by `rust-toolchain.toml`)
 - Bun, CMake, Ninja, and Git
 - Inno Setup 6 for setup executables (`winget install JRSoftware.InnoSetup`)
 

@@ -71,10 +71,15 @@ bool ensureWritableDirectory(const QString &path, QString *error)
 QString safeTrackPath(const QVariantMap &track)
 {
     const auto id = track.value(QStringLiteral("id")).toString();
-    QString safe;
-    safe.reserve(id.size());
-    for (const auto character : id) safe.append(character.isLetterOrNumber() ? character : QChar('_'));
-    return QStringLiteral("/org/mpris/MediaPlayer2/track/%1").arg(safe.isEmpty() ? QStringLiteral("unknown") : safe);
+    if (id.isEmpty()) return QStringLiteral("/org/mpris/MediaPlayer2/track/unknown");
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    const auto identity = (provider + QChar::Null + id).toUtf8();
+    const auto digest = QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex();
+    // D-Bus object-path components only permit ASCII letters, digits, and
+    // underscores. Hash the provider identity instead of passing arbitrary
+    // Unicode provider ids into libdbus.
+    return QStringLiteral("/org/mpris/MediaPlayer2/track/id_%1")
+        .arg(QString::fromLatin1(digest));
 }
 
 QStringList playbackHttpHeaders(const QJsonObject &source)
@@ -189,13 +194,6 @@ Backend::Backend(QObject *parent)
     m_textScale = std::clamp(settings.value(QStringLiteral("appearance/textScale"), m_textScale).toDouble(), 0.9, 1.3);
     if (m_accentMode == QStringLiteral("fixed")) m_accent = m_fixedAccent;
     m_autoplayEnabled = settings.value(QStringLiteral("playback/autoplay"), true).toBool();
-    m_recommendationMode = settings.value(QStringLiteral("playback/recommendationMode"),
-                                          QStringLiteral("fallback")).toString();
-    if (m_recommendationMode != QStringLiteral("tidal")
-        && m_recommendationMode != QStringLiteral("spotify")
-        && m_recommendationMode != QStringLiteral("fallback")) {
-        m_recommendationMode = QStringLiteral("fallback");
-    }
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
@@ -209,6 +207,45 @@ Backend::Backend(QObject *parent)
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
     m_onboardingCompleted = settings.value(QStringLiteral("ui/onboardingCompleted"), false).toBool();
     m_partyDiagnosticsEnabled = settings.value(QStringLiteral("debug/partyDiagnostics"), false).toBool();
+    m_discordPresenceEnabled = settings.value(QStringLiteral("discord/presenceEnabled"), true).toBool();
+    m_discordTrackButtonEnabled = settings.value(QStringLiteral("discord/trackButtonEnabled"), true).toBool();
+    m_discordPartyButtonEnabled = settings.value(QStringLiteral("discord/partyButtonEnabled"), true).toBool();
+    // Ask to Join begins Social SDK OAuth. It stays opt-in so a normal music
+    // listener never sees an authorization window without requesting parties.
+    m_discordAskToJoinEnabled = settings.value(QStringLiteral("discord/askToJoinEnabled"), false).toBool();
+    // Ordinary playback stays a Listening activity through local RPC. Switch
+    // to Social SDK only while a party is active: that gives Discord the
+    // documented Playing/party representation it needs for native invites.
+    m_discordPresence.setTrackButtonEnabled(m_discordTrackButtonEnabled);
+    m_discordPresence.setAskToJoinEnabled(false);
+    m_discordPresence.setEnabled(m_discordPresenceEnabled);
+    m_discordSocial.setTrackButtonEnabled(m_discordTrackButtonEnabled);
+    m_discordSocial.setAskToJoinEnabled(m_discordAskToJoinEnabled);
+    m_discordSocial.setEnabled(false);
+    connect(&m_discordSocial, &DiscordSocial::readyChanged, this, [this](bool) {
+        // Switch from legacy Listening only after the authenticated Social
+        // SDK transport is ready. This keeps a continuous activity visible
+        // while Discord completes its OAuth/connection handshake.
+        updateDiscordPresence();
+    });
+    connect(&m_discordSocial, &DiscordSocial::activityJoinRequested, this,
+            [this](const QVariantMap &user) {
+        if (!m_discordPartyActive) return;
+        const auto id = user.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) return;
+        for (const auto &pending : std::as_const(m_discordJoinRequests)) {
+            if (pending.toMap().value(QStringLiteral("id")).toString() == id) return;
+        }
+        m_discordJoinRequests.append(user);
+        emit discordJoinRequestsChanged();
+        const auto name = user.value(QStringLiteral("globalName"),
+                                     user.value(QStringLiteral("username"))).toString();
+        emit toastRequested(name.isEmpty() ? QStringLiteral("Discord user asked to join your party")
+                                           : QStringLiteral("%1 asked to join your party").arg(name),
+                           QStringLiteral("info"));
+    });
+    connect(&m_discordSocial, &DiscordSocial::activityJoin, this,
+            [this](const QString &secret) { emit discordPartyJoinReceived(secret); });
     m_offlineStorageLimitBytes = std::max<qint64>(0, settings.value(QStringLiteral("storage/offlineLimitBytes"), 0).toLongLong());
     m_playback.setVolume(std::clamp(settings.value(QStringLiteral("playback/volume"), 0.78).toDouble(), 0.0, 1.0));
     m_playback.setMuted(settings.value(QStringLiteral("playback/muted"), false).toBool());
@@ -326,13 +363,6 @@ Backend::Backend(QObject *parent)
         emit playbackChanged();
         updateDiscordPresence();
     });
-    connect(&m_discordPresence, &DiscordPresence::activityJoinRequested,
-            this, &Backend::discordJoinRequested);
-    connect(&m_discordPresence, &DiscordPresence::activityJoin,
-            this, &Backend::discordPartyJoin);
-    m_discordPartyInvitesEnabled = QSettings().value(
-        QStringLiteral("discord/partyInvitesEnabled"), false).toBool();
-    m_discordPresence.setPartyInvitesEnabled(m_discordPartyInvitesEnabled);
     connect(this, &Backend::currentTrackChanged, this, [this] {
         emit durationChanged();
         const auto currentKey = trackKey(currentTrack());
@@ -448,6 +478,7 @@ Backend::Backend(QObject *parent)
         m_partyPreparedTrack.clear();
         m_playbackReady = false;
         emit currentTrackChanged();
+        emit currentTrackSavedChanged();
     });
     connect(&m_playback, &LinuxPlayback::preparedNextFailed, this, [this](const QString &) {
         if (m_partyPlaybackActive) {
@@ -534,6 +565,19 @@ QVariantMap Backend::currentTrack() const
         : QVariantMap{};
 }
 
+bool Backend::currentTrackSaved() const
+{
+    const auto track = currentTrack();
+    const auto id = track.value(QStringLiteral("id")).toString();
+    if (id.isEmpty()) return false;
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+    return std::any_of(m_library.cbegin(), m_library.cend(), [&provider, &id](const QVariant &value) {
+        const auto saved = value.toMap();
+        return saved.value(QStringLiteral("id")).toString() == id
+            && saved.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString() == provider;
+    });
+}
+
 void Backend::loadPartyTrack(const QVariantMap &track, qint64 positionMs, bool autoplay)
 {
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
@@ -542,7 +586,10 @@ void Backend::loadPartyTrack(const QVariantMap &track, qint64 positionMs, bool a
     m_partyTrack = track;
     m_partyPreparedTrack.clear();
     ++m_partyPrepareGeneration;
-    if (changed) emit currentTrackChanged();
+    if (changed) {
+        emit currentTrackChanged();
+        emit currentTrackSavedChanged();
+    }
     resolveCurrentSource(std::max<qint64>(0, positionMs), autoplay);
 }
 
@@ -619,6 +666,7 @@ void Backend::leavePartyPlayback()
     m_playbackReady = false;
     m_displayPositionOverride = -1;
     emit currentTrackChanged();
+    emit currentTrackSavedChanged();
     emit positionChanged();
     emit playbackConditionChanged();
 }
@@ -631,7 +679,7 @@ QString Backend::lyricsCacheKey(const QVariantMap &track) const
     // Version the cache whenever provider selection or the document shape
     // changes so older plain-only results do not mask newly available synced
     // or romanized lyrics indefinitely.
-    return QStringLiteral("lyrics/v2/%1/%2").arg(provider, QString::fromLatin1(digest));
+    return QStringLiteral("lyrics/v4/%1/%2").arg(provider, QString::fromLatin1(digest));
 }
 
 void Backend::resetLyrics()
@@ -762,7 +810,10 @@ qint64 Backend::offlineStorageUsed() const
 
 QVariantMap Backend::buildInfo() const
 {
-    return colorfulBuildInfo();
+    auto info = colorfulBuildInfo();
+    const auto mpvVersion = m_playback.version();
+    if (!mpvVersion.isEmpty()) info.insert(QStringLiteral("mpv"), mpvVersion);
+    return info;
 }
 
 bool Backend::openCore()
@@ -918,6 +969,7 @@ void Backend::refreshCoreSnapshot(bool restorePlaybackPosition)
     if (queueWasChanged) emit queueChanged();
     if (currentWasChanged || queueWasChanged) emit currentTrackChanged();
     if (libraryWasChanged) emit libraryChanged();
+    if (currentWasChanged || queueWasChanged || libraryWasChanged) emit currentTrackSavedChanged();
     if (localPlaylistsWereChanged) emit localPlaylistsChanged();
     if (downloadsWereChanged) emit downloadsChanged();
     if (listenStatsWereChanged) emit listenStatsChanged();
@@ -1125,11 +1177,13 @@ QVariantMap Backend::mprisMetadata() const
 #else
     metadata.insert(QStringLiteral("mpris:trackid"), safeTrackPath(track));
 #endif
-    metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")));
-    metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")));
-    metadata.insert(QStringLiteral("xesam:album"), track.value(QStringLiteral("albumTitle")));
-    if (!m_lowDataMode)
-        metadata.insert(QStringLiteral("mpris:artUrl"), track.value(QStringLiteral("coverUrl")));
+    metadata.insert(QStringLiteral("xesam:title"), track.value(QStringLiteral("title")).toString());
+    metadata.insert(QStringLiteral("xesam:artist"), track.value(QStringLiteral("artists")).toStringList());
+    const auto album = track.value(QStringLiteral("albumTitle")).toString();
+    if (!album.isEmpty()) metadata.insert(QStringLiteral("xesam:album"), album);
+    const auto artworkUrl = track.value(QStringLiteral("coverUrl")).toString();
+    if (!m_lowDataMode && !artworkUrl.isEmpty())
+        metadata.insert(QStringLiteral("mpris:artUrl"), artworkUrl);
     metadata.insert(QStringLiteral("mpris:length"), track.value(QStringLiteral("durationMs")).toLongLong() * 1000);
     return metadata;
 }
@@ -1205,6 +1259,8 @@ void Backend::providerHostStarted()
     DebugLog::write(u"provider", QStringLiteral("process started after %1 ms")
                                       .arg(m_providerStartClock.isValid() ? m_providerStartClock.elapsed() : 0));
     request(QStringLiteral("status"), {}, [this](const QJsonObject &message) {
+        DebugLog::write(u"provider", QStringLiteral("status resolved after %1 ms")
+                                          .arg(m_providerStartClock.isValid() ? m_providerStartClock.elapsed() : 0));
         setProviderStatusResolved(true);
         if (!message.value(QStringLiteral("ok")).toBool()) return;
         const auto data = message.value(QStringLiteral("data")).toObject();
@@ -1219,11 +1275,6 @@ void Backend::providerHostStarted()
         if (m_soundcloudLinked != soundcloudLinked) {
             m_soundcloudLinked = soundcloudLinked;
             emit soundcloudAccountChanged();
-        }
-        const auto spotifyLinked = data.value(QStringLiteral("spotifyLinked")).toBool();
-        if (m_spotifyLinked != spotifyLinked) {
-            m_spotifyLinked = spotifyLinked;
-            emit spotifyAccountChanged();
         }
         if (!data.value(QStringLiteral("browseConfigured")).toBool()) {
             setStatus(QStringLiteral("TIDAL browse configuration is unavailable."));
@@ -1404,28 +1455,6 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
             emit toastRequested(QStringLiteral("SoundCloud connected"), QStringLiteral("success"));
             loadSoundCloudHub(true);
         }
-    } else if (event == QStringLiteral("spotify.auth.restored")
-               || event == QStringLiteral("spotify.auth.completed")) {
-        const auto completed = event.endsWith(QStringLiteral("completed"));
-        m_spotifyLinked = true;
-        if (m_authProvider == QStringLiteral("spotify")) {
-            m_authPending = false;
-            emit authPendingChanged();
-        }
-        emit spotifyAccountChanged();
-        setStatus(completed
-                      ? QStringLiteral("Spotify recommendations connected")
-                      : QStringLiteral("Spotify recommendation account restored"));
-        if (completed) {
-            emit toastRequested(QStringLiteral("Spotify recommendations connected"),
-                                QStringLiteral("success"));
-        }
-    } else if (event == QStringLiteral("spotify.auth.failed")) {
-        if (m_authProvider == QStringLiteral("spotify")) {
-            m_authPending = false;
-            emit authPendingChanged();
-        }
-        setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("browser.auth.progress")) {
         const auto data = message.value(QStringLiteral("data")).toObject();
         if (m_authPending && data.value(QStringLiteral("provider")).toString() == m_authProvider) {
@@ -1575,21 +1604,14 @@ void Backend::startSoundCloudBrowserLogin()
     startBrowserLogin(QStringLiteral("soundcloud"));
 }
 
-void Backend::startSpotifyBrowserLogin()
-{
-    startBrowserLogin(QStringLiteral("spotify"));
-}
-
 void Backend::startBrowserLogin(const QString &provider)
 {
-    if (provider != QStringLiteral("youtube") && provider != QStringLiteral("soundcloud")
-        && provider != QStringLiteral("spotify")) return;
+    if (provider != QStringLiteral("youtube") && provider != QStringLiteral("soundcloud")) return;
     if (m_authPending) cancelLogin();
     setBusy(true);
-    const auto providerName = provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
-        : provider == QStringLiteral("soundcloud") ? QStringLiteral("SoundCloud")
-                                                     : QStringLiteral("Spotify");
-    setStatus(QStringLiteral("Opening an isolated browser for %1…").arg(providerName));
+    setStatus(QStringLiteral("Opening an isolated browser for %1…")
+                  .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+                                                               : QStringLiteral("SoundCloud")));
     request(provider + QStringLiteral(".auth.browser.start"), {}, [this, provider](const QJsonObject &message) {
         setBusy(false);
         if (!message.value(QStringLiteral("ok")).toBool()) {
@@ -1602,23 +1624,9 @@ void Backend::startBrowserLogin(const QString &provider)
         m_verificationUrl.clear();
         emit authDetailsChanged();
         emit authPendingChanged();
-        const auto providerName = provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
-            : provider == QStringLiteral("soundcloud") ? QStringLiteral("SoundCloud")
-                                                         : QStringLiteral("Spotify");
-        setStatus(QStringLiteral("Waiting for %1 browser sign-in…").arg(providerName));
-    });
-}
-
-void Backend::unlinkSpotify()
-{
-    request(QStringLiteral("spotify.auth.unlink"), {}, [this](const QJsonObject &message) {
-        if (!message.value(QStringLiteral("ok")).toBool()) {
-            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
-            return;
-        }
-        m_spotifyLinked = false;
-        emit spotifyAccountChanged();
-        notify(QStringLiteral("Spotify recommendation account disconnected"));
+        setStatus(QStringLiteral("Waiting for %1 browser sign-in…")
+                      .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+                                                                   : QStringLiteral("SoundCloud")));
     });
 }
 
@@ -1822,8 +1830,7 @@ void Backend::cancelLogin()
 {
     if (!m_authPending) return;
     const bool capturedBrowserLogin = m_verificationUrl.isEmpty()
-        && (m_authProvider == QStringLiteral("youtube") || m_authProvider == QStringLiteral("soundcloud")
-            || m_authProvider == QStringLiteral("spotify"));
+        && (m_authProvider == QStringLiteral("youtube") || m_authProvider == QStringLiteral("soundcloud"));
     const auto type = capturedBrowserLogin ? QStringLiteral("browser.auth.cancel")
         : m_authProvider == QStringLiteral("youtube") ? QStringLiteral("youtube.auth.cancel")
         : QStringLiteral("auth.cancel");
@@ -2204,7 +2211,6 @@ void Backend::openCatalog(const QString &kind, const QString &id, bool preserveC
         {QStringLiteral("provider"), provider},
         {QStringLiteral("kind"), kind},
         {QStringLiteral("id"), resourceId},
-        {QStringLiteral("recommendationMode"), m_recommendationMode},
     }, [this, generation, preserveCurrent, hasCachedPage](const QJsonObject &message) {
         if (generation != m_catalogGeneration) return;
         m_catalogLoading = false;
@@ -2396,6 +2402,25 @@ void Backend::startRadio(const QVariantMap &track)
 }
 
 void Backend::saveCatalogTrack(const QVariantMap &track) { saveTrack(track); }
+
+void Backend::toggleCurrentTrackSaved()
+{
+    const auto track = currentTrack();
+    if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+
+    if (currentTrackSaved()) {
+        const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
+        dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_from_library")},
+                      {QStringLiteral("id"), QJsonObject{
+                          {QStringLiteral("provider"), provider},
+                          {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()},
+                      }}});
+        notify(QStringLiteral("Removed %1 from your library").arg(track.value(QStringLiteral("title")).toString()));
+        return;
+    }
+
+    saveTrack(track);
+}
 
 void Backend::playCatalogCollection()
 {
@@ -3513,21 +3538,77 @@ void Backend::setOnboardingCompleted(bool completed)
     emit onboardingCompletedChanged();
 }
 
-void Backend::setDiscordPartyInvitesEnabled(bool enabled)
-{
-    if (m_discordPartyInvitesEnabled == enabled) return;
-    m_discordPartyInvitesEnabled = enabled;
-    QSettings().setValue(QStringLiteral("discord/partyInvitesEnabled"), enabled);
-    m_discordPresence.setPartyInvitesEnabled(enabled);
-    emit discordPartyInvitesEnabledChanged();
-}
-
 void Backend::setPartyDiagnosticsEnabled(bool enabled)
 {
     if (m_partyDiagnosticsEnabled == enabled) return;
     m_partyDiagnosticsEnabled = enabled;
     QSettings().setValue(QStringLiteral("debug/partyDiagnostics"), enabled);
     emit partyDiagnosticsEnabledChanged();
+}
+
+void Backend::setDiscordPresenceEnabled(bool enabled)
+{
+    if (m_discordPresenceEnabled == enabled) return;
+    m_discordPresenceEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/presenceEnabled"), enabled);
+    updateDiscordPresence();
+    emit discordSettingsChanged();
+}
+
+void Backend::setDiscordTrackButtonEnabled(bool enabled)
+{
+    if (m_discordTrackButtonEnabled == enabled) return;
+    m_discordTrackButtonEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/trackButtonEnabled"), enabled);
+    m_discordPresence.setTrackButtonEnabled(enabled);
+    m_discordSocial.setTrackButtonEnabled(enabled);
+    emit discordSettingsChanged();
+}
+
+void Backend::setDiscordPartyButtonEnabled(bool enabled)
+{
+    if (m_discordPartyButtonEnabled == enabled) return;
+    m_discordPartyButtonEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/partyButtonEnabled"), enabled);
+    updateDiscordPresence();
+    emit discordSettingsChanged();
+}
+
+void Backend::setDiscordAskToJoinEnabled(bool enabled)
+{
+    if (m_discordAskToJoinEnabled == enabled) return;
+    m_discordAskToJoinEnabled = enabled;
+    QSettings().setValue(QStringLiteral("discord/askToJoinEnabled"), enabled);
+    m_discordSocial.setAskToJoinEnabled(enabled);
+    updateDiscordPresence();
+    emit discordSettingsChanged();
+}
+
+void Backend::respondToDiscordJoinRequest(const QString &userId, bool approved)
+{
+    for (int index = 0; index < m_discordJoinRequests.size(); ++index) {
+        if (m_discordJoinRequests.at(index).toMap().value(QStringLiteral("id")).toString() != userId) continue;
+        m_discordJoinRequests.removeAt(index);
+        emit discordJoinRequestsChanged();
+        m_discordSocial.respondToJoinRequest(userId, approved);
+        return;
+    }
+}
+
+void Backend::setDiscordPartyState(bool active, const QString &partyId, int partySize,
+                                   const QString &joinPartyUrl, const QString &joinSecret)
+{
+    const bool partyChanged = !active || partyId.trimmed() != m_discordPartyId;
+    m_discordPartyActive = active;
+    m_discordPartyId = active ? partyId.trimmed() : QString{};
+    m_discordPartySize = active ? std::clamp(partySize, 0, 64) : 0;
+    m_discordJoinPartyUrl = active && m_discordPartyButtonEnabled ? joinPartyUrl : QString{};
+    m_discordJoinSecret = active && m_discordAskToJoinEnabled ? joinSecret : QString{};
+    if (partyChanged && !m_discordJoinRequests.isEmpty()) {
+        m_discordJoinRequests.clear();
+        emit discordJoinRequestsChanged();
+    }
+    updateDiscordPresence();
 }
 
 void Backend::openDownloadsFolder()
@@ -4196,8 +4277,6 @@ void Backend::requestRelated(bool continueWhenReady)
     if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
     request(QStringLiteral("related"), {{QStringLiteral("provider"), seedProvider},
                                          {QStringLiteral("trackId"), seedTrackId},
-                                         {QStringLiteral("isrc"), seed.value(QStringLiteral("isrc")).toString()},
-                                         {QStringLiteral("recommendationMode"), m_recommendationMode},
                                          {QStringLiteral("limit"), seedProvider == QStringLiteral("youtube") ? 50 : 20}},
             [this, seedEntryId, generation, seedProvider, seedTrackId](const QJsonObject &message) {
         if (generation != m_relatedGeneration) return;
@@ -4351,22 +4430,6 @@ void Backend::setAutoplayEnabled(bool enabled)
     if (enabled) prepareNextSource();
 }
 
-void Backend::setRecommendationMode(const QString &mode)
-{
-    if (mode != QStringLiteral("tidal") && mode != QStringLiteral("spotify")
-        && mode != QStringLiteral("fallback")) return;
-    if (m_recommendationMode == mode) return;
-    m_recommendationMode = mode;
-    QSettings().setValue(QStringLiteral("playback/recommendationMode"), mode);
-    clearCatalogCache(QStringLiteral("tidal"));
-    ++m_relatedGeneration;
-    m_relatedPending = false;
-    m_relatedContinueWhenReady = false;
-    m_relatedSeedEntryId = -1;
-    emit recommendationModeChanged();
-    if (m_autoplayEnabled) prepareNextSource();
-}
-
 void Backend::setStreamQuality(const QString &quality)
 {
     if (quality != QStringLiteral("best") && quality != QStringLiteral("lossless")
@@ -4498,40 +4561,95 @@ void Backend::setTextScale(double scale)
     emit appearanceChanged();
 }
 
+QString Backend::discordTrackUrl(const QVariantMap &track)
+{
+    const auto validUrl = [](const QString &value) {
+        const QUrl url(value.trimmed());
+        if (!url.isValid() || url.host().isEmpty()
+            || (url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
+                && url.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) != 0))
+            return QString{};
+        return url.toString(QUrl::FullyEncoded);
+    };
+    const auto existing = validUrl(track.value(QStringLiteral("webpageUrl")).toString());
+    if (!existing.isEmpty()) return existing;
+
+    const auto provider = track.value(QStringLiteral("provider"), QStringLiteral("tidal"))
+                              .toString().trimmed().toLower();
+    const auto id = track.value(QStringLiteral("id")).toString().trimmed();
+    if (id.isEmpty() || provider == QStringLiteral("soundcloud")) return {};
+    const auto encodedId = QString::fromLatin1(QUrl::toPercentEncoding(id));
+    if (provider == QStringLiteral("youtube"))
+        return QStringLiteral("https://music.youtube.com/watch?v=%1").arg(encodedId);
+    if (provider == QStringLiteral("tidal"))
+        return QStringLiteral("https://tidal.com/browse/track/%1").arg(encodedId);
+    return {};
+}
+
 void Backend::updateDiscordPresence()
 {
     const auto track = currentTrack();
+    // Native parties must remain connected on a recipient too: Discord sends
+    // the accepted-invite join secret through the Social SDK callback, not
+    // through the legacy RPC transport. This has no visual effect unless the
+    // user is actively hosting a party.
+    const bool nativeIntegrationEnabled = m_discordAskToJoinEnabled;
+    const bool nativePartyRequested = m_discordPresenceEnabled && m_discordPartyActive
+        && nativeIntegrationEnabled;
+    // Keep normal Listening visible while Social SDK OAuth/Connect is still
+    // running. Once it is ready, its party payload takes ownership.
+    m_discordSocial.setEnabled(nativeIntegrationEnabled);
+    const bool useSocialParty = nativePartyRequested && m_discordSocial.ready();
+    m_discordPresence.setEnabled(m_discordPresenceEnabled && !useSocialParty);
     if (track.isEmpty() || m_playback.state() == LinuxPlayback::State::Stopped) {
-        if (m_discordPresence.partyJoinEnabled()) {
-            m_discordPresence.update(QStringLiteral("Listening together"),
-                                     QStringLiteral("Colorful party"), {}, {}, 0, 0, false);
-            return;
-        }
+        m_discordSocial.clear();
         m_discordPresence.clear();
         return;
     }
-    m_discordPresence.update(
-        track.value(QStringLiteral("title")).toString(),
-        track.value(QStringLiteral("artistText")).toString(),
-        track.value(QStringLiteral("albumTitle")).toString(),
-        m_lowDataMode ? QString()
-                      : track.value(QStringLiteral("coverRemoteUrl"),
-                                    track.value(QStringLiteral("coverUrl"))).toString(),
-        m_playback.position(),
-        duration(),
-        playing());
-}
+    if (nativePartyRequested) {
+        // update() only stores the payload until the Social client is Ready.
+        // That avoids sending a partial unauthenticated activity to Discord.
+        m_discordSocial.update(
+            track.value(QStringLiteral("title")).toString(),
+            track.value(QStringLiteral("artistText")).toString(),
+            track.value(QStringLiteral("albumTitle")).toString(),
+            m_lowDataMode ? QString()
+                          : track.value(QStringLiteral("coverRemoteUrl"),
+                                        track.value(QStringLiteral("coverUrl"))).toString(),
+            m_playback.position(),
+            duration(),
+            playing(),
+            discordTrackUrl(track),
+            m_discordPartyId,
+            m_discordPartySize,
+            m_discordJoinPartyUrl,
+            m_discordJoinSecret);
+        if (useSocialParty) {
+            m_discordPresence.clear();
+            return;
+        }
+    } else {
+        m_discordSocial.clear();
+    }
 
-void Backend::updateDiscordParty(const QString &partyId, int currentSize, int maximumSize,
-                                 const QString &joinSecret, bool joinEnabled)
-{
-    m_discordPresence.setParty(partyId, currentSize, maximumSize, joinSecret, joinEnabled);
-    updateDiscordPresence();
-}
-
-void Backend::respondToDiscordJoinRequest(const QString &userId, bool accepted)
-{
-    m_discordPresence.respondToJoinRequest(userId, accepted);
+    // Either native parties were not requested, or Social SDK is still
+    // connecting: publish the normal Listening payload as the fallback.
+    if (!useSocialParty) {
+        m_discordPresence.update(
+            track.value(QStringLiteral("title")).toString(),
+            track.value(QStringLiteral("artistText")).toString(),
+            track.value(QStringLiteral("albumTitle")).toString(),
+            m_lowDataMode ? QString()
+                          : track.value(QStringLiteral("coverRemoteUrl"),
+                                        track.value(QStringLiteral("coverUrl"))).toString(),
+            m_playback.position(),
+            duration(),
+            playing(),
+            discordTrackUrl(track),
+            m_discordPartyActive ? m_discordPartyId : QString{},
+            m_discordPartyActive ? m_discordPartySize : 0,
+            m_discordPartyActive ? m_discordJoinPartyUrl : QString{});
+    }
 }
 
 QString Backend::trackKey(const QVariantMap &track) const

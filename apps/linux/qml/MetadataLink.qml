@@ -20,6 +20,7 @@ Text {
         width: Math.min(root.width, root.paintedWidth)
         height: root.height
         enabled: root.linkEnabled
+        acceptedButtons: Qt.LeftButton
         hoverEnabled: true
         cursorShape: root.linkEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: root.activated()

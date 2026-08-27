@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QNetworkAccessManager>
+#include <QJsonObject>
 #include <QObject>
 #include <QPointer>
 #include <QUrl>
@@ -19,6 +20,7 @@ class UpdateManager final : public QObject
     Q_PROPERTY(double progress READ progress NOTIFY changed)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY changed)
     Q_PROPERTY(bool canInstall READ canInstall NOTIFY changed)
+    Q_PROPERTY(QString channel READ channel WRITE setChannel NOTIFY changed)
 
 public:
     explicit UpdateManager(QObject *parent = nullptr);
@@ -30,8 +32,10 @@ public:
     double progress() const { return m_progress; }
     bool updateAvailable() const { return m_state == QStringLiteral("available"); }
     bool canInstall() const;
+    QString channel() const { return m_channel; }
 
     Q_INVOKABLE void checkForUpdates(bool force = false);
+    Q_INVOKABLE void setChannel(const QString &channel);
     Q_INVOKABLE void dismiss();
     Q_INVOKABLE void startUpdate();
     Q_INVOKABLE void openReleasePage();
@@ -42,8 +46,18 @@ signals:
 
 private:
     friend class UpdateManagerTest;
+    // Pure release parsing/comparison seams used by the updater contract
+    // tests. They do not perform network or filesystem I/O.
+    static QVariantMap parseReleaseForTest(const QJsonObject &object, const QString &channel);
+    static bool candidateAvailableForTest(const QVariantMap &candidate,
+                                          const QString &currentChannel,
+                                          const QString &currentBaseVersion,
+                                          qint64 currentBuild);
+    static QString selectAssetNameForTest(const QJsonObject &release, const QString &channel,
+                                          const QString &wantedSuffix);
     void setState(const QString &state, const QString &status = {});
-    void handleReleaseResponse(QNetworkReply *reply, bool force);
+    void handleReleaseResponse(QNetworkReply *reply, bool force, const QString &channel,
+                               quint64 generation);
     void beginDownload(const QUrl &url, const QString &name, const QString &digest,
                        qint64 expectedSize);
     void startDownloadAttempt();
@@ -51,6 +65,8 @@ private:
     void finishDownload(QNetworkReply *reply);
     bool launchInstaller(const QString &path);
     QString downloadDestination(const QString &name) const;
+    static QString lastCheckKey(const QString &channel);
+    static QString dismissedKey(const QString &channel);
 
     QNetworkAccessManager m_network;
     QPointer<QNetworkReply> m_reply;
@@ -67,4 +83,7 @@ private:
     bool m_allowLaunch = true;
     bool m_openDownloadedLocation = true;
     double m_progress = 0;
+    QString m_channel = QStringLiteral("stable");
+    bool m_forcedCheckPending = false;
+    quint64 m_checkGeneration = 0;
 };

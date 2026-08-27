@@ -7,7 +7,9 @@ ApplicationWindow {
     width: 1240
     height: 780
     minimumWidth: 920
-    minimumHeight: 620
+    // Keep the fixed title/search/player chrome from crowding the page content
+    // when the frameless window is resized down.
+    minimumHeight: 700
     visible: true
     title: colorful.buildInfo.channel === "dev" ? "colorful · DEV" : "colorful"
     color: "#101012"
@@ -40,6 +42,7 @@ ApplicationWindow {
         if (typeof cursor === "string") return cursor.length > 0
         return cursor && Object.keys(cursor).length > 0
     })
+    property var miniPlayerContextMenuObject: null
     onCurrentSectionChanged: {
         if (currentSection === "search")
             Qt.callLater(function() { resultsList.positionViewAtBeginning() })
@@ -81,6 +84,77 @@ ApplicationWindow {
         if (!milliseconds || milliseconds < 0) return "0:00"
         const seconds = Math.floor(milliseconds / 1000)
         return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0")
+    }
+
+    component MiniPlayerMenuItem: MenuItem {
+        implicitWidth: 176
+        implicitHeight: visible ? 28 : 0
+        height: visible ? 28 : 0
+        padding: 0
+        leftPadding: 9
+        rightPadding: 9
+
+        contentItem: Text {
+            text: parent.text
+            color: parent.enabled ? "#eeeeef" : Qt.rgba(1, 1, 1, 0.32)
+            font.pixelSize: Math.round(12 * colorful.textScale)
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            color: parent.highlighted
+                   ? Qt.rgba(colorful.accent.r, colorful.accent.g, colorful.accent.b, 0.22)
+                   : "transparent"
+        }
+    }
+
+    component MiniPlayerMenuSeparator: MenuSeparator {
+        implicitWidth: 176
+        implicitHeight: 7
+        padding: 3
+        contentItem: Rectangle {
+            implicitHeight: 1
+            color: Qt.rgba(1, 1, 1, 0.12)
+        }
+    }
+
+    Component {
+        id: miniPlayerContextMenuComponent
+        Menu {
+            implicitWidth: 184
+            padding: 4
+            margins: 0
+
+            background: Rectangle {
+                color: "#0d0d0f"
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.2)
+            }
+
+            MiniPlayerMenuItem { text: "Play"; onTriggered: colorful.playCatalogTrack(window.now) }
+            MiniPlayerMenuItem { text: "Play next"; onTriggered: colorful.playNextCatalogTrack(window.now) }
+            MiniPlayerMenuItem { text: "Start radio"; onTriggered: colorful.startRadio(window.now) }
+            MiniPlayerMenuSeparator {}
+            MiniPlayerMenuItem { text: "Add to queue"; onTriggered: colorful.enqueueCatalogTrack(window.now) }
+            MiniPlayerMenuItem {
+                visible: party.active && party.role === "co_host"
+                text: "Add to party queue"
+                onTriggered: party.enqueueTrack(window.now)
+            }
+            MiniPlayerMenuItem {
+                text: colorful.currentTrackSaved ? "Unsave track" : "Save track"
+                onTriggered: colorful.toggleCurrentTrackSaved()
+            }
+            MiniPlayerMenuItem { text: "Add to playlist…"; onTriggered: colorful.showPlaylistPicker(window.now) }
+            MiniPlayerMenuItem {
+                visible: ["tidal", "youtube", "soundcloud"].includes(window.now.provider || "tidal")
+                text: "Download"
+                onTriggered: colorful.downloadTrack(window.now)
+            }
+            MiniPlayerMenuSeparator {}
+            MiniPlayerMenuItem { text: "Open details"; onTriggered: window.openTrackItem(window.now) }
+            MiniPlayerMenuItem { text: "Copy song link"; onTriggered: colorful.copySongLink(window.now) }
+        }
     }
 
     function searchProviderRank(provider) {
@@ -565,8 +639,9 @@ ApplicationWindow {
                     IconButton {
                         Layout.alignment: Qt.AlignHCenter
                         iconSource: "icons/user.svg"
-                        selected: window.partyOpen || party.active
-                        tooltipText: party.active ? "Active listening party" : "Listen together"
+                        selected: window.partyOpen
+                        activeIndicator: party.active
+                        tooltipText: party.active ? "Listening party active" : "Listen together"
                         onClicked: {
                             window.partyOpen = !window.partyOpen
                             if (window.partyOpen) {
@@ -1140,6 +1215,7 @@ ApplicationWindow {
                         playbackPosition: colorful.position
                         onCloseRequested: window.lyricsOpen = false
                         onRefreshRequested: colorful.loadLyrics(true)
+                        onSeekRequested: colorful.seek(positionMs)
                     }
 
                     PartySidePanel {
@@ -1173,6 +1249,16 @@ ApplicationWindow {
                     Layout.minimumWidth: 200
                     Layout.fillHeight: true
 
+                    TapHandler {
+                        acceptedButtons: Boolean(window.now.id) ? Qt.RightButton : Qt.NoButton
+                        onTapped: {
+                            if (!window.miniPlayerContextMenuObject)
+                                window.miniPlayerContextMenuObject = miniPlayerContextMenuComponent.createObject(window)
+                            if (window.miniPlayerContextMenuObject)
+                                window.miniPlayerContextMenuObject.popup()
+                        }
+                    }
+
                     RowLayout {
                         anchors.fill: parent
                         spacing: 10
@@ -1201,6 +1287,7 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 enabled: Boolean(window.now.id)
+                                acceptedButtons: Qt.LeftButton
                                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                 onClicked: window.openTrackItem(window.now)
                             }
@@ -1314,8 +1401,9 @@ ApplicationWindow {
                             implicitHeight: 32
                             visible: Boolean(window.now.id)
                             iconSource: "icons/library.svg"
-                            tooltipText: "Add to playlist"
-                            onClicked: colorful.showPlaylistPicker(window.now)
+                            selected: colorful.currentTrackSaved
+                            tooltipText: selected ? "Unsave track" : "Save track"
+                            onClicked: colorful.toggleCurrentTrackSaved()
                         }
                     }
                 }
@@ -1779,7 +1867,8 @@ ApplicationWindow {
             spacing: 12
 
             Text {
-                text: "colorful " + ((updater.release || {}).version || "") + " is available"
+                text: (updater.release && updater.release.downgrade ? "Return to Stable: " : "colorful ")
+                      + ((updater.release || {}).version || "") + " is available"
                 color: window.ink
                 font.weight: Font.Bold
                 font.pixelSize: Math.round(22 * colorful.textScale)
@@ -1853,7 +1942,8 @@ ApplicationWindow {
                     }
                 }
                 ColorButton {
-                    text: updater.canInstall ? "Install update"
+                    text: (updater.release || {}).downgrade ? "Return to Stable"
+                                            : updater.canInstall ? "Install update"
                                             : ((updater.release || {}).assetName ? "Download update"
                                                                                : "Open release")
                     enabled: updater.state === "available"

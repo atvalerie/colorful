@@ -4,42 +4,59 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 tools_dir="${COLORFUL_LINUXDEPLOY_DIR:-$repo_dir/.cache/linuxdeploy}"
+manifest="$repo_dir/packaging/desktop-dependencies.json"
 mkdir -p "$tools_dir"
 
+pin() {
+  python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); [value := value[key] for key in sys.argv[2].split(".")]; print(value)' \
+    "$manifest" "$1"
+}
+
 download() {
-  local url="$1" destination="$2"
+  local url="$1" destination="$2" expected="$3"
   local temporary="$destination.part"
+  if [[ -f "$destination" ]] \
+      && [[ "$(sha256sum "$destination" | awk '{print $1}')" == "$expected" ]]; then
+    chmod +x "$destination"
+    return
+  fi
   curl --fail --location --retry 3 --output "$temporary" "$url"
+  local actual
+  actual="$(sha256sum "$temporary" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || {
+    rm -f -- "$temporary"
+    echo "Checksum mismatch for $(basename "$destination"): expected $expected, got $actual" >&2
+    exit 1
+  }
   chmod +x "$temporary"
   mv -f -- "$temporary" "$destination"
 }
 
 download \
-  "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
-  "$tools_dir/linuxdeploy-x86_64.AppImage"
+  "$(pin linux.linuxdeploy.url)" \
+  "$tools_dir/linuxdeploy-x86_64.AppImage" \
+  "$(pin linux.linuxdeploy.sha256)"
 download \
-  "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-qt-x86_64.AppImage" \
-  "$tools_dir/linuxdeploy-plugin-qt"
+  "$(pin linux.linuxdeployQt.url)" \
+  "$tools_dir/linuxdeploy-plugin-qt" \
+  "$(pin linux.linuxdeployQt.sha256)"
 download \
-  "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
-  "$tools_dir/appimagetool-x86_64.AppImage"
+  "$(pin linux.appimagetool.url)" \
+  "$tools_dir/appimagetool-x86_64.AppImage" \
+  "$(pin linux.appimagetool.sha256)"
 download \
-  "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64" \
-  "$tools_dir/runtime-x86_64"
+  "$(pin linux.appimageRuntime.url)" \
+  "$tools_dir/runtime-x86_64" \
+  "$(pin linux.appimageRuntime.sha256)"
 
-ffmpeg_name="ffmpeg-master-latest-linux64-gpl.tar.xz"
+ffmpeg_name="$(pin linux.ffmpeg.asset)"
+# Keep the shared CI cache from compressing obsolete media archives forever.
+find "$tools_dir" -maxdepth 1 -type f -name 'ffmpeg-*.tar.xz' ! -name "$ffmpeg_name" -delete
+rm -f -- "$tools_dir/ffmpeg-checksums.sha256"
 download \
-  "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$ffmpeg_name" \
-  "$tools_dir/$ffmpeg_name"
-curl --fail --location --retry 3 --output "$tools_dir/ffmpeg-checksums.sha256" \
-  "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/checksums.sha256"
-expected="$({ grep -E "[ *]$ffmpeg_name$" "$tools_dir/ffmpeg-checksums.sha256" || true; } | awk '{print $1}' | head -1)"
-[[ -n "$expected" ]] || { echo "$ffmpeg_name is missing from checksums.sha256" >&2; exit 1; }
-actual="$(sha256sum "$tools_dir/$ffmpeg_name" | awk '{print $1}')"
-[[ "$actual" == "$expected" ]] || {
-  echo "FFmpeg checksum mismatch: expected $expected, got $actual" >&2
-  exit 1
-}
+  "$(pin linux.ffmpeg.url)" \
+  "$tools_dir/$ffmpeg_name" \
+  "$(pin linux.ffmpeg.sha256)"
 ffmpeg_stage="$tools_dir/ffmpeg"
 rm -rf -- "$ffmpeg_stage"
 mkdir -p "$ffmpeg_stage"

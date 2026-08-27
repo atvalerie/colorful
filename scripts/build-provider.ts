@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { cp, mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const outfileArgument = process.argv[2]?.trim();
@@ -32,6 +33,11 @@ if (!result.success) {
   for (const message of result.logs) console.error(message);
   process.exit(1);
 }
+
+const dictionarySource = resolve(repoRoot, "packages/provider-host/node_modules/kuromoji/dict");
+const dictionaryDestination = resolve(dirname(outfile), "colorful-provider-data/kuromoji");
+await mkdir(dictionaryDestination, { recursive: true });
+await cp(dictionarySource, dictionaryDestination, { recursive: true, force: true });
 
 const smoke = Bun.spawn([outfile], {
   stdin: new Blob(['{"id":1,"type":"status","payload":{}}\n']),

@@ -10,6 +10,8 @@
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
+#include <QVector>
+#include <QUrl>
 #include <cmath>
 
 class Backend;
@@ -72,6 +74,7 @@ public:
     Q_INVOKABLE void createParty(const QString &displayName, const QString &relayBaseUrl);
     Q_INVOKABLE void joinParty(const QString &link, const QString &displayName,
                                const QString &relayBaseUrl);
+    Q_INVOKABLE void handleDiscordJoinSecret(const QString &secret);
     Q_INVOKABLE bool handlePartyLink(const QString &link);
     Q_INVOKABLE void suggestTrack(const QVariantMap &track);
     Q_INVOKABLE void enqueueTrack(const QVariantMap &track);
@@ -113,6 +116,19 @@ private:
     static QJsonObject partyTrack(const QVariantMap &track);
     static QVariantMap backendTrack(const QJsonObject &track);
     void setStatus(const QString &status);
+    void refreshPublicJoinTicket();
+    void revokePublicJoinHandle(const QString &sessionId, const QString &handleLookup,
+                                const QString &relayBaseUrl = {},
+                                const QString &hostCapability = {});
+    void publishDiscordPartyState();
+    void mintPublicJoinTicket(const QString &ticket, const QString &displayName,
+                              quint64 requestGeneration);
+    void redeemPublicJoinTicket(const QString &ticket, const QString &displayName,
+                                quint64 requestGeneration);
+    void joinPartyWithFragment(const QString &session, const QString &fragment,
+                               const QString &displayName);
+    static QString publicJoinTicketFromUrl(const QUrl &url);
+    static QString publicJoinSecretUrl(const QString &secret);
 
     Backend *m_backend = nullptr;
     PartyCoreBridge m_core;
@@ -121,10 +137,16 @@ private:
     QTimer m_hostClock;
     QTimer m_clockSampler;
     QTimer m_driftController;
+    QTimer m_publicHandleRetryTimer;
     QElapsedTimer m_monotonicClock;
     QList<QByteArray> m_pendingFrames;
     qsizetype m_pendingFrameBytes = 0;
     QString m_relayBaseUrl;
+    QString m_relaySessionId;
+    QString m_relayHostCapability;
+    QString m_inviteFragment;
+    QString m_publicJoinTicket;
+    QString m_publicJoinTicketLookup;
     QString m_role;
     QString m_status = QStringLiteral("No active party");
     QString m_shareUrl;
@@ -137,10 +159,16 @@ private:
     QJsonObject m_lastPlayback;
     QHash<QString, QString> m_entryByTrackKey;
     QStringList m_partyEntryIds;
+    // Index in the local queue for each wire entry.  Party entries are
+    // deliberately fresh on every queue replacement, while local queue
+    // entries remain the only reliable identity when the same track appears
+    // more than once (or a malformed item has no provider id).
+    QVector<int> m_partyBackendIndexes;
     QByteArray m_lastQueueSignature;
     QHash<quint64, qint64> m_clockRequests;
     qint64 m_clockEpochMs = 0;
     qint64 m_expiresAtMs = 0;
+    qint64 m_publicJoinTicketExpiresAtMs = 0;
     qint64 m_lastHardSeekMs = 0;
     qint64 m_lastDriftMs = 0;
     qint64 m_lastRateChangeMs = 0;
@@ -161,5 +189,9 @@ private:
     bool m_applyingRemote = false;
     bool m_everConnected = false;
     bool m_needsResync = false;
+    bool m_resyncPending = false;
     bool m_creatingParty = false;
+    bool m_publicTicketRequestInFlight = false;
+    bool m_joinTicketRedemptionInFlight = false;
+    quint64 m_ticketGeneration = 0;
 };
