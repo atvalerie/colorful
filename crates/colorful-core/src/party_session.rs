@@ -762,7 +762,11 @@ impl PartyHost {
         verify_join(request, &self.party_id)
     }
 
-    pub fn reject_join(&mut self, participant_id: &str, reason: String) -> Result<PartyEvent, PartyError> {
+    pub fn reject_join(
+        &mut self,
+        participant_id: &str,
+        reason: String,
+    ) -> Result<PartyEvent, PartyError> {
         self.sign_event(PartyEventBody::JoinRequestRejected {
             participant_id: participant_id.to_owned(),
             reason,
@@ -1085,8 +1089,10 @@ impl PartyReplica {
                     .ok_or(PartyError::UnknownParticipant)?
                     .role = *role
             }
-                PartyEventBody::JoinPolicyChanged { enabled } => self.join_enabled = *enabled,
-            PartyEventBody::JoinApprovalPolicyChanged { required } => self.approval_required = *required,
+            PartyEventBody::JoinPolicyChanged { enabled } => self.join_enabled = *enabled,
+            PartyEventBody::JoinApprovalPolicyChanged { required } => {
+                self.approval_required = *required
+            }
             PartyEventBody::JoinRequestRejected { .. } => {}
             PartyEventBody::TrackQueued {
                 entry_id,
@@ -1107,11 +1113,11 @@ impl PartyReplica {
                     })
                     .collect()
             }
-                PartyEventBody::StateSnapshot {
-                    participants,
-                    join_enabled,
-                    approval_required,
-                    entries,
+            PartyEventBody::StateSnapshot {
+                participants,
+                join_enabled,
+                approval_required,
+                entries,
                 playback,
             } => {
                 self.participants = participants
