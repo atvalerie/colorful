@@ -247,7 +247,8 @@ ItemDelegate {
             }
             Text {
                 Layout.fillWidth: true
-                text: root.track.artistText || "Unknown artist"
+                text: (root.track.artistText || "Unknown artist")
+                      + ((root.track.provider === "spotify" && !root.track.playbackTrack) ? "  ·  No TIDAL match" : "")
                 color: Qt.rgba(1, 1, 1, 0.48)
                 elide: Text.ElideRight
                 font.pixelSize: Math.round(11 * colorful.textScale)
@@ -260,6 +261,7 @@ ItemDelegate {
             Layout.alignment: Qt.AlignVCenter
             iconSource: (root.track.provider || "tidal") === "youtube" ? "icons/youtube.svg"
                         : root.track.provider === "soundcloud" ? "icons/soundcloud.svg"
+                        : root.track.provider === "spotify" ? "icons/music.svg"
                         : "icons/tidal.svg"
             opacity: 0.48
         }

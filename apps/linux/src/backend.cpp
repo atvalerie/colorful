@@ -1058,6 +1058,16 @@ void Backend::refreshPortableSettings()
 
 QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
 {
+    // Spotify is a catalog/recommendation provider only. Catalog responses
+    // may carry the matched TIDAL track as playbackTrack; unwrap it before
+    // handing the queue to the native playback core so Spotify IDs never get
+    // sent to a provider source that cannot stream them.
+    if (track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()
+            == QStringLiteral("spotify")) {
+        const auto playbackTrack = track.value(QStringLiteral("playbackTrack")).toMap();
+        if (!playbackTrack.isEmpty()) return variantTrackToCore(playbackTrack);
+        return {};
+    }
     QJsonArray artists;
     const auto artistCredits = track.value(QStringLiteral("artistCredits")).toList();
     if (!artistCredits.isEmpty()) {
@@ -1397,9 +1407,10 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         appendUnique(m_searchResults, data.value(QStringLiteral("tracks")).toArray(), jsonTrackToVariant);
         appendUnique(m_searchAlbums, data.value(QStringLiteral("albums")).toArray(), jsonAlbumToVariant);
         appendUnique(m_searchArtists, data.value(QStringLiteral("artists")).toArray(), jsonArtistToVariant);
+        appendUnique(m_searchPlaylists, data.value(QStringLiteral("playlists")).toArray(), jsonPlaylistToVariant);
         m_searchCursors.insert(provider, data.value(QStringLiteral("cursor")).toVariant());
         emit searchResultsChanged();
-        const auto total = m_searchResults.size() + m_searchAlbums.size() + m_searchArtists.size();
+        const auto total = m_searchResults.size() + m_searchAlbums.size() + m_searchArtists.size() + m_searchPlaylists.size();
         setStatus(QStringLiteral("Found %1 results — still searching…").arg(total));
     } else if (event == QStringLiteral("auth.restored") || event == QStringLiteral("auth.completed")) {
         setLinked(true);
@@ -1474,6 +1485,12 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
                || event == QStringLiteral("spotify.auth.completed")) {
         const auto completed = event.endsWith(QStringLiteral("completed"));
         m_spotifyLinked = true;
+        if (completed) {
+            m_spotifyHub.clear();
+            m_spotifyHubLoading = false;
+            m_spotifyMoreLoading = false;
+            clearCatalogCache(QStringLiteral("spotify"));
+        }
         m_spotifyAccount = message.value(QStringLiteral("data")).toObject()
                                .value(QStringLiteral("account")).toObject().toVariantMap();
         if (m_authProvider == QStringLiteral("spotify")) {
@@ -1482,11 +1499,12 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
         }
         emit spotifyAccountChanged();
         setStatus(completed
-                      ? QStringLiteral("Spotify recommendations connected")
-                      : QStringLiteral("Spotify recommendation account restored"));
+                      ? QStringLiteral("Spotify catalog and recommendations connected")
+                      : QStringLiteral("Spotify catalog account restored securely"));
         if (completed) {
-            emit toastRequested(QStringLiteral("Spotify recommendations connected"),
+            emit toastRequested(QStringLiteral("Spotify catalog connected"),
                                 QStringLiteral("success"));
+            loadSpotifyHub(true);
         }
     } else if (event == QStringLiteral("spotify.auth.failed")) {
         if (m_authProvider == QStringLiteral("spotify")) {
@@ -1686,8 +1704,126 @@ void Backend::unlinkSpotify()
         }
         m_spotifyLinked = false;
         m_spotifyAccount.clear();
+        m_spotifyHub.clear();
+        m_spotifyHubLoading = false;
+        m_spotifyMoreLoading = false;
+        clearCatalogCache(QStringLiteral("spotify"));
         emit spotifyAccountChanged();
-        notify(QStringLiteral("Spotify recommendation account disconnected"));
+        emit spotifyHubChanged();
+        notify(QStringLiteral("Spotify catalog and recommendation account disconnected"));
+    });
+}
+
+void Backend::loadSpotifyHub(bool refresh)
+{
+    if (!m_spotifyLinked || m_spotifyHubLoading) return;
+    if (!refresh && m_spotifyHub.value(QStringLiteral("loadAttempted")).toBool()) return;
+    const auto account = m_spotifyAccount;
+    m_spotifyHub.clear();
+    if (!account.isEmpty()) m_spotifyHub.insert(QStringLiteral("account"), account);
+    m_spotifyHub.insert(QStringLiteral("loadAttempted"), true);
+    m_spotifyHubLoading = true;
+    emit spotifyHubChanged();
+    request(QStringLiteral("spotify.collection"), {}, [this](const QJsonObject &message) {
+        m_spotifyHubLoading = false;
+        if (!m_spotifyLinked) {
+            emit spotifyHubChanged();
+            return;
+        }
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            emit spotifyHubChanged();
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        const auto tracksFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject();
+                object.insert(QStringLiteral("provider"), QStringLiteral("spotify"));
+                result.append(jsonTrackToVariant(object));
+            }
+            return result;
+        };
+        const auto albumsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject();
+                object.insert(QStringLiteral("provider"), QStringLiteral("spotify"));
+                result.append(jsonAlbumToVariant(object));
+            }
+            return result;
+        };
+        const auto artistsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject();
+                object.insert(QStringLiteral("provider"), QStringLiteral("spotify"));
+                result.append(jsonArtistToVariant(object));
+            }
+            return result;
+        };
+        const auto playlistsFrom = [](const QJsonArray &array) {
+            QVariantList result;
+            for (const auto &value : array) {
+                auto object = value.toObject();
+                object.insert(QStringLiteral("provider"), QStringLiteral("spotify"));
+                result.append(jsonPlaylistToVariant(object));
+            }
+            return result;
+        };
+        m_spotifyHub.insert(QStringLiteral("tracks"), tracksFrom(data.value(QStringLiteral("tracks")).toArray()));
+        m_spotifyHub.insert(QStringLiteral("albums"), albumsFrom(data.value(QStringLiteral("albums")).toArray()));
+        m_spotifyHub.insert(QStringLiteral("artists"), artistsFrom(data.value(QStringLiteral("artists")).toArray()));
+        m_spotifyHub.insert(QStringLiteral("playlists"), playlistsFrom(data.value(QStringLiteral("playlists")).toArray()));
+        m_spotifyHub.insert(QStringLiteral("mixes"), playlistsFrom(data.value(QStringLiteral("mixes")).toArray()));
+        m_spotifyHub.insert(QStringLiteral("cursors"), data.value(QStringLiteral("cursors")).toObject().toVariantMap());
+        setStatus(QStringLiteral("Spotify catalog and library are ready"));
+        emit spotifyHubChanged();
+    });
+}
+
+void Backend::loadMoreSpotify(const QString &section)
+{
+    if (m_spotifyMoreLoading || !m_spotifyLinked) return;
+    const auto cursors = m_spotifyHub.value(QStringLiteral("cursors")).toMap();
+    const auto cursor = cursors.value(section).toString();
+    if (cursor.isEmpty()) return;
+    m_spotifyMoreLoading = true;
+    emit spotifyHubChanged();
+    request(QStringLiteral("spotify.collection.more"), {
+        {QStringLiteral("section"), section}, {QStringLiteral("cursor"), cursor},
+    }, [this, section](const QJsonObject &message) {
+        m_spotifyMoreLoading = false;
+        if (!m_spotifyLinked) {
+            emit spotifyHubChanged();
+            return;
+        }
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            emit spotifyHubChanged();
+            return;
+        }
+        const auto data = message.value(QStringLiteral("data")).toObject();
+        auto items = m_spotifyHub.value(section).toList();
+        QSet<QString> ids;
+        for (const auto &entry : items) ids.insert(entry.toMap().value(QStringLiteral("id")).toString());
+        for (const auto &value : data.value(QStringLiteral("items")).toArray()) {
+            auto object = value.toObject();
+            object.insert(QStringLiteral("provider"), QStringLiteral("spotify"));
+            QVariantMap mapped;
+            if (section == QStringLiteral("tracks")) mapped = jsonTrackToVariant(object);
+            else if (section == QStringLiteral("albums")) mapped = jsonAlbumToVariant(object);
+            else if (section == QStringLiteral("artists")) mapped = jsonArtistToVariant(object);
+            else mapped = jsonPlaylistToVariant(object);
+            const auto id = mapped.value(QStringLiteral("id")).toString();
+            if (!id.isEmpty() && !ids.contains(id)) { ids.insert(id); items.append(mapped); }
+        }
+        m_spotifyHub.insert(section, items);
+        auto updatedCursors = m_spotifyHub.value(QStringLiteral("cursors")).toMap();
+        updatedCursors.insert(section, data.value(QStringLiteral("cursor")).toString());
+        m_spotifyHub.insert(QStringLiteral("cursors"), updatedCursors);
+        emit spotifyHubChanged();
     });
 }
 
@@ -2036,6 +2172,7 @@ void Backend::search(const QString &query)
     m_searchResults.clear();
     m_searchAlbums.clear();
     m_searchArtists.clear();
+    m_searchPlaylists.clear();
     emit searchResultsChanged();
     setBusy(true);
     setStatus(QStringLiteral("Searching…"));
@@ -2049,6 +2186,7 @@ void Backend::search(const QString &query)
         m_searchResults.clear();
         m_searchAlbums.clear();
         m_searchArtists.clear();
+        m_searchPlaylists.clear();
         const auto data = message.value(QStringLiteral("data")).toObject();
         m_searchCursors = data.value(QStringLiteral("cursors")).toObject().toVariantMap();
         for (const auto &value : data.value(QStringLiteral("tracks")).toArray()) {
@@ -2060,8 +2198,11 @@ void Backend::search(const QString &query)
         for (const auto &value : data.value(QStringLiteral("artists")).toArray()) {
             m_searchArtists.append(jsonArtistToVariant(value.toObject()));
         }
+        for (const auto &value : data.value(QStringLiteral("playlists")).toArray()) {
+            m_searchPlaylists.append(jsonPlaylistToVariant(value.toObject()));
+        }
         emit searchResultsChanged();
-        const auto total = m_searchResults.size() + m_searchAlbums.size() + m_searchArtists.size();
+        const auto total = m_searchResults.size() + m_searchAlbums.size() + m_searchArtists.size() + m_searchPlaylists.size();
         setStatus(total == 0 ? QStringLiteral("Nothing found")
                              : QStringLiteral("Found %1 results").arg(total));
         QStringList warnings;
@@ -2122,6 +2263,7 @@ void Backend::loadMoreSearch(const QString &provider)
         appendUnique(m_searchResults, data.value(QStringLiteral("tracks")).toArray(), jsonTrackToVariant);
         appendUnique(m_searchAlbums, data.value(QStringLiteral("albums")).toArray(), jsonAlbumToVariant);
         appendUnique(m_searchArtists, data.value(QStringLiteral("artists")).toArray(), jsonArtistToVariant);
+        appendUnique(m_searchPlaylists, data.value(QStringLiteral("playlists")).toArray(), jsonPlaylistToVariant);
         m_searchCursors.insert(provider, data.value(QStringLiteral("cursor")).toVariant());
         emit searchResultsChanged();
         setStatus(QStringLiteral("Loaded more %1 results").arg(provider));
@@ -2420,22 +2562,35 @@ void Backend::loadMoreCatalog(const QString &section)
 void Backend::enqueueTrack(const QVariantMap &track)
 {
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    const auto coreTrack = variantTrackToCore(track);
+    if (coreTrack.isEmpty()) {
+        notify(QStringLiteral("No TIDAL match is available for %1").arg(track.value(QStringLiteral("title")).toString()),
+               QStringLiteral("warning"));
+        return;
+    }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("enqueue")},
-                  {QStringLiteral("track"), variantTrackToCore(track)}});
+                  {QStringLiteral("track"), coreTrack}});
     prepareNextSource();
 }
 
 void Backend::saveTrack(const QVariantMap &track)
 {
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    const auto coreTrack = variantTrackToCore(track);
+    if (coreTrack.isEmpty()) {
+        notify(QStringLiteral("No TIDAL match is available for %1").arg(track.value(QStringLiteral("title")).toString()),
+               QStringLiteral("warning"));
+        return;
+    }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("add_to_library")},
-                  {QStringLiteral("track"), variantTrackToCore(track)}});
+                  {QStringLiteral("track"), coreTrack}});
     notify(QStringLiteral("Saved %1 to your library").arg(track.value(QStringLiteral("title")).toString()),
            QStringLiteral("success"));
 }
 
 void Backend::enqueueCatalogTrack(const QVariantMap &track)
 {
+    if (variantTrackToCore(track).isEmpty()) return;
     enqueueTrack(track);
     notify(QStringLiteral("Added %1 to the queue").arg(track.value(QStringLiteral("title")).toString()));
 }
@@ -2443,20 +2598,36 @@ void Backend::enqueueCatalogTrack(const QVariantMap &track)
 void Backend::playNextCatalogTrack(const QVariantMap &track)
 {
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    const auto coreTrack = variantTrackToCore(track);
+    if (coreTrack.isEmpty()) {
+        notify(QStringLiteral("No TIDAL match is available for %1").arg(track.value(QStringLiteral("title")).toString()),
+               QStringLiteral("warning"));
+        return;
+    }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("play_next")},
-                  {QStringLiteral("track"), variantTrackToCore(track)}});
+                  {QStringLiteral("track"), coreTrack}});
     prepareNextSource();
     notify(QStringLiteral("%1 will play next").arg(track.value(QStringLiteral("title")).toString()));
 }
 
 void Backend::playCatalogTrack(const QVariantMap &track)
 {
+    if (variantTrackToCore(track).isEmpty()) {
+        notify(QStringLiteral("No TIDAL match is available for %1").arg(track.value(QStringLiteral("title")).toString()),
+               QStringLiteral("warning"));
+        return;
+    }
     playSingleTrack(track);
 }
 
 void Backend::startRadio(const QVariantMap &track)
 {
     if (track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    if (variantTrackToCore(track).isEmpty()) {
+        notify(QStringLiteral("No TIDAL match is available for %1").arg(track.value(QStringLiteral("title")).toString()),
+               QStringLiteral("warning"));
+        return;
+    }
     setAutoplayEnabled(true);
     playSingleTrack(track);
     requestRelated(false);
@@ -2492,7 +2663,7 @@ void Backend::playCatalogCollection()
     if (kind == QStringLiteral("album") || kind == QStringLiteral("playlist")) tracks = m_catalogPage.value(QStringLiteral("tracks")).toList();
     else if (kind == QStringLiteral("artist")) tracks = m_catalogPage.value(QStringLiteral("topTracks")).toList();
     else if (kind == QStringLiteral("track")) {
-        playSingleTrack(m_catalogPage.value(QStringLiteral("track")).toMap());
+        playCatalogTrack(m_catalogPage.value(QStringLiteral("track")).toMap());
         return;
     }
     const auto pageProvider = m_catalogPage.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString();
@@ -2540,7 +2711,7 @@ void Backend::playCatalogCollection()
         m_catalogMoreLoading = true;
         emit catalogPageChanged();
         request(QStringLiteral("detail.albumTracks"), {
-            {QStringLiteral("provider"), QStringLiteral("tidal")},
+            {QStringLiteral("provider"), pageProvider},
             {QStringLiteral("id"), m_catalogPage.value(QStringLiteral("resourceId")).toString()},
         }, [this, generation](const QJsonObject &message) {
             if (generation != m_catalogGeneration) return;
@@ -2570,15 +2741,19 @@ void Backend::playCatalogCollection()
 void Backend::enqueueSearchResult(int index)
 {
     if (index < 0 || index >= m_searchResults.size()) return;
-    enqueueTrack(m_searchResults.at(index).toMap());
+    const auto track = m_searchResults.at(index).toMap();
+    if (variantTrackToCore(track).isEmpty()) return;
+    enqueueTrack(track);
     notify(QStringLiteral("Added %1 to the queue")
-               .arg(m_searchResults.at(index).toMap().value(QStringLiteral("title")).toString()));
+               .arg(track.value(QStringLiteral("title")).toString()));
 }
 
 void Backend::playSearchResult(int index)
 {
     if (index < 0 || index >= m_searchResults.size()) return;
-    playSingleTrack(m_searchResults.at(index).toMap());
+    const auto track = m_searchResults.at(index).toMap();
+    if (variantTrackToCore(track).isEmpty()) return;
+    playSingleTrack(track);
 }
 
 void Backend::playQueueIndex(int index) { playTrackAt(index); }
@@ -2686,9 +2861,13 @@ void Backend::createLocalPlaylist(const QString &name, const QVariantMap &initia
                         {QStringLiteral("name"), trimmed}};
     QJsonArray tracks;
     if (!m_playlistPickerTracks.isEmpty() && initialTrack == m_playlistPickerTrack) {
-        for (const auto &track : m_playlistPickerTracks) tracks.append(variantTrackToCore(track.toMap()));
+        for (const auto &track : m_playlistPickerTracks) {
+            const auto coreTrack = variantTrackToCore(track.toMap());
+            if (!coreTrack.isEmpty()) tracks.append(coreTrack);
+        }
     } else if (!initialTrack.value(QStringLiteral("id")).toString().isEmpty()) {
-        tracks.append(variantTrackToCore(initialTrack));
+        const auto coreTrack = variantTrackToCore(initialTrack);
+        if (!coreTrack.isEmpty()) tracks.append(coreTrack);
     }
     command.insert(QStringLiteral("tracks"), tracks);
     dispatchCore(command);
@@ -2720,8 +2899,14 @@ void Backend::deleteLocalPlaylist(const QString &id)
 void Backend::addTrackToLocalPlaylist(const QString &id, const QVariantMap &track)
 {
     if (id.isEmpty() || track.value(QStringLiteral("id")).toString().isEmpty()) return;
+    const auto coreTrack = variantTrackToCore(track);
+    if (coreTrack.isEmpty()) {
+        notify(QStringLiteral("No TIDAL match is available for %1").arg(track.value(QStringLiteral("title")).toString()),
+               QStringLiteral("warning"));
+        return;
+    }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("add_playlist_track")},
-                  {QStringLiteral("id"), id}, {QStringLiteral("track"), variantTrackToCore(track)}});
+                  {QStringLiteral("id"), id}, {QStringLiteral("track"), coreTrack}});
     notify(QStringLiteral("Added %1 to playlist").arg(track.value(QStringLiteral("title")).toString()),
            QStringLiteral("success"));
 }
@@ -2730,7 +2915,14 @@ void Backend::addPickerTracksToLocalPlaylist(const QString &id)
 {
     if (id.isEmpty() || m_playlistPickerTracks.isEmpty()) return;
     QJsonArray tracks;
-    for (const auto &track : m_playlistPickerTracks) tracks.append(variantTrackToCore(track.toMap()));
+    for (const auto &track : m_playlistPickerTracks) {
+        const auto coreTrack = variantTrackToCore(track.toMap());
+        if (!coreTrack.isEmpty()) tracks.append(coreTrack);
+    }
+    if (tracks.isEmpty()) {
+        notify(QStringLiteral("No TIDAL matches are available for these tracks"), QStringLiteral("warning"));
+        return;
+    }
     dispatchCore({{QStringLiteral("command"), QStringLiteral("add_playlist_tracks")},
                   {QStringLiteral("id"), id}, {QStringLiteral("tracks"), tracks}});
     notify(m_playlistPickerTracks.size() == 1
@@ -3919,7 +4111,10 @@ void Backend::playTracks(const QVariantList &tracks, bool preserveProvidedOrder)
     for (const auto &value : tracks) {
         const auto track = value.toMap();
         if (!track.value(QStringLiteral("id")).toString().isEmpty())
-            coreTracks.append(variantTrackToCore(track));
+        {
+            const auto coreTrack = variantTrackToCore(track);
+            if (!coreTrack.isEmpty()) coreTracks.append(coreTrack);
+        }
     }
     if (coreTracks.isEmpty()) return;
     clearPlaylistContinuation();
@@ -4940,7 +5135,7 @@ QVariantMap Backend::jsonTrackToVariant(const QJsonObject &track)
         artistCredits.append(credit.toObject().toVariantMap());
     }
     const auto uploader = track.value(QStringLiteral("uploader")).toObject();
-    return {
+    QVariantMap result = {
         {QStringLiteral("provider"), track.value(QStringLiteral("provider")).toString(QStringLiteral("tidal"))},
         {QStringLiteral("id"), track.value(QStringLiteral("id")).toString()},
         {QStringLiteral("title"), track.value(QStringLiteral("title")).toString()},
@@ -4956,6 +5151,9 @@ QVariantMap Backend::jsonTrackToVariant(const QJsonObject &track)
         {QStringLiteral("coverUrl"), track.value(QStringLiteral("coverUrl")).toString()},
         {QStringLiteral("webpageUrl"), track.value(QStringLiteral("webpageUrl")).toString()},
     };
+    const auto playbackTrack = track.value(QStringLiteral("playbackTrack")).toObject();
+    if (!playbackTrack.isEmpty()) result.insert(QStringLiteral("playbackTrack"), jsonTrackToVariant(playbackTrack));
+    return result;
 }
 
 QVariantMap Backend::jsonAlbumToVariant(const QJsonObject &album)
@@ -5063,7 +5261,9 @@ QVariantMap Backend::jsonCatalogPageToVariant(const QJsonObject &page)
         result.insert(QStringLiteral("trackCursor"), page.value(QStringLiteral("trackCursor")).toString());
         result.insert(QStringLiteral("albumCursor"), page.value(QStringLiteral("albumCursor")).toString());
     } else if (kind == QStringLiteral("playlist")) {
-        const auto playlist = jsonPlaylistToVariant(page.value(QStringLiteral("playlist")).toObject());
+        auto document = page.value(QStringLiteral("playlist")).toObject();
+        if (!document.contains(QStringLiteral("provider"))) document.insert(QStringLiteral("provider"), pageProvider);
+        const auto playlist = jsonPlaylistToVariant(document);
         result.insert(QStringLiteral("playlist"), playlist);
         result.insert(QStringLiteral("resourceId"), playlist.value(QStringLiteral("id")));
         result.insert(QStringLiteral("tracks"), mapTracks(QStringLiteral("tracks")));

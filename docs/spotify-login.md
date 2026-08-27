@@ -1,8 +1,8 @@
-# Spotify recommendations
+# Spotify catalog and recommendations
 
-Spotify is an optional discovery and recommendation source on the desktop
-provider host. It does not provide audio playback in Colorful: recommended
-tracks are matched back to TIDAL, and TIDAL remains the playback source.
+Spotify is an optional catalog, discovery, and recommendation source on the
+desktop provider host. It does not provide audio playback in Colorful: Spotify
+tracks are matched back to TIDAL by ISRC, and TIDAL remains the playback source.
 
 ## Connect Spotify
 
@@ -46,10 +46,23 @@ The available recommendation modes are:
   recommendations or its related-track request fails. A linked Spotify session
   is required for the fallback path.
 
-A free Spotify account is supported for this recommendation-only integration;
+A free Spotify account is supported for this metadata and recommendation integration;
 Colorful does not require Spotify Premium. The features Spotify grants to an
 account or Web Player session still determine whether a particular request is
 available. TIDAL access is still required to play the matched results.
+
+## Spotify catalog
+
+When linked, the Search view and Spotify section expose Spotify tracks,
+albums, artists, playlists, saved tracks and albums, followed artists, and
+personalized playlists such as Daily Mix, Discover Weekly, Release Radar, and
+Daylist when Spotify includes them in the account response. Album, artist, and
+playlist pages are read-only metadata views. Pagination is supported for
+search results and catalog sections.
+
+Spotify catalog tracks retain their Spotify ID and ISRC for display and
+matching. A track is playable only when TIDAL returns an exact ISRC match;
+unmatched metadata remains visible but cannot be queued, saved, or played.
 
 ## Account information and privacy
 
@@ -72,7 +85,6 @@ formats, including Pathfinder and track metadata services, that Spotify may
 change without notice. An internet connection and a valid Spotify session are
 required.
 
-The current Spotify search is an internal ISRC-resolution step only. First-class
-Spotify catalog search, albums, artists, mixes, library access, playlist import
-or editing, and Spotify audio playback are not implemented yet. They may be
-added separately from the current recommendation bridge.
+Spotify playlist editing/import and Spotify audio playback are intentionally
+not implemented. The integration is read-only on Spotify and uses the native
+TIDAL playback path for matched tracks.

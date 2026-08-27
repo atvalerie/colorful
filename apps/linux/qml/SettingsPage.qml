@@ -295,8 +295,8 @@ Item {
                                       ? "Connected  ·  " + (account.displayName || account.id || "Spotify account")
                                       : "Not connected"
                         description: colorful.spotifyLinked
-                                     ? "Spotify personalizes autoplay. Every result is matched by ISRC and played from TIDAL."
-                                     : "Optional: sign in with Spotify for personalized recommendations. Spotify audio is never streamed by colorful."
+                                     ? "Search, playlists, albums, and recommendations use Spotify metadata. Every playable result is matched by ISRC and streamed from TIDAL."
+                                     : "Optional: sign in with Spotify for catalog search and personalized recommendations. Spotify audio is never streamed by colorful."
                         avatarSource: account.imageUrl || ""
                         details: [
                             [account.displayName || account.id || "Connected", "Profile"],
@@ -1227,14 +1227,14 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Spotify discovery, TIDAL playback"
+                    text: "Spotify catalog, TIDAL playback"
                     color: "#f5f5f5"
                     font.bold: true
                     font.pixelSize: Math.round(21 * colorful.textScale)
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "Connect Spotify only if you want its personalization. colorful never streams or captures Spotify audio."
+                    text: "Spotify provides read-only search, playlists, albums, mixes, and personalization. colorful never streams or captures Spotify audio."
                     color: Qt.rgba(1, 1, 1, 0.55)
                     font.pixelSize: Math.round(12 * colorful.textScale)
                     wrapMode: Text.WordWrap
@@ -1268,14 +1268,14 @@ Item {
                     Item { Layout.preferredHeight: 3 }
                     Text {
                         Layout.fillWidth: true
-                        text: "How a recommendation becomes audio"
+                        text: "How Spotify metadata becomes audio"
                         color: "#f5f5f5"
                         font.bold: true
                         font.pixelSize: Math.round(13 * colorful.textScale)
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "1. colorful identifies the current TIDAL track by ISRC.\n2. Spotify supplies personalized track recommendations and metadata.\n3. Each result is matched back to TIDAL by ISRC.\n4. TIDAL supplies the playable track; unmatched results are skipped."
+                        text: "1. Search and catalog pages read Spotify metadata, including ISRCs.\n2. Spotify can supply personalized recommendations and library results.\n3. Each Spotify track is matched back to TIDAL by ISRC.\n4. TIDAL supplies the playable track; unmatched results remain visible but cannot be played."
                         color: Qt.rgba(1, 1, 1, 0.62)
                         font.pixelSize: Math.round(11 * colorful.textScale)
                         lineHeight: 1.25
@@ -1328,7 +1328,7 @@ Item {
                             id: currentScopeText
                             anchors.fill: parent
                             anchors.margins: 12
-                            text: "Current scope: Spotify powers autoplay/radio recommendations and internal ISRC lookup. Spotify catalog search, library, playlists, albums, and mixes are not exposed in the UI yet."
+                            text: "Spotify catalog search, albums, artists, playlists, and mixes are available from Search and the Spotify section. Spotify supplies metadata and personalization; colorful matches playable results to TIDAL by ISRC and never streams Spotify audio."
                             color: Qt.rgba(1, 1, 1, 0.52)
                             font.pixelSize: Math.round(10 * colorful.textScale)
                             wrapMode: Text.WordWrap

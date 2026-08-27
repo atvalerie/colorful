@@ -42,10 +42,10 @@ and offline jobs stay on your device. colorful has no account system or central
 library server.
 
 The desktop client connects to TIDAL, YouTube Music, and SoundCloud for catalog
-and playback features. Spotify can optionally provide recommendation and
-discovery metadata; Colorful matches those results back to TIDAL, which remains
-the playback source. System media controls and credential storage live in each
-client. The clients share a Rust library and queue engine.
+and playback features. Spotify can optionally provide catalog, playlist, and
+recommendation metadata; Colorful matches Spotify tracks back to TIDAL, which
+remains the playback source. System media controls and credential storage live
+in each client. The clients share a Rust library and queue engine.
 
 > [!NOTE]
 > colorful is still in alpha. The desktop app is furthest along. Android and
@@ -54,14 +54,15 @@ client. The clients share a Rust library and queue engine.
 
 ## Highlights
 
-- Unified Home and Search for TIDAL, YouTube Music, and SoundCloud.
+- Unified Home and Search for TIDAL, YouTube Music, SoundCloud, and optional
+  Spotify catalog metadata.
 - A persistent queue with reordering, play next, repeat, shuffle, autoplay,
   prepared-next playback, and restoration.
 - Resumable downloads with artwork, storage quotas, cleanup, and local playback.
 - Synchronized lyrics, cached fallbacks, radio, recommendations, related tracks,
   and listening history.
-- Optional Spotify personalization for discovery, with ISRC-verified TIDAL
-  matches for playback.
+- Optional Spotify search, albums, artists, playlists, library, and
+  personalization, with ISRC-verified TIDAL matches for playback.
 - libmpv audio with gapless transitions, selectable output, ReplayGain, and a
   10-band equalizer.
 - Linux MPRIS, Windows media controls, and Discord Rich Presence.
@@ -90,8 +91,9 @@ Mobile development and installation details live in the
 
 TIDAL uses device authorization. YouTube Music and SoundCloud work anonymously
 for public catalog features and can optionally connect to your account. Spotify
-is an optional desktop recommendation source; a free Spotify account is enough
-for this feature, while playback remains on TIDAL.
+is an optional desktop catalog and recommendation source; a free Spotify
+account is enough for metadata and personalization, while playback remains on
+TIDAL. Spotify playlist editing and Spotify audio playback are not provided.
 
 On desktop, YouTube Music and Spotify use persistent, isolated Chromium
 profiles. Only initial sign-in or re-authentication is visible; later
@@ -106,7 +108,7 @@ headers remain a static fallback and cannot refresh through the hidden profile.
 
 - [Connect YouTube Music](docs/youtube-music-login.md)
 - [Connect SoundCloud](docs/soundcloud-login.md)
-- [Connect Spotify recommendations](docs/spotify-login.md)
+- [Connect Spotify catalog and recommendations](docs/spotify-login.md)
 
 ## Architecture
 

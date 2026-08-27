@@ -42,10 +42,13 @@ class Backend final : public QObject
     Q_PROPERTY(bool soundcloudMoreLoading READ soundcloudMoreLoading NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool spotifyLinked READ spotifyLinked NOTIFY spotifyAccountChanged)
     Q_PROPERTY(QVariantMap spotifyAccount READ spotifyAccount NOTIFY spotifyAccountChanged)
+    Q_PROPERTY(QVariantMap spotifyHub READ spotifyHub NOTIFY spotifyHubChanged)
+    Q_PROPERTY(bool spotifyHubLoading READ spotifyHubLoading NOTIFY spotifyHubChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchArtists READ searchArtists NOTIFY searchResultsChanged)
+    Q_PROPERTY(QVariantList searchPlaylists READ searchPlaylists NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantMap searchCursors READ searchCursors NOTIFY searchResultsChanged)
     Q_PROPERTY(bool searchMoreLoading READ searchMoreLoading NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantMap catalogPage READ catalogPage NOTIFY catalogPageChanged)
@@ -134,10 +137,13 @@ public:
     bool soundcloudMoreLoading() const { return m_soundcloudMoreLoading; }
     bool spotifyLinked() const { return m_spotifyLinked; }
     QVariantMap spotifyAccount() const { return m_spotifyAccount; }
+    QVariantMap spotifyHub() const { return m_spotifyHub; }
+    bool spotifyHubLoading() const { return m_spotifyHubLoading; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList searchAlbums() const { return m_searchAlbums; }
     QVariantList searchArtists() const { return m_searchArtists; }
+    QVariantList searchPlaylists() const { return m_searchPlaylists; }
     QVariantMap searchCursors() const { return m_searchCursors; }
     bool searchMoreLoading() const { return m_searchMoreLoading; }
     QVariantMap catalogPage() const { return m_catalogPage; }
@@ -233,6 +239,8 @@ public:
     Q_INVOKABLE void openSoundCloudSetupGuide();
     Q_INVOKABLE void startSpotifyBrowserLogin();
     Q_INVOKABLE void unlinkSpotify();
+    Q_INVOKABLE void loadSpotifyHub(bool refresh = false);
+    Q_INVOKABLE void loadMoreSpotify(const QString &section);
     Q_INVOKABLE void dismissEntitlementWarning();
     Q_INVOKABLE void openTidalAccount();
     Q_INVOKABLE void search(const QString &query);
@@ -340,6 +348,7 @@ signals:
     void youtubeAccountChanged();
     void soundcloudAccountChanged();
     void spotifyAccountChanged();
+    void spotifyHubChanged();
     void statusMessageChanged();
     void searchResultsChanged();
     void catalogPageChanged();
@@ -496,6 +505,7 @@ private:
     QVariantList m_searchResults;
     QVariantList m_searchAlbums;
     QVariantList m_searchArtists;
+    QVariantList m_searchPlaylists;
     QVariantMap m_searchCursors;
     QString m_searchQuery;
     bool m_searchMoreLoading = false;
@@ -545,6 +555,9 @@ private:
     bool m_soundcloudLinked = false;
     bool m_spotifyLinked = false;
     QVariantMap m_spotifyAccount;
+    QVariantMap m_spotifyHub;
+    bool m_spotifyHubLoading = false;
+    bool m_spotifyMoreLoading = false;
     QVariantMap m_listenStats;
     QVariantMap m_lyrics;
     QString m_lyricsTrackKey;

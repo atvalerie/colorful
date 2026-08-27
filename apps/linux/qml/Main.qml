@@ -36,7 +36,9 @@ ApplicationWindow {
     readonly property var visibleSearchTracks: prioritizedSearch(colorful.searchResults)
     readonly property var visibleSearchAlbums: prioritizedSearch(colorful.searchAlbums)
     readonly property var visibleSearchArtists: prioritizedSearch(colorful.searchArtists)
-    readonly property var searchMoreProviders: ["tidal", "youtube", "soundcloud"].filter(function(provider) {
+    readonly property var visibleSearchPlaylists: prioritizedSearch(colorful.searchPlaylists)
+    readonly property var searchMoreProviders: ["tidal", "youtube", "soundcloud", "spotify"].filter(function(provider) {
+        if (provider === "spotify" && !colorful.spotifyLinked) return false
         if (searchProvider !== "all" && searchProvider !== provider) return false
         const cursor = colorful.searchCursors[provider]
         if (typeof cursor === "string") return cursor.length > 0
@@ -163,7 +165,7 @@ ApplicationWindow {
         for (let index = 0; index < stats.length; ++index) {
             if (stats[index].provider === resolved) return index
         }
-        const fallback = ["tidal", "youtube", "soundcloud", "local"]
+        const fallback = ["tidal", "spotify", "youtube", "soundcloud", "local"]
         const fallbackIndex = fallback.indexOf(resolved)
         return stats.length + (fallbackIndex >= 0 ? fallbackIndex : fallback.length)
     }
@@ -235,11 +237,11 @@ ApplicationWindow {
     }
 
     function isCatalogSection(section) {
-        return ["home", "search", "library", "tidal", "youtube", "soundcloud"].includes(section)
+        return ["home", "search", "library", "tidal", "youtube", "soundcloud", "spotify"].includes(section)
     }
 
     function sectionForProvider(provider) {
-        return ["tidal", "youtube", "soundcloud"].includes(provider) ? provider : "search"
+        return ["tidal", "youtube", "soundcloud", "spotify"].includes(provider) ? provider : "search"
     }
 
     function navigationState() {
@@ -276,6 +278,7 @@ ApplicationWindow {
         if (currentSection === "youtube") colorful.loadYouTubeHub(false)
         else if (currentSection === "soundcloud") colorful.loadSoundCloudHub(false)
         else if (currentSection === "tidal") colorful.loadTidalHub(false)
+        else if (currentSection === "spotify" && typeof colorful.loadSpotifyHub === "function") colorful.loadSpotifyHub(false)
     }
 
     function navigateToSection(section) {
@@ -352,7 +355,7 @@ ApplicationWindow {
             toastOverlay.show("That colorful link is malformed.", "error")
             return
         }
-        if (!["tidal", "youtube", "soundcloud"].includes(provider) || !id) {
+        if (!["tidal", "youtube", "soundcloud", "spotify"].includes(provider) || !id) {
             toastOverlay.show("That colorful link is not supported.", "warning")
             return
         }
@@ -689,6 +692,15 @@ ApplicationWindow {
                         tooltipText: "TIDAL library"
                         onClicked: window.navigateToSection("tidal")
                     }
+
+                    IconButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        iconSource: "icons/music.svg"
+                        selected: window.currentSection === "spotify"
+                        visible: colorful.spotifyLinked
+                        tooltipText: "Spotify catalog"
+                        onClicked: window.navigateToSection("spotify")
+                    }
                 }
             }
 
@@ -785,7 +797,7 @@ ApplicationWindow {
                             Layout.fillHeight: true
                             visible: (window.currentSection === "home" || window.currentSection === "search" || window.currentSection === "library"
                                       || window.currentSection === "tidal" || window.currentSection === "youtube"
-                                      || window.currentSection === "soundcloud")
+                                      || window.currentSection === "soundcloud" || window.currentSection === "spotify")
                                      && !window.sectionNavigationPending
                                      && (colorful.catalogLoading || (colorful.catalogPage.kind || "").length > 0)
                             page: colorful.catalogPage
@@ -820,6 +832,14 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             visible: window.currentSection === "soundcloud"
+                                     && (window.sectionNavigationPending
+                                         || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
+                        }
+
+                        SpotifyPage {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            visible: window.currentSection === "spotify"
                                      && (window.sectionNavigationPending
                                          || (!colorful.catalogLoading && !(colorful.catalogPage.kind || "")))
                         }
@@ -866,8 +886,11 @@ ApplicationWindow {
                                         { id: "all", label: "All", width: 48 },
                                         { id: "tidal", label: "TIDAL", width: 62 },
                                         { id: "youtube", label: "YouTube", width: 76 },
-                                        { id: "soundcloud", label: "SoundCloud", width: 96 }
-                                    ]
+                                        { id: "soundcloud", label: "SoundCloud", width: 96 },
+                                        { id: "spotify", label: "Spotify", width: 76 }
+                                    ].filter(function(provider) {
+                                        return provider.id !== "spotify" || colorful.spotifyLinked
+                                    })
                                     delegate: ColorButton {
                                         required property var modelData
                                         text: modelData.label
@@ -919,7 +942,7 @@ ApplicationWindow {
                                 width: resultsList.width
                                 spacing: 16
                                 visible: window.currentSection === "search"
-                                         && (window.visibleSearchAlbums.length > 0 || window.visibleSearchArtists.length > 0)
+                                         && (window.visibleSearchAlbums.length > 0 || window.visibleSearchArtists.length > 0 || window.visibleSearchPlaylists.length > 0)
                                 height: visible ? implicitHeight + 18 : 0
 
                                 RowLayout {
@@ -979,6 +1002,34 @@ ApplicationWindow {
                                     }
                                     ShelfScrollButtons { view: searchAlbumsShelf }
                                 }
+                                RowLayout {
+                                    width: parent.width
+                                    visible: window.visibleSearchPlaylists.length > 0
+                                    Text { text: "Playlists"; color: window.ink; font.bold: true; font.pixelSize: Math.round(16 * colorful.textScale) }
+                                    Item { Layout.fillWidth: true }
+                                }
+                                Item {
+                                    width: parent.width
+                                    height: visible ? 204 : 0
+                                    visible: window.visibleSearchPlaylists.length > 0
+                                    ListView {
+                                        id: searchPlaylistsShelf
+                                        anchors.fill: parent
+                                        orientation: ListView.Horizontal
+                                        spacing: 8
+                                        clip: true
+                                        pixelAligned: true
+                                        model: window.visibleSearchPlaylists
+                                        cacheBuffer: width
+                                        reuseItems: true
+                                        delegate: PlaylistCard {
+                                            required property var modelData
+                                            entry: modelData
+                                            onOpenRequested: window.openPlaylist(modelData.id, modelData.provider || "tidal")
+                                        }
+                                    }
+                                    ShelfScrollButtons { view: searchPlaylistsShelf }
+                                }
                                 Text {
                                     visible: window.visibleSearchTracks.length > 0
                                     text: "Tracks"
@@ -999,7 +1050,7 @@ ApplicationWindow {
                                         model: window.searchMoreProviders
                                         delegate: ColorButton {
                                             required property string modelData
-                                            text: colorful.searchMoreLoading ? "Loading…" : "More " + (modelData === "youtube" ? "YouTube" : modelData === "soundcloud" ? "SoundCloud" : "TIDAL")
+                                            text: colorful.searchMoreLoading ? "Loading…" : "More " + (modelData === "youtube" ? "YouTube" : modelData === "soundcloud" ? "SoundCloud" : modelData === "spotify" ? "Spotify" : "TIDAL")
                                             quiet: true
                                             enabled: !colorful.searchMoreLoading
                                             onClicked: colorful.loadMoreSearch(modelData)
@@ -1012,7 +1063,7 @@ ApplicationWindow {
                                 anchors.centerIn: parent
                                 width: Math.min(400, parent.width - 48)
                                 spacing: 12
-                                visible: window.visibleSearchTracks.length + window.visibleSearchAlbums.length + window.visibleSearchArtists.length === 0
+                                visible: window.visibleSearchTracks.length + window.visibleSearchAlbums.length + window.visibleSearchArtists.length + window.visibleSearchPlaylists.length === 0
 
                                 AppIcon {
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -1029,7 +1080,9 @@ ApplicationWindow {
                                             + " found for “" + window.submittedQuery + "”"
                                           : colorful.linked
                                             ? "Search for something to start listening"
-                                            : "Search YouTube Music, or connect TIDAL too"
+                                            : colorful.spotifyLinked
+                                              ? "Search Spotify, YouTube Music, or TIDAL"
+                                              : "Search YouTube Music, or connect TIDAL too"
                                     color: Qt.rgba(1, 1, 1, 0.48)
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap

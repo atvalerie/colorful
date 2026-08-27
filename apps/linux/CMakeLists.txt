@@ -342,6 +342,7 @@ qt_add_qml_module(colorful-linux
         qml/TidalPage.qml
         qml/YouTubePage.qml
         qml/SoundCloudPage.qml
+        qml/SpotifyPage.qml
         qml/DownloadsPage.qml
         qml/LibraryPage.qml
         qml/LyricsPanel.qml

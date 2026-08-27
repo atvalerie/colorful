@@ -54,6 +54,7 @@ export type PlaylistSummary = {
   playlistType: string | null;
   createdAt: string | null;
   lastModifiedAt: string | null;
+  ownerName?: string;
 };
 
 export type UserCollectionPage = {
@@ -68,8 +69,8 @@ export type UserCollectionPage = {
   cursors: Record<string, string>;
 };
 
-export type CatalogSearch = { tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[] };
-export type CatalogSearchCursors = { tracks?: string; albums?: string; artists?: string };
+export type CatalogSearch = { tracks: TrackSummary[]; albums: AlbumSummary[]; artists: ArtistSummary[]; playlists?: PlaylistSummary[] };
+export type CatalogSearchCursors = { tracks?: string; albums?: string; artists?: string; playlists?: string };
 export type CatalogSearchPage = CatalogSearch & { cursors: CatalogSearchCursors };
 export type TrackPage = { kind: "track"; track: TrackSummary; relatedTracks: TrackSummary[] };
 export type AlbumPage = { kind: "album"; album: AlbumSummary; tracks: TrackSummary[]; trackCursor?: string };

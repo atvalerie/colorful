@@ -1,5 +1,5 @@
 import { normalizeVerificationUrl, pollDeviceAuth, refreshUserToken, startDeviceAuth, type UserToken } from "./auth";
-import { BrowseClient } from "./browse";
+import { BrowseClient, type TrackSummary } from "./browse";
 import { captureBrowserLogin } from "./browser-login";
 import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
@@ -14,6 +14,7 @@ import { debugLog } from "./debug";
 import { recommendationMode, selectRecommendations } from "./recommendation-policy";
 import { loadSpotifyAccount, SpotifyBrowserSession, type SpotifyAccount, type SpotifyCredentials } from "./spotify-auth";
 import { SpotifyRecommendationClient } from "./spotify-recommendations";
+import { SpotifyCatalogClient } from "./spotify-catalog";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -37,6 +38,16 @@ const spotifyRecommendations = new SpotifyRecommendationClient({
       accessToken: credentials.accessToken,
       clientToken: credentials.clientToken,
       expiresAtMs: credentials.expiresAtMs,
+    };
+  },
+});
+
+const spotifyCatalog = new SpotifyCatalogClient({
+  sessionProvider: async (force = false) => {
+    const credentials = await spotifySession.credentials(force);
+    return {
+      accessToken: credentials.accessToken,
+      clientToken: credentials.clientToken,
     };
   },
 });
@@ -86,6 +97,25 @@ async function spotifyRelatedTracks(trackId: string, suppliedIsrc: string, limit
   );
   const tracks = await browse.tracksByIsrc(result.isrcBatch, limit);
   return tracks.map((track) => ({ ...track, provider: "tidal" as const }));
+}
+
+/** Spotify supplies metadata only; resolve every ISRC to the native TIDAL
+ * playback object before handing catalog tracks to the desktop shell. */
+async function withTidalPlayback<T extends TrackSummary>(tracks: T[]): Promise<T[]> {
+  const isrcs = [...new Set(tracks.map((track) => track.isrc?.trim().toUpperCase() ?? "").filter(Boolean))];
+  if (isrcs.length === 0) return tracks;
+  let matches: TrackSummary[] = [];
+  try {
+    matches = await browse.tracksByIsrc(isrcs, isrcs.length);
+  } catch (error) {
+    debugLog("spotify.catalog", "tidal_match_failed", { error: publicError(error), count: isrcs.length });
+    return tracks;
+  }
+  const byIsrc = new Map(matches.map((track) => [track.isrc?.trim().toUpperCase() ?? "", track]));
+  return tracks.map((track) => {
+    const match = track.isrc ? byIsrc.get(track.isrc.trim().toUpperCase()) : undefined;
+    return match ? { ...track, playbackTrack: { ...match, provider: "tidal" } } as T : track;
+  });
 }
 
 async function tidalRelatedByPolicy(trackId: string, suppliedIsrc: string, limit: number, value: unknown) {
@@ -345,6 +375,26 @@ async function handle(request: RequestMessage): Promise<void> {
     case "youtube.collection":
       send({ id: request.id, ok: true, data: await youtubeMusicCollection() });
       return;
+    case "spotify.collection":
+      if (!spotifySession.linked) throw new Error("Connect Spotify in Settings to load your Spotify collection");
+      {
+        const page = await spotifyCatalog.collection();
+        send({ id: request.id, ok: true, data: { ...page, tracks: await withTidalPlayback(page.tracks) } });
+      }
+      return;
+    case "spotify.collection.more": {
+      if (!spotifySession.linked) throw new Error("Connect Spotify in Settings to load your Spotify collection");
+      const section = String(request.payload?.section ?? "");
+      const cursor = String(request.payload?.cursor ?? "").trim();
+      if (!section || !cursor) throw new Error("Spotify collection pagination state is incomplete");
+      {
+        const page = await spotifyCatalog.collectionMore(section, cursor);
+        send({ id: request.id, ok: true, data: section === "tracks"
+          ? { ...page, items: await withTidalPlayback(page.items as TrackSummary[]) }
+          : page });
+      }
+      return;
+    }
     case "soundcloud.auth.browser": {
       const token = parseSoundCloudAuthorization(String(request.payload?.request ?? ""));
       const account = await installSoundCloudToken(token);
@@ -465,11 +515,19 @@ async function handle(request: RequestMessage): Promise<void> {
       const soundcloudSearch = partial("soundcloud", withTimeout(soundCloudSearch(query), "SoundCloud search"), (value) => ({
         tracks: value.tracks, albums: value.albums, artists: value.artists, cursor: value.cursor ?? "",
       }));
-      const [tidalResult, youtubeResult, soundcloudResult] = await Promise.allSettled([
-        tidalSearch, youtubeSearch, soundcloudSearch,
+      const spotifySearch = partial("spotify", spotifySession.linked
+        ? withTimeout(spotifyCatalog.searchCatalog(query), "Spotify search").then(async (page) => ({
+          ...page, tracks: await withTidalPlayback(page.tracks),
+        }))
+        : Promise.resolve({ tracks: [], albums: [], artists: [], playlists: [], cursors: {} }), (value) => ({
+          tracks: value.tracks, albums: value.albums, artists: value.artists, playlists: value.playlists, cursor: value.cursors,
+        }));
+      const [tidalResult, youtubeResult, soundcloudResult, spotifyResult] = await Promise.allSettled([
+        tidalSearch, youtubeSearch, soundcloudSearch, spotifySearch,
       ]);
-      if (tidalResult.status === "rejected" && youtubeResult.status === "rejected" && soundcloudResult.status === "rejected") {
-        throw new Error(`Search failed: ${publicError(tidalResult.reason)}; YouTube: ${publicError(youtubeResult.reason)}; SoundCloud: ${publicError(soundcloudResult.reason)}`);
+      if (tidalResult.status === "rejected" && youtubeResult.status === "rejected"
+          && soundcloudResult.status === "rejected" && spotifyResult.status === "rejected") {
+        throw new Error(`Search failed: ${publicError(tidalResult.reason)}; YouTube: ${publicError(youtubeResult.reason)}; SoundCloud: ${publicError(soundcloudResult.reason)}; Spotify: ${publicError(spotifyResult.reason)}`);
       }
       const tidal = tidalResult.status === "fulfilled"
         ? tidalResult.value : { tracks: [], albums: [], artists: [], cursors: {} };
@@ -477,20 +535,27 @@ async function handle(request: RequestMessage): Promise<void> {
         ? youtubeResult.value : { tracks: [], albums: [], artists: [], cursors: {} };
       const soundcloud = soundcloudResult.status === "fulfilled"
         ? soundcloudResult.value : { tracks: [], albums: [], artists: [] };
+      const spotify = spotifyResult.status === "fulfilled"
+        ? spotifyResult.value : { tracks: [], albums: [], artists: [], playlists: [], cursors: {} };
       send({ id: request.id, ok: true, data: {
         ...tidal,
-        tracks: [...tidal.tracks, ...youtube.tracks.map((track) => ({ ...track, provider: "youtube" })), ...soundcloud.tracks],
-        albums: [...tidal.albums, ...youtube.albums.map((album) => ({ ...album, provider: "youtube" })), ...soundcloud.albums],
-        artists: [...tidal.artists, ...youtube.artists.map((artist) => ({ ...artist, provider: "youtube" })), ...soundcloud.artists],
+        albums: [...tidal.albums, ...youtube.albums.map((album) => ({ ...album, provider: "youtube" })), ...soundcloud.albums,
+          ...spotify.albums.map((album) => ({ ...album, provider: "spotify" }))],
+        artists: [...tidal.artists, ...youtube.artists.map((artist) => ({ ...artist, provider: "youtube" })), ...soundcloud.artists,
+          ...spotify.artists.map((artist) => ({ ...artist, provider: "spotify" }))],
+        tracks: [...tidal.tracks, ...youtube.tracks.map((track) => ({ ...track, provider: "youtube" })), ...soundcloud.tracks, ...spotify.tracks],
+        playlists: spotify.playlists.map((playlist) => ({ ...playlist, provider: "spotify" })),
         cursors: {
           tidal: tidalResult.status === "fulfilled" ? tidal.cursors : {},
           youtube: youtubeResult.status === "fulfilled" ? youtube.cursors : {},
           soundcloud: soundcloudResult.status === "fulfilled" ? soundcloud.cursor ?? "" : "",
+          spotify: spotifyResult.status === "fulfilled" ? spotify.cursors : {},
         },
         warnings: [
           ...(tidalResult.status === "rejected" ? [`TIDAL: ${publicError(tidalResult.reason)}`] : []),
           ...(youtubeResult.status === "rejected" ? [`YouTube: ${publicError(youtubeResult.reason)}`] : []),
           ...(soundcloudResult.status === "rejected" ? [`SoundCloud: ${publicError(soundcloudResult.reason)}`] : []),
+          ...(spotifyResult.status === "rejected" ? [`Spotify: ${publicError(spotifyResult.reason)}`] : []),
         ],
       } });
       return;
@@ -524,6 +589,16 @@ async function handle(request: RequestMessage): Promise<void> {
         send({ id: request.id, ok: true, data: { provider, ...page, cursor: page.cursor ?? "" } });
         return;
       }
+      if (provider === "spotify") {
+        if (!spotifySession.linked) throw new Error("Connect Spotify in Settings to search Spotify");
+        const spotifyCursor = cursor && typeof cursor === "object" ? cursor as Record<string, string> : {};
+        const page = await spotifyCatalog.searchCatalog(query, 20, spotifyCursor);
+        send({ id: request.id, ok: true, data: {
+          provider, tracks: await withTidalPlayback(page.tracks), albums: page.albums,
+          artists: page.artists, playlists: page.playlists, cursor: page.cursors,
+        } });
+        return;
+      }
       throw new Error(`Search pagination is not implemented for ${provider}`);
     }
     case "detail": {
@@ -554,6 +629,32 @@ async function handle(request: RequestMessage): Promise<void> {
       if (provider === "youtube" && kind === "playlist") {
         send({ id: request.id, ok: true, data: { ...await youtubeMusicPlaylist(resourceId), provider } });
         return;
+      }
+      if (provider === "spotify") {
+        if (!spotifySession.linked) throw new Error("Connect Spotify in Settings to open Spotify catalog pages");
+        if (kind === "track") {
+          const track = await spotifyCatalog.track(resourceId);
+          send({ id: request.id, ok: true, data: {
+            kind, provider, track: (await withTidalPlayback([track]))[0], relatedTracks: [],
+          } });
+          return;
+        }
+        if (kind === "album") {
+          const page = await spotifyCatalog.albumPage(resourceId);
+          send({ id: request.id, ok: true, data: { ...page, provider, tracks: await withTidalPlayback(page.tracks) } });
+          return;
+        }
+        if (kind === "playlist") {
+          const page = await spotifyCatalog.playlistPage(resourceId);
+          send({ id: request.id, ok: true, data: { ...page, provider, tracks: await withTidalPlayback(page.tracks) } });
+          return;
+        }
+        if (kind === "artist") {
+          const page = await spotifyCatalog.artistPage(resourceId);
+          send({ id: request.id, ok: true, data: { ...page, provider, topTracks: await withTidalPlayback(page.topTracks) } });
+          return;
+        }
+        throw new Error(`Unsupported Spotify catalog page: ${kind}`);
       }
       if (provider === "soundcloud" && kind === "track") {
         send({ id: request.id, ok: true, data: await soundCloudTrackPage(resourceId) });
@@ -619,6 +720,14 @@ async function handle(request: RequestMessage): Promise<void> {
         send({ id: request.id, ok: true, data: await soundCloudMore(section, cursor) });
         return;
       }
+      if (provider === "spotify") {
+        if (!spotifySession.linked) throw new Error("Connect Spotify in Settings to expand Spotify catalog pages");
+        const page = await spotifyCatalog.detailMore(kind, resourceId, section, cursor);
+        send({ id: request.id, ok: true, data: {
+          ...page, ...(page.tracks ? { tracks: await withTidalPlayback(page.tracks) } : {}),
+        } });
+        return;
+      }
       if (provider !== "tidal") throw new Error(`Catalog pagination is not implemented for ${provider}`);
       if (kind === "playlist") {
         await accountStatus();
@@ -632,6 +741,11 @@ async function handle(request: RequestMessage): Promise<void> {
     case "detail.albumTracks": {
       const resourceId = String(request.payload?.id ?? "").trim();
       if (!resourceId) throw new Error("Album ID is empty");
+      if (request.payload?.provider === "spotify") {
+        if (!spotifySession.linked) throw new Error("Connect Spotify in Settings to load Spotify album tracks");
+        send({ id: request.id, ok: true, data: { tracks: await withTidalPlayback(await spotifyCatalog.albumTracks(resourceId)) } });
+        return;
+      }
       send({ id: request.id, ok: true, data: { tracks: await browse.allAlbumTracks(resourceId) } });
       return;
     }

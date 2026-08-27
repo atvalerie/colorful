@@ -192,6 +192,13 @@ Item {
                         color: Qt.rgba(1, 1, 1, 0.48)
                         font.pixelSize: Math.round(11 * colorful.textScale)
                     }
+                    Text {
+                        visible: root.page.provider === "spotify"
+                        text: "Spotify metadata · matched tracks play from TIDAL by ISRC"
+                        color: Qt.rgba(1, 1, 1, 0.48)
+                        font.pixelSize: Math.round(11 * colorful.textScale)
+                        wrapMode: Text.WordWrap
+                    }
                     MetadataLink {
                         visible: root.kind === "track" && Boolean(root.primary.albumId)
                         text: root.primary.albumTitle || "Open album"
@@ -246,7 +253,8 @@ Item {
                                        : colorful.showPlaylistPickerForTracks(root.tracks)
                         }
                         ColorButton {
-                            visible: root.kind === "track" || root.tracks.length > 0
+                            visible: (root.kind === "track" || root.tracks.length > 0)
+                                     && root.page.provider !== "spotify"
                             text: root.kind === "track" ? "Download" : "Download tracks"
                             quiet: true
                             onClicked: {

@@ -22,7 +22,7 @@ This is the documentation hub for colorful. Use the sections below to find platf
 - [Provider migration map](provider-migration.md) — Provider concepts and implementation boundaries carried into colorful.
 - [YouTube Music account setup](youtube-music-login.md) — Browser-based account connection and manual fallback.
 - [SoundCloud account setup](soundcloud-login.md) — Browser-based account connection and manual fallback.
-- [Spotify recommendations](spotify-login.md) — Cookie-backed Web Player sign-in, silent refresh, ISRC matching, and current limitations.
+- [Spotify catalog and recommendations](spotify-login.md) — Cookie-backed Web Player sign-in, silent refresh, catalog browsing, ISRC matching, and current limitations.
 
 ## iOS
 
