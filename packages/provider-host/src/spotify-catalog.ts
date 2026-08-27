@@ -23,6 +23,7 @@ import type { SpotifyCredentials } from "./spotify-auth";
  */
 export const SPOTIFY_CATALOG_API = "https://api.spotify.com/v1";
 export const SPOTIFY_PATHFINDER_API = "https://api-partner.spotify.com/pathfinder/v2/query";
+export const SPOTIFY_LIKED_PLAYLIST_ID = "collection:tracks";
 
 const PATHFINDER_HASHES = {
   searchTracks: "59ee4a659c32e9ad894a71308207594a65ba67bb6b632b183abe97303a51fa55",
@@ -332,6 +333,22 @@ function mapPathfinderPlaylist(value: unknown): PlaylistSummary | null {
     lastModifiedAt: null,
     ...(text(owner.name) ? { ownerName: text(owner.name) } : {}),
   } as PlaylistSummary;
+}
+
+function mapPathfinderLikedPlaylist(value: unknown): PlaylistSummary {
+  const item = object(value);
+  const image = pathfinderSources(item.image) ?? pathfinderSources(item.images);
+  return {
+    id: SPOTIFY_LIKED_PLAYLIST_ID,
+    name: text(item.name) || "Liked Songs",
+    description: null,
+    coverUrl: image ?? "https://misc.scdn.co/liked-songs/liked-songs-300.png",
+    durationMs: null,
+    numberOfItems: positiveInt(item.count),
+    playlistType: "LIKED SONGS",
+    createdAt: null,
+    lastModifiedAt: null,
+  };
 }
 
 function pathfinderItemData(value: unknown): Json {
@@ -734,6 +751,21 @@ export class SpotifyCatalogClient {
 
   async playlistPage(playlistId: string): Promise<PlaylistPage> {
     if (this.pathfinderEnabled) {
+      if (playlistId === SPOTIFY_LIKED_PLAYLIST_ID) {
+        const document = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
+          uri: "spotify:collection:tracks", offset: 0, limit: 50, includeEpisodeContentRatingsV2: true,
+        }));
+        const content = object(object(object(document.data).playlistV2).content);
+        const tracks = await this.hydrateTrackIsrcs(unique(array(content.items).map((item) => mapPathfinderTrack(pathfinderItemData(item)))));
+        const page = pathfinderPaging(content);
+        const result: PlaylistPage = {
+          kind: "playlist",
+          playlist: { ...mapPathfinderLikedPlaylist({ name: "Liked Songs", count: page.total }), durationMs: totalDuration(tracks), numberOfItems: page.total ?? null },
+          tracks,
+        };
+        if (page.next) result.trackCursor = page.next;
+        return result;
+      }
       const document = object(await this.pathfinder("fetchPlaylist", PATHFINDER_HASHES.fetchPlaylist, {
         uri: `spotify:playlist:${playlistId}`,
         offset: 0,
@@ -798,8 +830,8 @@ export class SpotifyCatalogClient {
   }> {
     const offset = cursorOffset(cursor);
     if (this.pathfinderEnabled && kind === "playlist" && section === "tracks") {
-      const document = object(await this.pathfinder("fetchPlaylist", PATHFINDER_HASHES.fetchPlaylist, {
-        uri: `spotify:playlist:${resourceId}`,
+      const document = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
+        uri: resourceId === SPOTIFY_LIKED_PLAYLIST_ID ? "spotify:collection:tracks" : `spotify:playlist:${resourceId}`,
         offset: Number(offset) || 0,
         limit: 50,
         includeEpisodeContentRatingsV2: true,
@@ -865,6 +897,7 @@ export class SpotifyCatalogClient {
       const pseudo = entries.map((entry) => pathfinderItemData(object(entry).item))
         .find((data) => text(data.__typename) === "PseudoPlaylist" && text(data.uri) === "spotify:collection:tracks");
       let likedTracks: TrackSummary[] = [];
+      const likedPlaylist = pseudo ? mapPathfinderLikedPlaylist(pseudo) : null;
       if (pseudo) {
         try {
           const likedDocument = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
@@ -876,7 +909,7 @@ export class SpotifyCatalogClient {
           debugLog("spotify.catalog", "liked_tracks_unavailable", { error: error instanceof Error ? error.message : String(error) });
         }
       }
-      const allPlaylists = playlists;
+      const allPlaylists = likedPlaylist ? [likedPlaylist, ...playlists] : playlists;
       const mixes = allPlaylists.filter(isPersonalizedMix);
       const userPlaylists = allPlaylists.filter((playlist) => !isPersonalizedMix(playlist));
       const cursors: Record<string, string> = {};

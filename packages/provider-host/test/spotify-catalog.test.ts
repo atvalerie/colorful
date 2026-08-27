@@ -133,6 +133,10 @@ describe("Spotify catalog client", () => {
     const result = await client.collection();
     expect(operations).toEqual(["libraryV3", "fetchPlaylistContents"]);
     expect(result.tracks).toEqual([expect.objectContaining({ id: likedTrackId, isrc: "USRC17607840" })]);
+    expect(result.playlists).toEqual([expect.objectContaining({ id: "collection:tracks", name: "Liked Songs", playlistType: "LIKED SONGS" })]);
+    const page = await client.playlistPage("collection:tracks");
+    expect(page.playlist.name).toBe("Liked Songs");
+    expect(page.tracks[0]?.id).toBe(likedTrackId);
   });
 
   test("searches all catalog kinds and returns independent pagination cursors", async () => {
