@@ -235,7 +235,11 @@ impl PartyController {
                     user,
                     channel,
                     replica,
-                    join_status: if invite.approval_required() { "pending".into() } else { "joined".into() },
+                    join_status: if invite.approval_required() {
+                        "pending".into()
+                    } else {
+                        "joined".into()
+                    },
                 };
                 Ok(json!({
                     "role": "guest",
@@ -251,7 +255,12 @@ impl PartyController {
                 frame,
                 received_at_ms,
             } => match self {
-                Self::Host { host, channel, pending_joins, .. } => {
+                Self::Host {
+                    host,
+                    channel,
+                    pending_joins,
+                    ..
+                } => {
                     let message: PartyMessage = channel.open(&frame).map_err(error)?;
                     let (_, outbound) = host_transaction(host, channel, |host| {
                         let events = match message {
@@ -294,7 +303,8 @@ impl PartyController {
                             *join_status = "joined".into();
                         }
                     }
-                    if let PartyEventBody::JoinRequestRejected { participant_id, .. } = &event.body {
+                    if let PartyEventBody::JoinRequestRejected { participant_id, .. } = &event.body
+                    {
                         if participant_id == user.participant_id() {
                             *join_status = "rejected".into();
                         }
@@ -478,10 +488,18 @@ impl PartyController {
                 Ok(json!({ "outbound": outbound, "state": state(self) }))
             }
             PartyCommand::ApproveJoin { participant_id } => {
-                let Self::Host { host, channel, pending_joins, .. } = self else {
+                let Self::Host {
+                    host,
+                    channel,
+                    pending_joins,
+                    ..
+                } = self
+                else {
                     return Err("only the host approves joins".into());
                 };
-                let request = pending_joins.remove(&participant_id).ok_or("join request not found")?;
+                let request = pending_joins
+                    .remove(&participant_id)
+                    .ok_or("join request not found")?;
                 let (_, outbound) = host_transaction(host, channel, |host| {
                     let joined = host.admit(&request)?;
                     let snapshot = host.snapshot()?;
@@ -489,12 +507,27 @@ impl PartyController {
                 })?;
                 Ok(json!({ "outbound": outbound, "state": state(self) }))
             }
-            PartyCommand::RejectJoin { participant_id, reason } => {
-                let Self::Host { host, channel, pending_joins, .. } = self else {
+            PartyCommand::RejectJoin {
+                participant_id,
+                reason,
+            } => {
+                let Self::Host {
+                    host,
+                    channel,
+                    pending_joins,
+                    ..
+                } = self
+                else {
                     return Err("only the host rejects joins".into());
                 };
-                pending_joins.remove(&participant_id).ok_or("join request not found")?;
-                let reason = if reason.is_empty() { "Host declined the request".to_owned() } else { reason };
+                pending_joins
+                    .remove(&participant_id)
+                    .ok_or("join request not found")?;
+                let reason = if reason.is_empty() {
+                    "Host declined the request".to_owned()
+                } else {
+                    reason
+                };
                 let (_, outbound) = host_transaction(host, channel, |host| {
                     Ok(((), vec![host.reject_join(&participant_id, reason)?]))
                 })?;
@@ -571,7 +604,11 @@ fn host_transaction<T>(
 fn state(controller: &PartyController) -> Value {
     match controller {
         PartyController::Empty => json!({ "active": false }),
-        PartyController::Host { host, pending_joins, .. } => {
+        PartyController::Host {
+            host,
+            pending_joins,
+            ..
+        } => {
             let participants = host.participants().cloned().collect::<Vec<_>>();
             let mut queue = Vec::new();
             for event in host.events() {
@@ -592,13 +629,23 @@ fn state(controller: &PartyController) -> Value {
                     _ => {}
                 }
             }
-            let pending = pending_joins.values().map(|request| json!({
-                "participantId": request.participant_id,
-                "displayName": request.display_name,
-            })).collect::<Vec<_>>();
+            let pending = pending_joins
+                .values()
+                .map(|request| {
+                    json!({
+                        "participantId": request.participant_id,
+                        "displayName": request.display_name,
+                    })
+                })
+                .collect::<Vec<_>>();
             json!({ "active": true, "role": "host", "partyId": host.party_id(), "participants": participants, "pendingJoins": pending, "joinEnabled": host.join_enabled(), "approvalRequired": host.approval_required() })
         }
-        PartyController::Guest { user, replica, join_status, .. } => json!({
+        PartyController::Guest {
+            user,
+            replica,
+            join_status,
+            ..
+        } => json!({
             "active": true,
             "role": replica.participants.get(user.participant_id()).map(|participant| participant.role).unwrap_or(crate::party_session::PartyRole::Guest),
             "partyId": replica.party_id(),
