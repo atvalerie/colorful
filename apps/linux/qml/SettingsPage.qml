@@ -7,6 +7,8 @@ Item {
     id: root
     property int tab: 0
     property url pendingTravelImportFile: ""
+    property string pendingSpotifyAction: ""
+    property string pendingSpotifyMode: ""
     readonly property var aboutBuild: colorful.buildInfo || {}
     readonly property var pages: [
         ["Accounts", "Provider connections"],
@@ -36,6 +38,59 @@ Item {
     function readablePlan(value, fallback) {
         if (!value) return fallback
         return String(value).replace(/^creator-/, "").replace(/-/g, " ").replace(/\b\w/g, function(letter) { return letter.toUpperCase() })
+    }
+
+    function openSpotifyExplanation(action, mode) {
+        pendingSpotifyAction = action || "info"
+        pendingSpotifyMode = mode || ""
+        spotifyExplanationPopup.open()
+    }
+
+    function requestSpotifyLogin() {
+        if (colorful.spotifyExplainerSeen) colorful.startSpotifyBrowserLogin()
+        else openSpotifyExplanation("connect", "")
+    }
+
+    function requestRecommendationMode(mode) {
+        if (mode === "tidal") {
+            colorful.recommendationMode = mode
+            return
+        }
+        if (!colorful.spotifyLinked) {
+            openSpotifyExplanation("connect-mode", mode)
+            return
+        }
+        if (colorful.spotifyExplainerSeen) {
+            colorful.recommendationMode = mode
+            return
+        }
+        openSpotifyExplanation("mode", mode)
+    }
+
+    function acceptSpotifyExplanation() {
+        const action = pendingSpotifyAction
+        const mode = pendingSpotifyMode
+        pendingSpotifyAction = ""
+        if (action !== "connect-mode") pendingSpotifyMode = ""
+        colorful.spotifyExplainerSeen = true
+        spotifyExplanationPopup.close()
+        if (mode.length > 0 && action !== "connect-mode") colorful.recommendationMode = mode
+        if (action === "connect" || action === "connect-mode") colorful.startSpotifyBrowserLogin()
+    }
+
+    Connections {
+        target: colorful
+        function onSpotifyAccountChanged() {
+            if (!colorful.spotifyLinked || root.pendingSpotifyMode.length === 0) return
+            const mode = root.pendingSpotifyMode
+            root.pendingSpotifyMode = ""
+            colorful.recommendationMode = mode
+        }
+    }
+
+    onVisibleChanged: {
+        if (visible && colorful.spotifyLinked && !colorful.spotifyExplainerSeen)
+            Qt.callLater(function() { root.openSpotifyExplanation("info", "") })
     }
 
     RowLayout {
@@ -238,7 +293,7 @@ Item {
                         ]
                         primaryText: colorful.spotifyLinked ? "Reconnect" : "Sign in"
                         extraVisible: true
-                        onPrimaryRequested: colorful.startSpotifyBrowserLogin()
+                        onPrimaryRequested: root.requestSpotifyLogin()
                         onSecondaryRequested: colorful.unlinkSpotify()
                         Text {
                             Layout.fillWidth: true
@@ -267,8 +322,6 @@ Item {
                                     required property var modelData
                                     width: spotifyModeRow.width / 3
                                     height: spotifyModeRow.height
-                                    enabled: modelData[0] !== "spotify" || colorful.spotifyLinked
-                                    opacity: enabled ? 1 : 0.45
                                     color: colorful.recommendationMode === modelData[0]
                                            ? Qt.rgba(1, 1, 1, 0.075)
                                            : spotifyModeHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
@@ -282,10 +335,15 @@ Item {
                                         Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
                                         Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: modelData[2]; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: Math.round(9 * colorful.textScale); elide: Text.ElideRight }
                                     }
-                                    HoverHandler { id: spotifyModeHover; cursorShape: parent.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
-                                    TapHandler { enabled: parent.enabled; onTapped: colorful.recommendationMode = modelData[0] }
+                                    HoverHandler { id: spotifyModeHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: root.requestRecommendationMode(modelData[0]) }
                                 }
                             }
+                        }
+                        ColorButton {
+                            text: "How Spotify works"
+                            quiet: true
+                            onClicked: root.openSpotifyExplanation("info", "")
                         }
                     }
                 }
@@ -346,13 +404,12 @@ Item {
                                        : recommendationHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
                                 border.width: 1
                                 border.color: colorful.recommendationMode === modelData[0] ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
-                                opacity: modelData[0] === "spotify" && !colorful.spotifyLinked ? 0.58 : 1
                                 Column { anchors.centerIn: parent; spacing: 2
                                     Text { id: recommendationText; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
                                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData[2]; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: Math.round(9 * colorful.textScale) }
                                 }
                                 HoverHandler { id: recommendationHover; cursorShape: Qt.PointingHandCursor }
-                                TapHandler { onTapped: colorful.recommendationMode = modelData[0] }
+                                TapHandler { onTapped: root.requestRecommendationMode(modelData[0]) }
                             }
                         }
                     }
@@ -1126,6 +1183,167 @@ Item {
                             onClicked: Qt.openUrlExternally(aboutBuild.noticesUrl)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: spotifyExplanationPopup
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(660, root.width - 40)
+        height: Math.min(720, root.height - 40)
+        modal: true
+        padding: 0
+        closePolicy: Popup.NoAutoClose
+
+        background: Rectangle {
+            color: "#17171a"
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.16)
+            radius: 8
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 22
+                Layout.bottomMargin: 14
+                spacing: 5
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "Spotify discovery, TIDAL playback"
+                    color: "#f5f5f5"
+                    font.bold: true
+                    font.pixelSize: Math.round(21 * colorful.textScale)
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "Connect Spotify only if you want its personalization. colorful never streams or captures Spotify audio."
+                    color: Qt.rgba(1, 1, 1, 0.55)
+                    font.pixelSize: Math.round(12 * colorful.textScale)
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.09) }
+
+            ScrollView {
+                id: spotifyExplanationScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.leftMargin: 22
+                Layout.rightMargin: 14
+                clip: true
+                contentWidth: availableWidth
+
+                ColumnLayout {
+                    width: spotifyExplanationScroll.availableWidth
+                    spacing: 11
+
+                    Item { Layout.preferredHeight: 3 }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "How a recommendation becomes audio"
+                        color: "#f5f5f5"
+                        font.bold: true
+                        font.pixelSize: Math.round(13 * colorful.textScale)
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "1. colorful identifies the current TIDAL track by ISRC.\n2. Spotify supplies personalized track recommendations and metadata.\n3. Each result is matched back to TIDAL by ISRC.\n4. TIDAL supplies the playable track; unmatched results are skipped."
+                        color: Qt.rgba(1, 1, 1, 0.62)
+                        font.pixelSize: Math.round(11 * colorful.textScale)
+                        lineHeight: 1.25
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 4
+                        text: "Recommendation modes"
+                        color: "#f5f5f5"
+                        font.bold: true
+                        font.pixelSize: Math.round(13 * colorful.textScale)
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "TIDAL only — never asks Spotify.\nSpotify only — always uses Spotify personalization, then matches to TIDAL.\nAutomatic — asks TIDAL first and uses Spotify only when TIDAL returns nothing."
+                        color: Qt.rgba(1, 1, 1, 0.62)
+                        font.pixelSize: Math.round(11 * colorful.textScale)
+                        lineHeight: 1.25
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 4
+                        text: "Sign-in and privacy"
+                        color: "#f5f5f5"
+                        font.bold: true
+                        font.pixelSize: Math.round(13 * colorful.textScale)
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "A free Spotify account is enough. The first sign-in uses Spotify's own page in an isolated colorful browser profile. Its cookies keep the session alive; short-lived Web Player tokens stay in memory and refresh silently, so no browser opens for each request. Disconnecting clears that isolated session. Your password and email are never retained by colorful."
+                        color: Qt.rgba(1, 1, 1, 0.62)
+                        font.pixelSize: Math.round(11 * colorful.textScale)
+                        lineHeight: 1.25
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: currentScopeText.implicitHeight + 24
+                        Layout.topMargin: 4
+                        color: Qt.rgba(1, 1, 1, 0.035)
+                        border.width: 1
+                        border.color: Qt.rgba(1, 1, 1, 0.1)
+                        radius: 4
+                        Text {
+                            id: currentScopeText
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            text: "Current scope: Spotify powers autoplay/radio recommendations and internal ISRC lookup. Spotify catalog search, library, playlists, albums, and mixes are not exposed in the UI yet."
+                            color: Qt.rgba(1, 1, 1, 0.52)
+                            font.pixelSize: Math.round(10 * colorful.textScale)
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                    Item { Layout.preferredHeight: 4 }
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.09) }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 16
+                spacing: 8
+
+                ColorButton {
+                    text: "Read full guide"
+                    quiet: true
+                    onClicked: Qt.openUrlExternally("https://github.com/atvalerie/colorful/blob/dev/docs/spotify-login.md")
+                }
+                Item { Layout.fillWidth: true }
+                ColorButton {
+                    text: root.pendingSpotifyAction === "info" ? "Close" : "Not now"
+                    quiet: true
+                    onClicked: {
+                        root.pendingSpotifyAction = ""
+                        root.pendingSpotifyMode = ""
+                        spotifyExplanationPopup.close()
+                    }
+                }
+                ColorButton {
+                    text: root.pendingSpotifyAction === "connect" || root.pendingSpotifyAction === "connect-mode"
+                          ? "Continue to Spotify"
+                          : root.pendingSpotifyAction === "mode" ? "Use this mode" : "I understand"
+                    onClicked: root.acceptSpotifyExplanation()
                 }
             }
         }

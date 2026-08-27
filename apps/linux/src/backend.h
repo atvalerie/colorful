@@ -94,6 +94,7 @@ class Backend final : public QObject
     Q_PROPERTY(double textScale READ textScale WRITE setTextScale NOTIFY appearanceChanged)
     Q_PROPERTY(bool autoplayEnabled READ autoplayEnabled WRITE setAutoplayEnabled NOTIFY autoplayEnabledChanged)
     Q_PROPERTY(QString recommendationMode READ recommendationMode WRITE setRecommendationMode NOTIFY recommendationModeChanged)
+    Q_PROPERTY(bool spotifyExplainerSeen READ spotifyExplainerSeen WRITE setSpotifyExplainerSeen NOTIFY spotifyExplainerSeenChanged)
     Q_PROPERTY(QString streamQuality READ streamQuality WRITE setStreamQuality NOTIFY streamQualityChanged)
     Q_PROPERTY(bool soundcloudOriginalDownloads READ soundcloudOriginalDownloads WRITE setSoundcloudOriginalDownloads NOTIFY downloadPreferencesChanged)
     Q_PROPERTY(bool normalizationEnabled READ normalizationEnabled WRITE setNormalizationEnabled NOTIFY audioProcessingChanged)
@@ -185,6 +186,7 @@ public:
     double textScale() const { return m_textScale; }
     bool autoplayEnabled() const { return m_autoplayEnabled; }
     QString recommendationMode() const { return m_recommendationMode; }
+    bool spotifyExplainerSeen() const { return m_spotifyExplainerSeen; }
     QString streamQuality() const { return m_streamQuality; }
     bool soundcloudOriginalDownloads() const { return m_soundcloudOriginalDownloads; }
     bool normalizationEnabled() const { return m_normalizationEnabled; }
@@ -307,6 +309,7 @@ public:
     Q_INVOKABLE void copySongLink(const QVariantMap &track);
     Q_INVOKABLE void setAutoplayEnabled(bool enabled);
     Q_INVOKABLE void setRecommendationMode(const QString &mode);
+    Q_INVOKABLE void setSpotifyExplainerSeen(bool seen);
     Q_INVOKABLE void setStreamQuality(const QString &quality);
     Q_INVOKABLE void setSoundcloudOriginalDownloads(bool enabled);
     Q_INVOKABLE void setNormalizationEnabled(bool enabled);
@@ -365,6 +368,7 @@ signals:
     void appearanceChanged();
     void autoplayEnabledChanged();
     void recommendationModeChanged();
+    void spotifyExplainerSeenChanged();
     void streamQualityChanged();
     void downloadPreferencesChanged();
     void audioProcessingChanged();
@@ -578,6 +582,7 @@ private:
     QPointer<QNetworkReply> m_accentReply;
     bool m_autoplayEnabled = true;
     QString m_recommendationMode = QStringLiteral("fallback");
+    bool m_spotifyExplainerSeen = false;
     QString m_streamQuality = QStringLiteral("best");
     bool m_soundcloudOriginalDownloads = false;
     bool m_reconcilingDownloads = false;

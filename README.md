@@ -41,9 +41,11 @@ native platform integration. Your queue, library, playlists, history, settings,
 and offline jobs stay on your device. colorful has no account system or central
 library server.
 
-The desktop client connects to TIDAL, YouTube Music, and SoundCloud. Playback,
-system media controls, and credential storage live in each client. The clients
-share a Rust library and queue engine.
+The desktop client connects to TIDAL, YouTube Music, and SoundCloud for catalog
+and playback features. Spotify can optionally provide recommendation and
+discovery metadata; Colorful matches those results back to TIDAL, which remains
+the playback source. System media controls and credential storage live in each
+client. The clients share a Rust library and queue engine.
 
 > [!NOTE]
 > colorful is still in alpha. The desktop app is furthest along. Android and
@@ -58,6 +60,8 @@ share a Rust library and queue engine.
 - Resumable downloads with artwork, storage quotas, cleanup, and local playback.
 - Synchronized lyrics, cached fallbacks, radio, recommendations, related tracks,
   and listening history.
+- Optional Spotify personalization for discovery, with ISRC-verified TIDAL
+  matches for playback.
 - libmpv audio with gapless transitions, selectable output, ReplayGain, and a
   10-band equalizer.
 - Linux MPRIS, Windows media controls, and Discord Rich Presence.
@@ -85,15 +89,22 @@ Mobile development and installation details live in the
 ## Provider accounts
 
 TIDAL uses device authorization. YouTube Music and SoundCloud work anonymously
-for public catalog features and can optionally connect to your account.
+for public catalog features and can optionally connect to your account. Spotify
+is an optional desktop recommendation source; a free Spotify account is enough
+for this feature, while playback remains on TIDAL.
 
-On desktop, the sign-in button opens Chrome, Edge, or another Chromium-family
-browser in a temporary profile. colorful reads the authenticated provider
-request through a local connection and saves the required headers or token in
-the operating system credential store. The browser handles passwords and forms.
+On desktop, YouTube Music and SoundCloud sign-in open Chrome, Edge, or another
+Chromium-family browser in a temporary profile. Colorful reads the
+authenticated provider request through a local connection and saves the
+required headers or token in the operating system credential store. Spotify
+uses Spotify's own login page in a persistent, isolated app profile: only the
+initial sign-in or re-authentication is visible, and later cookie-backed token
+refresh runs in a hidden browser session. The browser handles passwords and
+forms.
 
 - [Connect YouTube Music](docs/youtube-music-login.md)
 - [Connect SoundCloud](docs/soundcloud-login.md)
+- [Connect Spotify recommendations](docs/spotify-login.md)
 
 ## Architecture
 
@@ -121,7 +132,7 @@ Start with the [documentation hub](docs/README.md).
 | --- | --- |
 | Desktop | [Linux](apps/linux/README.md) · [Windows](apps/windows/README.md) |
 | Mobile | [Android](apps/android/README.md) · [iOS](apps/ios/README.md) · [iOS builds](docs/ios-builds.md) |
-| Providers | [YouTube Music](docs/youtube-music-login.md) · [SoundCloud](docs/soundcloud-login.md) · [migration map](docs/provider-migration.md) |
+| Providers | [YouTube Music](docs/youtube-music-login.md) · [SoundCloud](docs/soundcloud-login.md) · [Spotify recommendations](docs/spotify-login.md) · [migration map](docs/provider-migration.md) |
 | Internals | [Architecture](docs/architecture.md) · [storage](docs/storage.md) · [native ABI](docs/core-abi.md) |
 | Social | [Parties](docs/parties.md) · [sync](docs/sync.md) · [connectivity](docs/connectivity.md) |
 | Project | [Roadmap](docs/todo.md) · [contributing](CONTRIBUTING.md) · [third-party notices](THIRD_PARTY_NOTICES.md) |

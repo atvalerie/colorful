@@ -5,6 +5,7 @@ import QtQuick.Layouts
 FocusScope {
     id: root
     signal openAccountsRequested()
+    signal openSpotifyRequested()
     property int step: 0
     readonly property int stepCount: 4
     readonly property var steps: [
@@ -164,7 +165,7 @@ FocusScope {
                                 width: Math.min(parent.width, 820)
                                 spacing: 14
                                 Text { text: "Welcome to colorful"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
-                                Text { Layout.fillWidth: true; text: "A local-first personal music client for TIDAL, YouTube Music, and SoundCloud."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
+                                Text { Layout.fillWidth: true; text: "A local-first personal music client for TIDAL, YouTube Music, and SoundCloud, with optional Spotify-powered discovery."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
                                 Rectangle {
                                     Layout.fillWidth: true; Layout.preferredHeight: 76
                                     color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -178,7 +179,7 @@ FocusScope {
                                     color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
                                     Column { anchors.fill: parent; anchors.margins: 15; spacing: 4
                                         Text { text: "Connections are optional"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
-                                        Text { width: parent.width; text: "Use one provider or all three. Public YouTube Music and SoundCloud content works without signing in."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
+                                        Text { width: parent.width; text: "Use only the providers you want. Public YouTube Music and SoundCloud content works without signing in; Spotify is optional and supplies recommendations, not audio."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
                                     }
                                 }
                                 Rectangle {
@@ -207,7 +208,8 @@ FocusScope {
                                         model: [
                                             { name: "TIDAL", detail: "Library, recommendations, and lossless playback", linked: colorful.linked, action: "tidal" },
                                             { name: "YouTube Music", detail: "Account-only and age-gated tracks", linked: colorful.youtubeLinked, action: "youtube" },
-                                            { name: "SoundCloud", detail: "Personalized library and recommendations", linked: colorful.soundcloudLinked, action: "soundcloud" }
+                                            { name: "SoundCloud", detail: "Personalized library and recommendations", linked: colorful.soundcloudLinked, action: "soundcloud" },
+                                            { name: "Spotify", detail: "Optional recommendations only; Spotify audio is never played", linked: colorful.spotifyLinked, action: "spotify" }
                                         ]
                                         delegate: Rectangle {
                                             required property var modelData
@@ -221,12 +223,13 @@ FocusScope {
                                                 }
                                                 Text { text: modelData.linked ? "Connected" : "Not connected"; color: modelData.linked ? colorful.accent : Qt.rgba(1, 1, 1, 0.34); font.pixelSize: Math.round(10 * colorful.textScale) }
                                                 ColorButton {
-                                                    text: modelData.linked ? "Done" : (modelData.action === "tidal" ? "Connect" : "Setup guide")
-                                                    quiet: true; enabled: !modelData.linked && (modelData.action !== "tidal" || colorful.providerReady)
+                                                    text: modelData.linked ? "Done" : (modelData.action === "tidal" ? "Connect" : modelData.action === "spotify" ? "Learn about Spotify" : "Setup guide")
+                                                    quiet: true; enabled: !modelData.linked && (modelData.action !== "tidal" && modelData.action !== "spotify" || colorful.providerReady)
                                                     onClicked: {
                                                         if (modelData.action === "tidal") colorful.startLogin()
                                                         else if (modelData.action === "youtube") colorful.openYouTubeSetupGuide()
-                                                        else colorful.openSoundCloudSetupGuide()
+                                                        else if (modelData.action === "soundcloud") colorful.openSoundCloudSetupGuide()
+                                                        else root.openSpotifyRequested()
                                                     }
                                                 }
                                             }

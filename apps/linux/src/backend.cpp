@@ -201,6 +201,7 @@ Backend::Backend(QObject *parent)
         && m_recommendationMode != QStringLiteral("fallback")) {
         m_recommendationMode = QStringLiteral("fallback");
     }
+    m_spotifyExplainerSeen = settings.value(QStringLiteral("ui/spotifyExplainerSeen"), false).toBool();
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
@@ -3598,6 +3599,14 @@ void Backend::setOnboardingCompleted(bool completed)
     m_onboardingCompleted = completed;
     QSettings().setValue(QStringLiteral("ui/onboardingCompleted"), completed);
     emit onboardingCompletedChanged();
+}
+
+void Backend::setSpotifyExplainerSeen(bool seen)
+{
+    if (m_spotifyExplainerSeen == seen) return;
+    m_spotifyExplainerSeen = seen;
+    QSettings().setValue(QStringLiteral("ui/spotifyExplainerSeen"), seen);
+    emit spotifyExplainerSeenChanged();
 }
 
 void Backend::setPartyDiagnosticsEnabled(bool enabled)

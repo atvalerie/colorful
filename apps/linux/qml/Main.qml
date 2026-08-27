@@ -456,6 +456,11 @@ ApplicationWindow {
         visible: window.onboardingVisible
         z: 999
         onOpenAccountsRequested: window.openSettings(0)
+        onOpenSpotifyRequested: {
+            colorful.onboardingCompleted = true
+            window.openSettings(0)
+            Qt.callLater(function() { settingsPage.openSpotifyExplanation("connect", "") })
+        }
     }
 
     Rectangle {
