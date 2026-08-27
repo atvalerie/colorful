@@ -638,7 +638,7 @@ fn state(controller: &PartyController) -> Value {
                     })
                 })
                 .collect::<Vec<_>>();
-            json!({ "active": true, "role": "host", "partyId": host.party_id(), "participants": participants, "pendingJoins": pending, "joinEnabled": host.join_enabled(), "approvalRequired": host.approval_required() })
+            json!({ "active": true, "role": "host", "partyId": host.party_id(), "participants": participants, "queue": queue, "pendingJoins": pending, "joinEnabled": host.join_enabled(), "approvalRequired": host.approval_required() })
         }
         PartyController::Guest {
             user,
