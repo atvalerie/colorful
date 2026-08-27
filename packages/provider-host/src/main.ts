@@ -12,7 +12,7 @@ import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTu
 import { resolveLyrics } from "./lyrics";
 import { debugLog } from "./debug";
 import { recommendationMode, selectRecommendations } from "./recommendation-policy";
-import { SpotifyBrowserSession } from "./spotify-auth";
+import { loadSpotifyAccount, SpotifyBrowserSession, type SpotifyAccount, type SpotifyCredentials } from "./spotify-auth";
 import { SpotifyRecommendationClient } from "./spotify-recommendations";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
@@ -29,6 +29,7 @@ let youtubeAuthAbort: AbortController | null = null;
 let browserAuthAbort: AbortController | null = null;
 let spotifyAuthAbort: AbortController | null = null;
 const spotifySession = new SpotifyBrowserSession();
+let spotifyAccount: SpotifyAccount | null = null;
 const spotifyRecommendations = new SpotifyRecommendationClient({
   sessionProvider: async () => {
     const credentials = await spotifySession.credentials();
@@ -46,6 +47,15 @@ function send(message: ResponseMessage): void {
 
 function publicError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function refreshSpotifyAccount(credentials: SpotifyCredentials): Promise<SpotifyAccount | null> {
+  try {
+    spotifyAccount = await loadSpotifyAccount(credentials);
+  } catch (error) {
+    debugLog("spotify.auth", "profile_unavailable", { error: publicError(error) });
+  }
+  return spotifyAccount;
 }
 
 async function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs = 12_000): Promise<T> {
@@ -207,10 +217,14 @@ async function handle(request: RequestMessage): Promise<void> {
         soundcloudLinked: soundCloudLinked(),
         spotifyAvailable: true,
         spotifyLinked: spotifySession.linked,
+        ...(spotifyAccount ? { spotifyAccount } : {}),
       } });
       return;
     case "spotify.auth.status":
-      send({ id: request.id, ok: true, data: { linked: spotifySession.linked } });
+      send({ id: request.id, ok: true, data: {
+        linked: spotifySession.linked,
+        ...(spotifyAccount ? { account: spotifyAccount } : {}),
+      } });
       return;
     case "spotify.auth.browser.start": {
       spotifyAuthAbort?.abort();
@@ -218,8 +232,12 @@ async function handle(request: RequestMessage): Promise<void> {
       spotifyAuthAbort = controller;
       void spotifySession.authenticate(controller.signal, (status) => {
         send({ event: "browser.auth.progress", ok: true, data: { provider: "spotify", status } });
-      }).then(() => {
-        send({ event: "spotify.auth.completed", ok: true, data: { linked: true } });
+      }).then(async (credentials) => {
+        const account = await refreshSpotifyAccount(credentials);
+        send({ event: "spotify.auth.completed", ok: true, data: {
+          linked: true,
+          ...(account ? { account } : {}),
+        } });
       }).catch((error) => {
         if (!controller.signal.aborted) {
           send({ event: "spotify.auth.failed", ok: false, error: publicError(error) });
@@ -234,6 +252,7 @@ async function handle(request: RequestMessage): Promise<void> {
       spotifyAuthAbort?.abort();
       spotifyAuthAbort = null;
       await spotifySession.clear();
+      spotifyAccount = null;
       send({ id: request.id, ok: true, data: { linked: false } });
       return;
     case "youtube.auth.status":
@@ -693,7 +712,11 @@ async function restoreAccounts(): Promise<void> {
   })(), (async () => {
     const credentials = await spotifySession.restore();
     if (credentials) {
-      send({ event: "spotify.auth.restored", ok: true, data: { linked: true } });
+      const account = await refreshSpotifyAccount(credentials);
+      send({ event: "spotify.auth.restored", ok: true, data: {
+        linked: true,
+        ...(account ? { account } : {}),
+      } });
     }
   })()]);
 }

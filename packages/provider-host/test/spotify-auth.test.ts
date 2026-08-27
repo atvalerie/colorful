@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   parseSpotifyApiTokenResponse,
+  parseSpotifyAccount,
   parseSpotifyClientTokenResponse,
+  loadSpotifyAccount,
   collectSpotifyTrackIds,
   isSpotifyPathfinderUrl,
   spotifyProfileDirectory,
@@ -93,6 +95,40 @@ describe("Spotify cookie-backed session primitives", () => {
     expect(parseSpotifyClientTokenResponse({ token: "fallback-client-token" }, NOW))
       .toEqual({ clientToken: "fallback-client-token", expiresAtMs: null });
     expect(parseSpotifyClientTokenResponse({ granted_token: {} }, NOW)).toBeNull();
+  });
+
+  test("keeps only useful non-secret Spotify profile fields", () => {
+    expect(parseSpotifyAccount({
+      id: "account-id",
+      display_name: "Val",
+      email: "never-retain@example.com",
+      product: "PREMIUM",
+      country: "pl",
+      images: [{ url: "https://i.scdn.co/image/profile" }],
+      external_urls: { spotify: "https://open.spotify.com/user/account-id" },
+    })).toEqual({
+      id: "account-id",
+      displayName: "Val",
+      product: "premium",
+      country: "PL",
+      imageUrl: "https://i.scdn.co/image/profile",
+      profileUrl: "https://open.spotify.com/user/account-id",
+    });
+    expect(parseSpotifyAccount({ display_name: "No ID" })).toBeNull();
+  });
+
+  test("loads the current account with the in-memory bearer", async () => {
+    let authorization = "";
+    const account = await loadSpotifyAccount(credentials(), async (input, init) => {
+      expect(String(input)).toBe("https://api.spotify.com/v1/me");
+      authorization = String((init?.headers as Record<string, string>).Authorization);
+      return new Response(JSON.stringify({ id: "account-id", display_name: "Val", product: "free" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    expect(authorization).toBe("Bearer access-token");
+    expect(account).toMatchObject({ id: "account-id", displayName: "Val", product: "free" });
   });
 
   test("recognizes Pathfinder search responses without accepting unrelated URLs", () => {

@@ -220,21 +220,73 @@ Item {
                     ProviderAccountCard {
                         Layout.fillWidth: true
                         providerName: "Spotify"
+                        property var account: colorful.spotifyAccount || ({})
                         loading: !colorful.providerStatusResolved
                         connected: colorful.spotifyLinked
                         statusText: !colorful.providerStatusResolved ? "Checking saved account…"
-                                    : colorful.spotifyLinked ? "Connected for recommendations" : "Not connected"
+                                    : colorful.spotifyLinked
+                                      ? "Connected  ·  " + (account.displayName || account.id || "Spotify account")
+                                      : "Not connected"
                         description: colorful.spotifyLinked
                                      ? "Spotify personalizes autoplay. Every result is matched by ISRC and played from TIDAL."
                                      : "Optional: sign in with Spotify for personalized recommendations. Spotify audio is never streamed by colorful."
+                        avatarSource: account.imageUrl || ""
                         details: [
-                            [colorful.spotifyLinked ? "Ready" : "Optional", "Recommendation account"],
-                            ["TIDAL", "Playback source"],
-                            ["ISRC", "Track matching"]
+                            [account.displayName || account.id || "Connected", "Profile"],
+                            [root.readablePlan(account.product, "Unknown"), "Plan"],
+                            [account.country || "Unknown", "Region"]
                         ]
                         primaryText: colorful.spotifyLinked ? "Reconnect" : "Sign in"
+                        extraVisible: true
                         onPrimaryRequested: colorful.startSpotifyBrowserLogin()
                         onSecondaryRequested: colorful.unlinkSpotify()
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Recommendation source"
+                            color: "#f5f5f5"
+                            font.bold: true
+                            font.pixelSize: Math.round(12 * colorful.textScale)
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Choose this here or in Playback. Spotify modes still play matched audio from TIDAL."
+                            color: Qt.rgba(1, 1, 1, 0.38)
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: Math.round(10 * colorful.textScale)
+                        }
+                        Row {
+                            id: spotifyModeRow
+                            Layout.fillWidth: true
+                            height: 52
+                            spacing: 0
+                            Repeater {
+                                model: [["tidal", "TIDAL only", "Never ask Spotify"],
+                                        ["spotify", "Spotify only", "Always personalize"],
+                                        ["fallback", "Automatic", "Spotify if TIDAL is empty"]]
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: spotifyModeRow.width / 3
+                                    height: spotifyModeRow.height
+                                    enabled: modelData[0] !== "spotify" || colorful.spotifyLinked
+                                    opacity: enabled ? 1 : 0.45
+                                    color: colorful.recommendationMode === modelData[0]
+                                           ? Qt.rgba(1, 1, 1, 0.075)
+                                           : spotifyModeHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                    border.width: 1
+                                    border.color: colorful.recommendationMode === modelData[0]
+                                                  ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                    Column {
+                                        anchors.centerIn: parent
+                                        width: parent.width - 16
+                                        spacing: 2
+                                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideRight }
+                                        Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: modelData[2]; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: Math.round(9 * colorful.textScale); elide: Text.ElideRight }
+                                    }
+                                    HoverHandler { id: spotifyModeHover; cursorShape: parent.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                                    TapHandler { enabled: parent.enabled; onTapped: colorful.recommendationMode = modelData[0] }
+                                }
+                            }
+                        }
                     }
                 }
             }

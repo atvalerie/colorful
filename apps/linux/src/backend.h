@@ -41,6 +41,7 @@ class Backend final : public QObject
     Q_PROPERTY(bool soundcloudHubLoading READ soundcloudHubLoading NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool soundcloudMoreLoading READ soundcloudMoreLoading NOTIFY soundcloudAccountChanged)
     Q_PROPERTY(bool spotifyLinked READ spotifyLinked NOTIFY spotifyAccountChanged)
+    Q_PROPERTY(QVariantMap spotifyAccount READ spotifyAccount NOTIFY spotifyAccountChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QVariantList searchResults READ searchResults NOTIFY searchResultsChanged)
     Q_PROPERTY(QVariantList searchAlbums READ searchAlbums NOTIFY searchResultsChanged)
@@ -131,6 +132,7 @@ public:
     bool soundcloudHubLoading() const { return m_soundcloudHubLoading; }
     bool soundcloudMoreLoading() const { return m_soundcloudMoreLoading; }
     bool spotifyLinked() const { return m_spotifyLinked; }
+    QVariantMap spotifyAccount() const { return m_spotifyAccount; }
     QString statusMessage() const { return m_statusMessage; }
     QVariantList searchResults() const { return m_searchResults; }
     QVariantList searchAlbums() const { return m_searchAlbums; }
@@ -538,6 +540,7 @@ private:
     bool m_soundcloudMoreLoading = false;
     bool m_soundcloudLinked = false;
     bool m_spotifyLinked = false;
+    QVariantMap m_spotifyAccount;
     QVariantMap m_listenStats;
     QVariantMap m_lyrics;
     QString m_lyricsTrackKey;

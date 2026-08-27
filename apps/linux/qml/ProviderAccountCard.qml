@@ -15,6 +15,7 @@ Rectangle {
     property bool secondaryVisible: root.connected
     property bool extraVisible: false
     property var details: []
+    property url avatarSource: ""
     default property alias extraContent: extra.data
     signal primaryRequested()
     signal secondaryRequested()
@@ -35,6 +36,21 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 14
+            Rectangle {
+                visible: root.connected && root.avatarSource.toString().length > 0
+                Layout.preferredWidth: visible ? 42 : 0
+                Layout.preferredHeight: visible ? 42 : 0
+                radius: 21
+                color: Qt.rgba(1, 1, 1, 0.06)
+                clip: true
+                Image {
+                    anchors.fill: parent
+                    source: root.avatarSource
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+                }
+            }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 3

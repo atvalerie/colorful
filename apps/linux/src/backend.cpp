@@ -1284,8 +1284,10 @@ void Backend::providerHostStarted()
             emit soundcloudAccountChanged();
         }
         const auto spotifyLinked = data.value(QStringLiteral("spotifyLinked")).toBool();
-        if (m_spotifyLinked != spotifyLinked) {
+        const auto spotifyAccount = data.value(QStringLiteral("spotifyAccount")).toObject().toVariantMap();
+        if (m_spotifyLinked != spotifyLinked || m_spotifyAccount != spotifyAccount) {
             m_spotifyLinked = spotifyLinked;
+            m_spotifyAccount = spotifyAccount;
             emit spotifyAccountChanged();
         }
         if (!data.value(QStringLiteral("browseConfigured")).toBool()) {
@@ -1471,6 +1473,8 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
                || event == QStringLiteral("spotify.auth.completed")) {
         const auto completed = event.endsWith(QStringLiteral("completed"));
         m_spotifyLinked = true;
+        m_spotifyAccount = message.value(QStringLiteral("data")).toObject()
+                               .value(QStringLiteral("account")).toObject().toVariantMap();
         if (m_authProvider == QStringLiteral("spotify")) {
             m_authPending = false;
             emit authPendingChanged();
@@ -1680,6 +1684,7 @@ void Backend::unlinkSpotify()
             return;
         }
         m_spotifyLinked = false;
+        m_spotifyAccount.clear();
         emit spotifyAccountChanged();
         notify(QStringLiteral("Spotify recommendation account disconnected"));
     });

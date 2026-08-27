@@ -24,6 +24,7 @@ const SEARCH_TIMEOUT_MS = 20_000;
 const PATHFINDER_HOST = "api-partner.spotify.com";
 const PATHFINDER_PATHS = new Set(["/pathfinder/v1/query", "/pathfinder/v2/query"]);
 const SPOTIFY_TRACK_ID = /^[A-Za-z0-9]{22}$/;
+const SPOTIFY_PROFILE_URL = "https://api.spotify.com/v1/me";
 
 type JsonObject = Record<string, unknown>;
 
@@ -50,6 +51,20 @@ export type SpotifyCredentials = {
   expiresAtMs: number;
   clientTokenExpiresAtMs: number | null;
 };
+
+export type SpotifyAccount = {
+  id: string;
+  displayName: string;
+  product: string;
+  country: string;
+  imageUrl: string;
+  profileUrl: string;
+};
+
+export type SpotifyProfileFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -129,6 +144,37 @@ function expirationMs(value: unknown): number | null {
 function durationMs(value: unknown): number | null {
   const number = positiveNumber(value);
   return number === null ? null : number * 1_000;
+}
+
+/** Keep only non-secret fields useful for identifying the linked account. */
+export function parseSpotifyAccount(value: unknown): SpotifyAccount | null {
+  const document = object(value);
+  const id = text(document.id);
+  if (!id) return null;
+  const images = Array.isArray(document.images) ? document.images : [];
+  const imageUrl = text(object(images[0]).url);
+  return {
+    id,
+    displayName: text(document.display_name) || text(document.displayName),
+    product: text(document.product).toLowerCase(),
+    country: text(document.country).toUpperCase(),
+    imageUrl: imageUrl.startsWith("https://") ? imageUrl : "",
+    profileUrl: text(object(document.external_urls).spotify),
+  };
+}
+
+/** Load the current profile without retaining email or the response document. */
+export async function loadSpotifyAccount(
+  credentials: Pick<SpotifyCredentials, "accessToken">,
+  fetcher: SpotifyProfileFetch = globalThis.fetch,
+): Promise<SpotifyAccount> {
+  const response = await fetcher(SPOTIFY_PROFILE_URL, {
+    headers: { Authorization: `Bearer ${credentials.accessToken}` },
+  });
+  if (!response.ok) throw new Error(`Spotify profile request failed (${response.status})`);
+  const account = parseSpotifyAccount(await response.json());
+  if (!account) throw new Error("Spotify profile response did not identify an account");
+  return account;
 }
 
 /** Parse an open.spotify.com/api/token response without retaining the raw document. */
