@@ -68,7 +68,13 @@ describe("Spotify catalog client", () => {
         calls.push(url);
         expect(new Headers(init?.headers).get("authorization")).toBe("Bearer access-token");
         expect(new Headers(init?.headers).get("client-token")).toBe("client-token");
-        const type = new URL(url).searchParams.get("type");
+        const type = new URL(url).searchParams.get("type") ?? "";
+        if (type.includes(",")) return json({
+          tracks: { items: [track()], next: `${SPOTIFY_CATALOG_API}/search?type=track&offset=20` },
+          albums: { items: [{ id: albumId, name: "Album", artists: [], images: [], tracks: { total: 1 } }], next: `${SPOTIFY_CATALOG_API}/search?type=album&offset=20` },
+          artists: { items: [{ id: "artist-1", name: "Artist", images: [] }], next: `${SPOTIFY_CATALOG_API}/search?type=artist&offset=20` },
+          playlists: { items: [{ id: playlistId, name: "Mix", type: "playlist", images: [], tracks: { total: 2 } }], next: `${SPOTIFY_CATALOG_API}/search?type=playlist&offset=20` },
+        });
         if (type === "track") return json({ tracks: { items: [track()], next: `${SPOTIFY_CATALOG_API}/search?type=track&offset=20` } });
         if (type === "album") return json({ albums: { items: [{ id: albumId, name: "Album", artists: [], images: [], tracks: { total: 1 } }], next: `${SPOTIFY_CATALOG_API}/search?type=album&offset=20` } });
         if (type === "artist") return json({ artists: { items: [{ id: "artist-1", name: "Artist", images: [] }], next: `${SPOTIFY_CATALOG_API}/search?type=artist&offset=20` } });
@@ -76,7 +82,7 @@ describe("Spotify catalog client", () => {
       },
     });
     const result = await client.searchCatalog("rick astley", 20);
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(1);
     expect(result.tracks[0]?.isrc).toBe("USRC17607839");
     expect(result.playlists[0]?.id).toBe(playlistId);
     expect(result.cursors).toEqual({ tracks: "20", albums: "20", artists: "20", playlists: "20" });

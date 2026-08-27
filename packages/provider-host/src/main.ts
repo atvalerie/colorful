@@ -50,6 +50,7 @@ const spotifyCatalog = new SpotifyCatalogClient({
       clientToken: credentials.clientToken,
     };
   },
+  fetch: spotifySession.webPlayerFetch.bind(spotifySession),
 });
 
 function send(message: ResponseMessage): void {
@@ -62,7 +63,10 @@ function publicError(error: unknown): string {
 
 async function refreshSpotifyAccount(credentials: SpotifyCredentials): Promise<SpotifyAccount | null> {
   try {
-    spotifyAccount = await loadSpotifyAccount(credentials);
+    // Make the profile request from the same hidden page as the Web Player so
+    // its browser origin/cookies are preserved. This does not bypass Spotify
+    // quotas; the catalog client separately throttles public API calls.
+    spotifyAccount = await loadSpotifyAccount(credentials, spotifySession.webPlayerFetch.bind(spotifySession));
   } catch (error) {
     debugLog("spotify.auth", "profile_unavailable", { error: publicError(error) });
   }

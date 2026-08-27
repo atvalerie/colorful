@@ -11,14 +11,16 @@ import type {
   TrackSummary,
   UserCollectionPage,
 } from "./browse";
+import { debugLog } from "./debug";
 import type { SpotifyCredentials } from "./spotify-auth";
 
 /**
- * Spotify catalog metadata is read through the Web API with the bearer which
- * the first-party Web Player issued for the linked profile.  It is important
- * that this module never exposes a Spotify playback source: callers resolve
- * the returned ISRCs against their native playback provider (currently
- * TIDAL).
+ * Spotify catalog metadata is read through the Web API using the bearer which
+ * the first-party Web Player issued for the linked profile. In production the
+ * fetcher runs inside the hidden Web Player page, preserving its first-party
+ * browser context. It is important that this module never exposes a Spotify
+ * playback source: callers resolve the returned ISRCs against their native
+ * playback provider (currently TIDAL).
  */
 export const SPOTIFY_CATALOG_API = "https://api.spotify.com/v1";
 
@@ -31,6 +33,8 @@ export type SpotifyCatalogClientOptions = {
   fetch?: Fetcher;
   /** Market used for artist top tracks and market-dependent playlist items. */
   market?: string;
+  /** Minimum spacing between Web API requests. Defaults to 200ms. */
+  minRequestIntervalMs?: number;
 };
 
 export type SpotifyCollectionOptions = {
@@ -155,13 +159,14 @@ function mapSpotifyPlaylist(value: unknown): PlaylistSummary | null {
   const id = text(item.id);
   if (!id) return null;
   const type = text(item.type).toUpperCase() || "PLAYLIST";
+  const itemPage = object(item.items).total !== undefined ? item.items : item.tracks;
   return {
     id,
     name: text(item.name) || "Untitled playlist",
     description: text(item.description) || null,
     coverUrl: albumImages(item.images),
     durationMs: null,
-    numberOfItems: positiveInt(object(item.tracks).total),
+    numberOfItems: positiveInt(object(itemPage).total),
     playlistType: type,
     createdAt: null,
     lastModifiedAt: null,
@@ -234,11 +239,16 @@ export class SpotifyCatalogClient {
   private readonly sessionProvider: SessionProvider;
   private readonly fetcher: Fetcher;
   private readonly market: string;
+  private readonly minRequestIntervalMs: number;
+  private requestTail: Promise<void> = Promise.resolve();
+  private lastRequestAt = 0;
+  private rateLimitedUntil = 0;
 
   constructor(options: SpotifyCatalogClientOptions) {
     this.sessionProvider = options.sessionProvider;
     this.fetcher = options.fetch ?? globalThis.fetch;
     this.market = text(options.market).toUpperCase() || "US";
+    this.minRequestIntervalMs = Math.max(0, Math.trunc(options.minRequestIntervalMs ?? 200));
   }
 
   private async get(path: string, params: Record<string, string> = {}): Promise<unknown> {
@@ -246,28 +256,59 @@ export class SpotifyCatalogClient {
     for (const [key, value] of Object.entries(params)) {
       if (value) url.searchParams.set(key, value);
     }
-    let session = await this.sessionProvider(false);
-    if (!session.accessToken.trim()) throw new Error("Spotify catalog requires a linked Spotify account");
-    const request = () => this.fetcher(url, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${session.accessToken}`,
-        ...(session.clientToken ? { "Client-Token": session.clientToken } : {}),
-        "App-Platform": "WebPlayer",
-      },
-    });
-    let response = await request();
-    if (response.status === 401) {
-      session = await this.sessionProvider(true);
-      response = await request();
+    let release!: () => void;
+    const previous = this.requestTail;
+    this.requestTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const now = Date.now();
+      if (this.rateLimitedUntil > now) {
+        const retryIn = Math.ceil((this.rateLimitedUntil - now) / 1_000);
+        throw new Error(`Spotify catalog rate limited; retry in ${retryIn}s`);
+      }
+      const wait = this.minRequestIntervalMs - (now - this.lastRequestAt);
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      let session = await this.sessionProvider(false);
+      if (!session.accessToken.trim()) throw new Error("Spotify catalog requires a linked Spotify account");
+      const request = () => this.fetcher(url, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          ...(session.clientToken ? { "Client-Token": session.clientToken } : {}),
+          "App-Platform": "WebPlayer",
+        },
+      });
+      let response = await request();
+      if (response.status === 401) {
+        session = await this.sessionProvider(true);
+        response = await request();
+      }
+      this.lastRequestAt = Date.now();
+      if (!response.ok) {
+        const body = object(await response.json().catch(() => ({})));
+        const nested = object(body.error);
+        const reason = text(body.reason) || text(nested.reason) || text(body.message) || text(nested.message);
+        const retryAfter = response.headers.get("retry-after") ?? "";
+        if (response.status === 401) throw new Error("Spotify catalog session expired");
+        if (response.status === 403) throw new Error("Spotify catalog access was denied for this account");
+        if (response.status === 429) {
+          const retrySeconds = Number(retryAfter);
+          const cooldownMs = Number.isFinite(retrySeconds) && retrySeconds > 0
+            ? Math.min(5 * 60_000, retrySeconds * 1_000) : 5_000;
+          this.rateLimitedUntil = Date.now() + cooldownMs;
+          debugLog("spotify.catalog", "rate_limited", {
+            path, reason: reason || "unknown", retryAfter: retryAfter || undefined,
+          });
+          const detail = reason ? ` (${reason})` : "";
+          const retry = retryAfter ? `; retry after ${retryAfter}s` : "";
+          throw new Error(`Spotify catalog rate limit reached${detail}${retry}`);
+        }
+        throw new Error(`Spotify catalog request failed (${response.status}${reason ? `: ${reason}` : ""})`);
+      }
+      return response.json();
+    } finally {
+      release();
     }
-    if (!response.ok) {
-      if (response.status === 401) throw new Error("Spotify catalog session expired");
-      if (response.status === 403) throw new Error("Spotify catalog access was denied for this account");
-      if (response.status === 429) throw new Error("Spotify catalog rate limit reached");
-      throw new Error(`Spotify catalog request failed (${response.status})`);
-    }
-    return response.json();
   }
 
   /** Album and playlist endpoints often return simplified tracks without
@@ -298,17 +339,33 @@ export class SpotifyCatalogClient {
     if (!normalized) throw new Error("Spotify search query is empty");
     const pageLimit = String(Math.max(1, Math.min(50, Math.trunc(limit))));
     const current = asCursorMap(cursors);
-    const responses = await Promise.allSettled([
-      this.get("search", { q: normalized, type: "track", limit: pageLimit, offset: cursorOffset(current.tracks), market: this.market }),
-      this.get("search", { q: normalized, type: "album", limit: pageLimit, offset: cursorOffset(current.albums), market: this.market }),
-      this.get("search", { q: normalized, type: "artist", limit: pageLimit, offset: cursorOffset(current.artists), market: this.market }),
-      this.get("search", { q: normalized, type: "playlist", limit: pageLimit, offset: cursorOffset(current.playlists), market: this.market }),
-    ]);
+    const offsets = [cursorOffset(current.tracks), cursorOffset(current.albums), cursorOffset(current.artists), cursorOffset(current.playlists)];
+    const kinds = ["track", "album", "artist", "playlist"] as const;
+    // Spotify accepts a comma-separated type list. The initial global search
+    // therefore costs one request instead of four concurrent quota hits. Once
+    // a caller advances only one section, retain independent cursors and fetch
+    // the four sections through the serialized request gate above.
+    const combined = new Set(offsets).size === 1;
+    type Settled = { status: "fulfilled"; value: unknown } | { status: "rejected"; reason: unknown };
+    const responses: Settled[] = combined
+      ? [await this.get("search", {
+        q: normalized, type: kinds.join(","), limit: pageLimit, offset: offsets[0]!, market: this.market,
+      }).then((value) => ({ status: "fulfilled", value } as Settled), (reason) => ({ status: "rejected", reason } as Settled))]
+      : await Promise.all(kinds.map((kind, index) => this.get("search", {
+        q: normalized, type: kind, limit: pageLimit, offset: offsets[index]!, market: this.market,
+      }).then((value) => ({ status: "fulfilled", value } as Settled), (reason) => ({ status: "rejected", reason } as Settled))));
     if (responses.every((response) => response.status === "rejected")) {
       throw (responses[0] as PromiseRejectedResult).reason;
     }
-    const [tracks, albums, artists, playlists] = responses.map((response) =>
-      response.status === "fulfilled" ? response.value : {}) as [Json, Json, Json, Json];
+    const first = responses[0]!;
+    const [tracks, albums, artists, playlists] = combined
+      ? [
+        first.status === "fulfilled" ? { tracks: object(first.value).tracks } : {},
+        first.status === "fulfilled" ? { albums: object(first.value).albums } : {},
+        first.status === "fulfilled" ? { artists: object(first.value).artists } : {},
+        first.status === "fulfilled" ? { playlists: object(first.value).playlists } : {},
+      ] as [Json, Json, Json, Json]
+      : responses.map((response) => response.status === "fulfilled" ? response.value : {}) as [Json, Json, Json, Json];
     const result: CatalogSearchCursors & { playlists?: string } = {};
     const trackCursor = nextOffset(object(tracks).tracks);
     const albumCursor = nextOffset(object(albums).albums);
@@ -356,13 +413,16 @@ export class SpotifyCatalogClient {
 
   async playlistPage(playlistId: string): Promise<PlaylistPage> {
     const document = object(await this.get(`playlists/${encodeURIComponent(playlistId)}`, {
-      fields: "name,description,images,type,owner,tracks(total,next,items(track(id,name,artists,album,duration_ms,external_ids,external_urls,explicit)))",
+      // Spotify renamed the playlist item container from `tracks` to `items`.
+      // Keep the parser tolerant of the legacy shape for older responses.
+      fields: "name,description,images,type,owner,items(total,next,items(track(id,name,artists,album,duration_ms,external_ids,external_urls,explicit)))",
       limit: "100", market: this.market,
     }));
     const playlist = mapSpotifyPlaylist(document);
     if (!playlist) throw new Error("Spotify did not return that playlist");
-    const tracks = await this.hydrateTrackIsrcs(tracksFromPage(document.tracks));
-    const trackCursor = nextOffset(document.tracks);
+    const itemPage = document.items ?? document.tracks;
+    const tracks = await this.hydrateTrackIsrcs(tracksFromPage(itemPage));
+    const trackCursor = nextOffset(itemPage);
     const result: PlaylistPage = {
       kind: "playlist",
       playlist: { ...playlist, durationMs: totalDuration(tracks) },
@@ -402,7 +462,7 @@ export class SpotifyCatalogClient {
         : { section: "tracks", tracks };
     }
     if (kind === "playlist" && section === "tracks") {
-      const document = await this.get(`playlists/${encodeURIComponent(resourceId)}/tracks`, {
+      const document = await this.get(`playlists/${encodeURIComponent(resourceId)}/items`, {
         limit: "100", offset, market: this.market,
       });
       const next = nextOffset(document);

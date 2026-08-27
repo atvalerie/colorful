@@ -66,6 +66,13 @@ export type SpotifyProfileFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+/** A fetch-shaped bridge executed inside the hidden, authenticated Web Player. */
+export type SpotifyBrowserFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  signal?: AbortSignal,
+) => Promise<Response>;
+
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -165,14 +172,24 @@ export function parseSpotifyAccount(value: unknown): SpotifyAccount | null {
 
 /** Load the current profile without retaining email or the response document. */
 export async function loadSpotifyAccount(
-  credentials: Pick<SpotifyCredentials, "accessToken">,
+  credentials: Pick<SpotifyCredentials, "accessToken" | "clientToken">,
   fetcher: SpotifyProfileFetch = globalThis.fetch,
 ): Promise<SpotifyAccount> {
   const response = await fetcher(SPOTIFY_PROFILE_URL, {
-    headers: { Authorization: `Bearer ${credentials.accessToken}` },
+    headers: {
+      Authorization: `Bearer ${credentials.accessToken}`,
+      ...(credentials.clientToken ? { "Client-Token": credentials.clientToken } : {}),
+      "App-Platform": "WebPlayer",
+    },
   });
-  if (!response.ok) throw new Error(`Spotify profile request failed (${response.status})`);
-  const account = parseSpotifyAccount(await response.json());
+  const document = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = object(object(document).error);
+    const reason = text(object(document).reason) || text(error.reason) || text(object(document).message) || text(error.message);
+    const retryAfter = response.headers.get("retry-after");
+    throw new Error(`Spotify profile request failed (${response.status}${reason ? `: ${reason}` : ""}${retryAfter ? `; retry after ${retryAfter}s` : ""})`);
+  }
+  const account = parseSpotifyAccount(document);
   if (!account) throw new Error("Spotify profile response did not identify an account");
   return account;
 }
@@ -623,6 +640,68 @@ export class SpotifyBrowserSession {
       await this.closeBrowser();
       return null;
     }
+  }
+
+  /**
+   * Perform a same-session request from the hidden Web Player page.
+   *
+   * Executing fetch in the already-authenticated page preserves its origin,
+   * cookies, browser network stack, and first-party request context without
+   * opening a window. This fixes request-shape differences; Spotify Web API
+   * quotas still apply and are handled by the catalog client's rate gate.
+   */
+  async webPlayerFetch(
+    input: RequestInfo | URL,
+    init: RequestInit = {},
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<Response> {
+    if (signal.aborted) throw abortError();
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : String(input);
+    let url: URL;
+    try { url = new URL(rawUrl); } catch { throw new Error("Spotify browser request URL is invalid"); }
+    if (url.protocol !== "https:" || url.hostname !== "api.spotify.com") {
+      throw new Error("Spotify browser requests are restricted to the Web API host");
+    }
+    await this.credentials(false, signal);
+    const client = await this.ensureBrowser(true, signal);
+    const headers = Object.fromEntries(new Headers(init.headers).entries());
+    const method = String(init.method ?? "GET").toUpperCase();
+    const body = typeof init.body === "string" ? init.body : undefined;
+    const request = async function request(
+      requestUrl: string,
+      requestInit: { method: string; headers: Record<string, string>; body?: string },
+    ) {
+      const response = await fetch(requestUrl, {
+        method: requestInit.method,
+        headers: requestInit.headers,
+        ...(requestInit.body === undefined ? {} : { body: requestInit.body }),
+        credentials: "include",
+      });
+      return {
+        status: response.status,
+        body: await response.text(),
+        headers: Object.fromEntries(response.headers.entries()),
+      };
+    };
+    const expression = `(${request.toString()})(${JSON.stringify(url.toString())}, ${JSON.stringify({ method, headers, ...(body === undefined ? {} : { body }) })})`;
+    const evaluated = object(await client.command("Runtime.evaluate", {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    }));
+    const exception = object(evaluated.exceptionDetails);
+    if (Object.keys(exception).length) {
+      const details = object(exception.exception);
+      throw new Error(text(exception.text) || text(exception.description) || text(details.description) || "Spotify browser request failed");
+    }
+    const result = object(object(evaluated.result).value);
+    const status = Number(result.status);
+    if (!Number.isInteger(status) || status < 100) throw new Error("Spotify browser returned an invalid response");
+    const responseHeaders = new Headers();
+    for (const [name, value] of Object.entries(object(result.headers))) {
+      if (typeof value === "string") responseHeaders.set(name, value);
+    }
+    return new Response(text(result.body), { status, headers: responseHeaders });
   }
 
   /**
