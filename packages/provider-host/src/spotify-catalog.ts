@@ -30,6 +30,7 @@ const PATHFINDER_HASHES = {
   searchArtists: "270905851ba5c7faca81cfe053c2dbd8ceb4f156a0e0ef4b385af75ab69ffd13",
   searchPlaylists: "d520014e748f9ea44f7707d8df1819867ac1205e8b7f3e28f22fe5fc858921b1",
   fetchPlaylist: "86dde7b9d9356e2369414647cf6950cfed96e778e129cfdfc99aea6c1613b3b0",
+  fetchPlaylistContents: "86dde7b9d9356e2369414647cf6950cfed96e778e129cfdfc99aea6c1613b3b0",
   libraryV3: "390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455",
 } as const;
 
@@ -219,8 +220,18 @@ function spotifyUriId(value: unknown, kind?: string): string {
 }
 
 function pathfinderSources(value: unknown): string | null {
-  const source = array(object(value).sources)[0];
-  return imageUrl(source);
+  const item = object(value);
+  const direct = imageUrl(item);
+  if (direct) return direct;
+  const source = array(item.sources)[0];
+  if (source) return imageUrl(source);
+  for (const key of ["image", "coverArt", "avatarImage", "visualIdentity"]) {
+    const nestedValue = item[key];
+    if (!nestedValue || typeof nestedValue !== "object" || Object.keys(object(nestedValue)).length === 0) continue;
+    const nested = pathfinderSources(nestedValue);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 function pathfinderArtistCredits(value: unknown): Array<{ id: string; name: string }> {
@@ -303,7 +314,10 @@ function mapPathfinderPlaylist(value: unknown): PlaylistSummary | null {
   const id = spotifyUriId(item, "playlist");
   if (!id) return null;
   const images = array(object(item.images).items);
-  const image = images.length ? pathfinderSources(images[0]) : null;
+  const image = (images.length ? pathfinderSources(images[0]) : null)
+    ?? pathfinderSources(item.image)
+    ?? pathfinderSources(item.coverArt)
+    ?? pathfinderSources(item.visualIdentity);
   const owner = object(object(item.ownerV2).data);
   const total = positiveInt(object(item.content).totalCount);
   return {
@@ -853,7 +867,7 @@ export class SpotifyCatalogClient {
       let likedTracks: TrackSummary[] = [];
       if (pseudo) {
         try {
-          const likedDocument = object(await this.pathfinder("fetchPlaylist", PATHFINDER_HASHES.fetchPlaylist, {
+          const likedDocument = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
             uri: "spotify:collection:tracks", offset: 0, limit: Number(limit), includeEpisodeContentRatingsV2: true,
           }));
           const content = object(object(object(likedDocument.data).playlistV2).content);
@@ -913,7 +927,7 @@ export class SpotifyCatalogClient {
     const limit = section === "playlists" ? "50" : "50";
     if (this.pathfinderEnabled) {
       if (section === "tracks") {
-        const document = object(await this.pathfinder("fetchPlaylist", PATHFINDER_HASHES.fetchPlaylist, {
+        const document = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
           uri: "spotify:collection:tracks", offset: Number(offset) || 0, limit: Number(limit), includeEpisodeContentRatingsV2: true,
         }));
         const content = object(object(object(document.data).playlistV2).content);
@@ -972,4 +986,13 @@ export class SpotifyCatalogClient {
   }
 }
 
-export { mapSpotifyAlbum, mapSpotifyArtist, mapSpotifyPlaylist, mapSpotifyTrack };
+export {
+  mapPathfinderAlbum,
+  mapPathfinderArtist,
+  mapPathfinderPlaylist,
+  mapPathfinderTrack,
+  mapSpotifyAlbum,
+  mapSpotifyArtist,
+  mapSpotifyPlaylist,
+  mapSpotifyTrack,
+};

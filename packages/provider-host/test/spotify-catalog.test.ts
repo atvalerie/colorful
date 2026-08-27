@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   SPOTIFY_CATALOG_API,
   SpotifyCatalogClient,
+  mapPathfinderPlaylist,
   mapSpotifyAlbum,
   mapSpotifyPlaylist,
   mapSpotifyTrack,
@@ -55,6 +56,12 @@ describe("Spotify catalog mapping", () => {
       id: playlistId, name: "Mix", type: "playlist", description: "A mix",
       images: [{ url: "https://i.scdn.co/image/p" }], tracks: { total: 42 },
     })).toEqual(expect.objectContaining({ id: playlistId, numberOfItems: 42, playlistType: "PLAYLIST" }));
+    expect(mapPathfinderPlaylist({
+      uri: `spotify:playlist:${playlistId}`,
+      name: "Custom cover",
+      visualIdentity: { image: { sources: [{ url: "https://image-cdn.spotifycdn.com/custom" }] } },
+      images: { items: [] },
+    })).toEqual(expect.objectContaining({ coverUrl: "https://image-cdn.spotifycdn.com/custom" }));
   });
 });
 
@@ -93,6 +100,39 @@ describe("Spotify catalog client", () => {
     expect(operations).toEqual(["searchTracks", "searchAlbums", "searchArtists", "searchPlaylists"]);
     expect(result.tracks[0]).toEqual(expect.objectContaining({ id: trackId, isrc: "USRC17607839", provider: "spotify" }));
     expect(result.cursors.tracks).toBe("20");
+  });
+
+  test("loads liked tracks from the library pseudo-playlist", async () => {
+    const likedTrackId = "7gf5ffmSqKQBDnkmSe2Dt7";
+    const operations: string[] = [];
+    const client = new SpotifyCatalogClient({
+      pathfinder: true,
+      sessionProvider: async () => ({ accessToken: "access-token", clientToken: "client-token" }),
+      metadataProvider: async () => [{ spotifyId: likedTrackId, isrc: "USRC17607840", artists: ["Artist"] }],
+      fetch: async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { operationName: string };
+        operations.push(body.operationName);
+        if (body.operationName === "libraryV3") return json({
+          data: { me: { libraryV3: {
+            items: [{ item: { data: {
+              __typename: "PseudoPlaylist", uri: "spotify:collection:tracks", name: "Liked Songs", count: 1,
+            } } }],
+            pagingInfo: { offset: 0, limit: 50 }, totalCount: 1,
+          } } },
+        });
+        return json({
+          data: { playlistV2: { content: {
+            items: [{ itemV2: { data: {
+              __typename: "Track", uri: `spotify:track:${likedTrackId}`, name: "Liked", artists: { items: [] },
+            } } }],
+            pagingInfo: { offset: 0, limit: 50 }, totalCount: 1,
+          } } },
+        });
+      },
+    });
+    const result = await client.collection();
+    expect(operations).toEqual(["libraryV3", "fetchPlaylistContents"]);
+    expect(result.tracks).toEqual([expect.objectContaining({ id: likedTrackId, isrc: "USRC17607840" })]);
   });
 
   test("searches all catalog kinds and returns independent pagination cursors", async () => {
