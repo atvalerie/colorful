@@ -289,6 +289,43 @@ function sint32(field: ProtobufField | undefined): number | undefined {
   return Number((value >> 1n) ^ -(value & 1n));
 }
 
+/** Decode the JSON document returned by Spotify's private metadata endpoint.
+ *
+ * Although older Spotify clients exposed this resource as protobuf, the Web
+ * Player's current `metadata/4/track` endpoint returns JSON. Keeping this
+ * decoder separate from the legacy protobuf decoder also lets us continue to
+ * understand older captured responses without treating JSON bytes as wire
+ * tags (which produced the misleading "unsupported protobuf wire type" error).
+ */
+export function decodeTrackMetadataJson(payload: unknown, spotifyId: string): SpotifyTrack {
+  if (!TRACK_ID.test(spotifyId)) throw new SpotifyRecommendationError("seed_not_found", "Spotify track ID is invalid");
+  const track = object(payload);
+  const artists = Array.isArray(track.artist)
+    ? track.artist.flatMap((value) => {
+      const name = text(object(value).name ?? value);
+      return name ? [name] : [];
+    })
+    : artistsFrom(track.artists);
+  const album = object(track.album);
+  const externalIds = Array.isArray(track.external_id)
+    ? track.external_id
+    : Array.isArray(track.externalIds) ? track.externalIds : [];
+  const isrc = externalIds
+    .map((value) => object(value))
+    .find((value) => text(value.type)?.toLowerCase() === "isrc");
+  const title = text(track.name ?? track.title);
+  const albumName = text(album.name);
+  const durationMs = number(track.duration ?? track.duration_ms ?? track.durationMs);
+  const result: SpotifyTrack = { spotifyId, uri: `spotify:track:${spotifyId}`, artists };
+  const isrcValue = text(isrc?.id ?? track.isrc)?.toUpperCase();
+  if (isrcValue) result.isrc = isrcValue;
+  if (title) result.title = title;
+  if (albumName) result.album = albumName;
+  if (durationMs !== undefined) result.durationMs = durationMs;
+  if (typeof track.explicit === "boolean") result.explicit = track.explicit;
+  return result;
+}
+
 /** Convert a Spotify base62 ID to the 128-bit hexadecimal metadata GID. */
 export function spotifyIdToHex(id: string): string {
   let value = 0n;
@@ -300,7 +337,7 @@ export function spotifyIdToHex(id: string): string {
   return value.toString(16).padStart(32, "0");
 }
 
-/** Decode the subset of metadata/4/track protobuf fields used by Colorful. */
+/** Decode the legacy protobuf form of metadata/4/track used by older clients. */
 export function decodeTrackMetadata(payload: Uint8Array, spotifyId: string): SpotifyTrack {
   if (!TRACK_ID.test(spotifyId)) throw new SpotifyRecommendationError("seed_not_found", "Spotify track ID is invalid");
   const track = readFields(payload);
@@ -433,11 +470,24 @@ export class SpotifyRecommendationClient {
     return response.json();
   }
 
-  private async protobufRequest(url: string): Promise<Uint8Array> {
+  private async metadataRequest(url: string, spotifyId: string): Promise<SpotifyTrack> {
     const session = await this.getSession();
-    const response = await this.fetcher(url, { headers: headers(session, "application/x-protobuf") });
-    if (response.ok) return new Uint8Array(await response.arrayBuffer());
-    throw requestError(response, url);
+    const response = await this.fetcher(url, { headers: headers(session, "application/json") });
+    if (!response.ok) throw requestError(response, url);
+    const payload = new Uint8Array(await response.arrayBuffer());
+    const decoded = decoder.decode(payload).trimStart();
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (contentType.includes("json") || decoded.startsWith("{") || decoded.startsWith("[")) {
+      try {
+        return decodeTrackMetadataJson(JSON.parse(decoded), spotifyId);
+      } catch (error) {
+        if (error instanceof SpotifyRecommendationError) throw error;
+        throw new SpotifyRecommendationError("malformed_response", "Spotify returned malformed JSON metadata");
+      }
+    }
+    // Keep compatibility with older desktop/captured responses that still
+    // return the protobuf form of this endpoint.
+    return decodeTrackMetadata(payload, spotifyId);
   }
 
   private async hydrateTracks(ids: string[], spclient: string): Promise<SpotifyTrack[]> {
@@ -448,8 +498,8 @@ export class SpotifyRecommendationClient {
         const id = pending.shift();
         if (!id) return;
         try {
-          const payload = await this.protobufRequest(`https://${spclient}/metadata/4/track/${spotifyIdToHex(id)}`);
-          result.push(decodeTrackMetadata(payload, id));
+          const track = await this.metadataRequest(`https://${spclient}/metadata/4/track/${spotifyIdToHex(id)}?market=from_token`, id);
+          result.push(track);
         } catch (error) {
           // Missing/unavailable metadata should not discard the complete radio
           // result. Authentication, throttling, and schema errors still stop.
@@ -472,7 +522,7 @@ export class SpotifyRecommendationClient {
     return this.hydrateTracks(valid, await this.resolveSpclient());
   }
 
-  /** Resolve an exact Spotify track for an ISRC using metadata protobuf verification. */
+  /** Resolve an exact Spotify track for an ISRC using metadata verification. */
   async resolveSeed(input: SpotifySeedInput): Promise<SpotifyTrack> {
     if (input.trackId) {
       const spotifyId = input.trackId.trim();

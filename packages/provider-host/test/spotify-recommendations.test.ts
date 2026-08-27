@@ -5,6 +5,7 @@ import {
   collectNextPageUrls,
   collectTrackIds,
   decodeTrackMetadata,
+  decodeTrackMetadataJson,
   spotifyIdToHex,
   spotifyWebTrack,
 } from "../src/spotify-recommendations";
@@ -43,15 +44,23 @@ function metadata(id: string, isrc: string, title = "Track"): Uint8Array {
   return concat(textField(2, title), messageField(4, textField(2, "Artist")), messageField(10, externalId));
 }
 
+function metadataJson(id: string, isrc: string, title = "Track") {
+  return {
+    gid: spotifyIdToHex(id),
+    canonical_uri: `spotify:track:${id}`,
+    name: title,
+    artist: [{ name: "Artist" }],
+    album: { name: "Album" },
+    duration: 205533,
+    external_id: [{ type: "isrc", id: isrc }],
+  };
+}
+
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },
   });
-}
-
-function protobufResponse(value: Uint8Array, status = 200): Response {
-  return new Response(value as unknown as BodyInit, { status, headers: { "content-type": "application/x-protobuf" } });
 }
 
 const seedId = "4uLU6hMCjMI75M1A2tKUQC";
@@ -85,6 +94,19 @@ describe("Spotify recommendation protocol primitives", () => {
     });
   });
 
+  test("decodes the JSON returned by the current Web Player metadata endpoint", () => {
+    expect(decodeTrackMetadataJson(metadataJson(secondRecommendationId, "GBARL9300136", "Together Forever"), secondRecommendationId))
+      .toEqual({
+        spotifyId: secondRecommendationId,
+        uri: `spotify:track:${secondRecommendationId}`,
+        isrc: "GBARL9300136",
+        title: "Together Forever",
+        artists: ["Artist"],
+        album: "Album",
+        durationMs: 205533,
+      });
+  });
+
   test("normalizes nested tracks and hm continuation URLs", () => {
     const payload = {
       pages: [{ tracks: [{ uri: `spotify:track:${recommendationId}` }] }],
@@ -116,7 +138,7 @@ describe("Spotify recommendation client", () => {
       }
       if (url.includes("/metadata/4/track/")) {
         const id = url.includes(spotifyIdToHex(recommendationId)) ? recommendationId : secondRecommendationId;
-        return protobufResponse(metadata(id, id === recommendationId ? "GBARL9300135" : "GBARL9300136", id));
+        return jsonResponse(metadataJson(id, id === recommendationId ? "GBARL9300135" : "GBARL9300136", id));
       }
       return jsonResponse({ error: "unexpected" }, 500);
     };
@@ -140,6 +162,14 @@ describe("Spotify recommendation client", () => {
       "client-token": "client-token",
       "app-platform": "WebPlayer",
     });
+    const metadataCall = calls.find((call) => call.url.includes("/metadata/4/track/"));
+    expect(metadataCall?.url).toContain("?market=from_token");
+    expect(metadataCall?.init?.headers).toMatchObject({
+      accept: "application/json",
+      authorization: expect.stringMatching(/^Bearer token-[23]$/),
+      "client-token": "client-token",
+      "app-platform": "WebPlayer",
+    });
   });
 
   test("uses the captured static Web Player host when AP resolution is unavailable", async () => {
@@ -148,7 +178,7 @@ describe("Spotify recommendation client", () => {
       const url = String(input);
       calls.push(url);
       if (url.startsWith("https://apresolve.spotify.com/")) throw new TypeError("Failed to fetch");
-      if (url.includes("/metadata/4/track/")) return protobufResponse(metadata(recommendationId, "GBARL9300135"));
+      if (url.includes("/metadata/4/track/")) return jsonResponse(metadataJson(recommendationId, "GBARL9300135"));
       return jsonResponse({}, 500);
     };
     const client = new SpotifyRecommendationClient({ sessionProvider: { accessToken: "token" }, fetch: fetcher });
@@ -164,7 +194,7 @@ describe("Spotify recommendation client", () => {
       if (url.startsWith("https://apresolve.spotify.com/")) return jsonResponse({ spclient: ["spclient.test"] });
       if (url.includes("/metadata/4/track/")) {
         const id = url.includes(spotifyIdToHex(recommendationId)) ? recommendationId : secondRecommendationId;
-        return protobufResponse(metadata(id, id === recommendationId ? "US0000000001" : "GBARL9300136"));
+        return jsonResponse(metadataJson(id, id === recommendationId ? "US0000000001" : "GBARL9300136"));
       }
       return jsonResponse({}, 500);
     };
@@ -180,7 +210,7 @@ describe("Spotify recommendation client", () => {
       const url = String(input);
       if (url.startsWith("https://apresolve.spotify.com/")) return jsonResponse({ spclient: ["spclient.test"] });
       if (url.includes("context-resolve")) return jsonResponse({ tracks: [{ uri: `spotify:track:${recommendationId}` }] });
-      if (url.includes("/metadata/4/track/")) return protobufResponse(new Uint8Array(), 403);
+      if (url.includes("/metadata/4/track/")) return jsonResponse({}, 403);
       return jsonResponse({}, 500);
     };
     const client = new SpotifyRecommendationClient({ sessionProvider: { accessToken: "token" }, fetch: fetcher });
