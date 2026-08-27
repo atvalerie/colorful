@@ -2049,7 +2049,9 @@ ApplicationWindow {
                 text: authPopup.browserFlow
                       ? colorful.authProvider === "spotify"
                         ? "Finish signing in inside the isolated browser window. colorful keeps its private cookie profile for silent recommendation-session refreshes; your password never touches colorful."
-                        : "Finish signing in inside the isolated browser window. colorful watches only this temporary window and never receives your password."
+                        : colorful.authProvider === "youtube"
+                          ? "Finish signing in inside the isolated browser window. colorful keeps this private profile for hidden cookie refreshes; your password never touches colorful."
+                          : "Finish signing in inside the isolated browser window. colorful watches only this temporary window and never receives your password."
                       : colorful.authProvider === "youtube"
                         ? "Approve your own Google OAuth application, then return here. Your password never touches colorful."
                         : "Approve colorful in TIDAL, then return here. Your password never touches this app."

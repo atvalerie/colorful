@@ -14,7 +14,7 @@ const AUTOMIX_CURSOR = "youtube-music-automix:";
 const ARTIST_TRACKS_CURSOR = "youtube-music-artist-tracks:";
 const YOUTUBE_REQUEST_TIMEOUT_MS = 15_000;
 let accessTokenProvider: (() => Promise<string>) | null = null;
-let browserHeadersProvider: (() => Promise<Record<string, string>>) | null = null;
+let browserHeadersProvider: ((force?: boolean) => Promise<Record<string, string>>) | null = null;
 let visitorIdPromise: Promise<string> | null = null;
 type YouTubeMusicBootstrapState = {
   config: JsonObject;
@@ -403,7 +403,7 @@ export function setYouTubeMusicAccessTokenProvider(provider: (() => Promise<stri
   accessTokenProvider = provider;
 }
 
-export function setYouTubeMusicBrowserHeadersProvider(provider: (() => Promise<Record<string, string>>) | null): void {
+export function setYouTubeMusicBrowserHeadersProvider(provider: ((force?: boolean) => Promise<Record<string, string>>) | null): void {
   browserHeadersProvider = provider;
 }
 
@@ -592,8 +592,6 @@ export type YouTubeiEndpoint = "search" | "browse" | "next" | "account/account_m
 export async function youtubei(endpoint: YouTubeiEndpoint, body: JsonObject,
   accountRequired = false): Promise<JsonObject> {
   let accessToken = "";
-  let browserHeaders: Record<string, string> = {};
-  if (browserHeadersProvider) browserHeaders = await browserHeadersProvider().catch(() => ({}));
   if (accessTokenProvider) {
     try {
       accessToken = await accessTokenProvider();
@@ -601,53 +599,63 @@ export async function youtubei(endpoint: YouTubeiEndpoint, body: JsonObject,
       if (accountRequired) throw error;
     }
   }
-  const browserCookie = browserHeaders.cookie ?? "";
-  const liveBootstrap = browserCookie ? await youtubeMusicBootstrap() : null;
-  const liveClient = object(object(liveBootstrap?.config.INNERTUBE_CONTEXT).client);
-  const browserAuthUser = browserHeaders["x-goog-authuser"] ?? "0";
-  if (accountRequired && !browserCookie && !accessToken) throw new Error("Connect your YouTube Music account first");
-  const visitor = browserHeaders["x-goog-visitor-id"] ?? ((accessToken || browserCookie) ? await visitorId() : "");
-  const retainedIdentityHeaders = Object.fromEntries(Object.entries(browserHeaders).filter(([name]) =>
-    (name.startsWith("x-goog-") || name.startsWith("x-youtube-"))
-      && name !== "x-goog-authuser" && name !== "x-goog-visitor-id"));
-  const browserClientVersion = string(liveClient.clientVersion)
-    || browserHeaders["x-youtube-client-version"] || clientVersion();
-  const apiKey = string(liveBootstrap?.config.INNERTUBE_API_KEY) || MUSIC_API_KEY;
-  const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json${browserCookie ? `&key=${apiKey}` : ""}`, {
-    method: "POST",
-    signal: AbortSignal.timeout(YOUTUBE_REQUEST_TIMEOUT_MS),
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "*/*",
-      "Origin": MUSIC_ORIGIN,
-      "User-Agent": YOUTUBE_MUSIC_USER_AGENT,
-      ...(browserCookie ? {
-        "Authorization": browserAuthorization(browserCookie),
-        "Cookie": browserCookie,
-        ...retainedIdentityHeaders,
-        "X-Goog-AuthUser": browserAuthUser,
-        ...(browserHeaders["user-agent"] ? { "User-Agent": browserHeaders["user-agent"] } : {}),
-        ...(browserHeaders["accept-language"] ? { "Accept-Language": browserHeaders["accept-language"] } : {}),
-        ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
-        "X-Origin": MUSIC_ORIGIN,
-      } : accessToken ? {
-        "Authorization": `Bearer ${accessToken}`,
-        "X-Goog-Request-Time": String(Math.floor(Date.now() / 1000)),
-        "Cookie": "SOCS=CAI",
-        ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
-      } : { "X-Origin": MUSIC_ORIGIN }),
-    },
-    body: JSON.stringify({
-      context: { client: { clientName: "WEB_REMIX", clientVersion: browserClientVersion, hl: "en", gl: "US" }, user: {} },
-      ...body,
-    }),
-  });
-  const document = object(await response.json().catch(() => ({})));
-  if (!response.ok) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let browserHeaders: Record<string, string> = {};
+    if (browserHeadersProvider) {
+      browserHeaders = await browserHeadersProvider(attempt > 0).catch(() => ({}));
+    }
+    const browserCookie = browserHeaders.cookie ?? "";
+    const liveBootstrap = browserCookie ? await youtubeMusicBootstrap() : null;
+    const liveClient = object(object(liveBootstrap?.config.INNERTUBE_CONTEXT).client);
+    const browserAuthUser = browserHeaders["x-goog-authuser"] ?? "0";
+    if (accountRequired && !browserCookie && !accessToken) throw new Error("Connect your YouTube Music account first");
+    const visitor = browserHeaders["x-goog-visitor-id"] ?? ((accessToken || browserCookie) ? await visitorId() : "");
+    const retainedIdentityHeaders = Object.fromEntries(Object.entries(browserHeaders).filter(([name]) =>
+      (name.startsWith("x-goog-") || name.startsWith("x-youtube-"))
+        && name !== "x-goog-authuser" && name !== "x-goog-visitor-id"));
+    const browserClientVersion = string(liveClient.clientVersion)
+      || browserHeaders["x-youtube-client-version"] || clientVersion();
+    const apiKey = string(liveBootstrap?.config.INNERTUBE_API_KEY) || MUSIC_API_KEY;
+    const response = await fetch(`${MUSIC_ORIGIN}/youtubei/v1/${endpoint}?alt=json${browserCookie ? `&key=${apiKey}` : ""}`, {
+      method: "POST",
+      signal: AbortSignal.timeout(YOUTUBE_REQUEST_TIMEOUT_MS),
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "*/*",
+        "Origin": MUSIC_ORIGIN,
+        "User-Agent": YOUTUBE_MUSIC_USER_AGENT,
+        ...(browserCookie ? {
+          "Authorization": browserAuthorization(browserCookie),
+          "Cookie": browserCookie,
+          ...retainedIdentityHeaders,
+          "X-Goog-AuthUser": browserAuthUser,
+          ...(browserHeaders["user-agent"] ? { "User-Agent": browserHeaders["user-agent"] } : {}),
+          ...(browserHeaders["accept-language"] ? { "Accept-Language": browserHeaders["accept-language"] } : {}),
+          ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
+          "X-Origin": MUSIC_ORIGIN,
+        } : accessToken ? {
+          "Authorization": `Bearer ${accessToken}`,
+          "X-Goog-Request-Time": String(Math.floor(Date.now() / 1000)),
+          "Cookie": "SOCS=CAI",
+          ...(visitor ? { "X-Goog-Visitor-Id": visitor } : {}),
+        } : { "X-Origin": MUSIC_ORIGIN }),
+      },
+      body: JSON.stringify({
+        context: { client: { clientName: "WEB_REMIX", clientVersion: browserClientVersion, hl: "en", gl: "US" }, user: {} },
+        ...body,
+      }),
+    });
+    const document = object(await response.json().catch(() => ({})));
+    if (response.ok) return document;
+    if (attempt === 0 && browserCookie && browserHeadersProvider
+        && (response.status === 400 || response.status === 401 || response.status === 403)) {
+      debugLog("youtube.music", "browser_session_refresh_retry", { endpoint, status: response.status });
+      continue;
+    }
     const detail = string(object(document.error).message);
     throw new Error(`YouTube Music returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
   }
-  return document;
+  throw new Error("YouTube Music browser session refresh did not produce a usable response");
 }
 
 function requireAccount(): void {

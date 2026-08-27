@@ -18,7 +18,10 @@ response and client token over the local CDP connection. Those short-lived
 values stay in memory. The browser's cookie store is the durable session, and
 the same profile is used by a hidden/headless browser for background refreshes.
 A visible browser is therefore needed only for the initial sign-in or a later
-re-authentication, not for every recommendation request.
+re-authentication, not for every recommendation request. Depending on the
+desktop environment, the isolated Chromium background session may briefly
+appear as a browser process or taskbar icon during restore or refresh. It does
+not open an interactive login page and should not repeatedly steal focus.
 
 This is a cookie-backed Web Player session, not an OAuth `refresh_token` flow.
 If Spotify invalidates the saved cookies, silent restore stops and Spotify must

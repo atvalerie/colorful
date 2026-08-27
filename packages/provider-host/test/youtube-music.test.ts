@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mapYouTubeMusicAutomixDocument, mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument, parseYouTubeMusicBootstrap, parseYouTubeSignatureTimestamp, youtubeMusicAutomixContinuation, youtubeMusicAutomixRequest, youtubeMusicContinuationToken, youtubeMusicPremiumStatusFromHtml, youtubeMusicRadioVideoId } from "../src/youtube-music";
+import { mapYouTubeMusicAutomixDocument, mapYouTubeMusicCollectionDocuments, mapYouTubeMusicPlaylistDocument, mapYouTubeMusicWatchPlaylistDocument, parseYouTubeMusicBootstrap, parseYouTubeSignatureTimestamp, refreshYouTubeMusicPlayerState, setYouTubeMusicBrowserHeadersProvider, youtubei, youtubeMusicAutomixContinuation, youtubeMusicAutomixRequest, youtubeMusicContinuationToken, youtubeMusicPremiumStatusFromHtml, youtubeMusicRadioVideoId } from "../src/youtube-music";
 import { parseYouTubeBrowserHeaders, selectYouTubeBrowserHeaders } from "../src/youtube-auth";
 
 describe("authenticated YouTube Music mapping", () => {
@@ -46,6 +46,42 @@ describe("authenticated YouTube Music mapping", () => {
     expect(retained["user-agent"]).toBe("colorful-test");
     expect(retained.authorization).toBeUndefined();
     expect(retained["sec-fetch-site"]).toBeUndefined();
+  });
+
+  test("forces one hidden-session refresh and retries a rejected browser cookie", async () => {
+    const originalFetch = globalThis.fetch;
+    const forced: boolean[] = [];
+    const requestCookies: string[] = [];
+    let endpointRequests = 0;
+    setYouTubeMusicBrowserHeadersProvider(async (force = false) => {
+      forced.push(force);
+      return {
+        cookie: `__Secure-3PAPISID=${force ? "rotated" : "stale"}`,
+        "x-goog-authuser": "0",
+        "x-youtube-client-version": "1.20260827.01.00",
+      };
+    });
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url === "https://music.youtube.com") {
+        return new Response('<script>ytcfg.set({"INNERTUBE_CLIENT_VERSION":"1.20260827.01.00","INNERTUBE_CONTEXT":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20260827.01.00"}},"INNERTUBE_API_KEY":"key"})</script>');
+      }
+      endpointRequests += 1;
+      requestCookies.push(new Headers(init?.headers).get("cookie") ?? "");
+      return endpointRequests === 1
+        ? new Response('{"error":{"message":"expired"}}', { status: 401 })
+        : new Response('{"refreshed":true}', { status: 200 });
+    }) as typeof fetch;
+    try {
+      expect(await youtubei("browse", { browseId: "FEmusic_home" }, true)).toEqual({ refreshed: true });
+      expect(forced).toEqual([false, true]);
+      expect(requestCookies[0]).toContain("stale");
+      expect(requestCookies[1]).toContain("rotated");
+    } finally {
+      globalThis.fetch = originalFetch;
+      setYouTubeMusicBrowserHeadersProvider(null);
+      refreshYouTubeMusicPlayerState();
+    }
   });
 
   test("maps private playlists and personalized mixes without confusing their IDs", () => {

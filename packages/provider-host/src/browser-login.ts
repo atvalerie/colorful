@@ -318,10 +318,13 @@ export class CdpClient {
   }
 }
 
-async function captureRequest(
-  client: CdpClient,
+export type BrowserCdpTransport = Pick<CdpClient, "command" | "onMessage" | "onClose" | "close">;
+
+export async function captureBrowserRequest(
+  client: BrowserCdpTransport,
   provider: BrowserLoginProvider,
   signal: AbortSignal,
+  reload = true,
 ): Promise<BrowserLoginCapture> {
   const urls = new Map<string, string>();
   const headers = new Map<string, Record<string, string>>();
@@ -364,7 +367,7 @@ async function captureRequest(
   try {
     await client.command("Network.enable", { maxTotalBufferSize: 1_048_576 });
     await client.command("Page.enable");
-    await client.command("Page.reload", { ignoreCache: true }).catch(() => undefined);
+    if (reload) await client.command("Page.reload", { ignoreCache: true }).catch(() => undefined);
     return await captured;
   } finally {
     removeListener();
@@ -434,7 +437,7 @@ export async function captureBrowserLogin(
     progress(provider === "youtube"
       ? "Sign in to YouTube Music, choose the profile you want, then open Library."
       : "Sign in to SoundCloud, then open your Library.");
-    const capture = await captureRequest(client, provider, combined);
+    const capture = await captureBrowserRequest(client, provider, combined);
     progress("Checking the captured account…");
     debugLog("browser.auth", "credential_captured", { provider });
     return capture;

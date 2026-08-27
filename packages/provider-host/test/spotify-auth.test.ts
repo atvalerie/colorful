@@ -294,4 +294,44 @@ describe("Spotify cookie-backed session primitives", () => {
       rmSync(profileDirectory, { recursive: true, force: true });
     }
   });
+
+  test("unlink cannot be undone by a credential refresh already in flight", async () => {
+    const profileDirectory = mkdtempSync(join(tmpdir(), "colorful-spotify-auth-"));
+    writeFileSync(join(profileDirectory, ".colorful-linked"), "1\n");
+    const fake = fakeSpotifyTransport();
+    const process = {
+      exitCode: 0 as number | null,
+      exited: Promise.resolve(0),
+      kill: () => undefined,
+    };
+    const session = new SpotifyBrowserSession({
+      profileDirectory,
+      browserExecutable: "unused-browser",
+      now: () => NOW,
+      reservePort: async () => 43113,
+      findPage: async () => "ws://spotify-test",
+      connect: async () => fake.transport,
+      spawn: () => process,
+    });
+    try {
+      const restoring = session.restore();
+      while (!fake.commands.includes("Page.reload")) await Promise.resolve();
+      const clearing = session.clear();
+      fake.emit({ method: "Network.responseReceived", params: {
+        requestId: "client-race", response: { url: "https://clienttoken.spotify.com/v1/clienttoken", status: 200 },
+      } });
+      fake.emit({ method: "Network.loadingFinished", params: { requestId: "client-race" } });
+      fake.emit({ method: "Network.responseReceived", params: {
+        requestId: "api-race", response: { url: "https://open.spotify.com/api/token", status: 200 },
+      } });
+      fake.emit({ method: "Network.loadingFinished", params: { requestId: "api-race" } });
+      expect(await restoring).toBeNull();
+      await clearing;
+      expect(session.linked).toBe(false);
+      expect(session.cache.peek()).toBeNull();
+    } finally {
+      await session.close();
+      rmSync(profileDirectory, { recursive: true, force: true });
+    }
+  });
 });

@@ -93,14 +93,16 @@ for public catalog features and can optionally connect to your account. Spotify
 is an optional desktop recommendation source; a free Spotify account is enough
 for this feature, while playback remains on TIDAL.
 
-On desktop, YouTube Music and SoundCloud sign-in open Chrome, Edge, or another
-Chromium-family browser in a temporary profile. Colorful reads the
-authenticated provider request through a local connection and saves the
-required headers or token in the operating system credential store. Spotify
-uses Spotify's own login page in a persistent, isolated app profile: only the
-initial sign-in or re-authentication is visible, and later cookie-backed token
-refresh runs in a hidden browser session. The browser handles passwords and
-forms.
+On desktop, YouTube Music and Spotify use persistent, isolated Chromium
+profiles. Only initial sign-in or re-authentication is visible; later
+cookie-backed restore and refresh run in a hidden browser session while music
+requests remain native. SoundCloud still captures its token from a temporary
+profile. The browser handles passwords and forms, and colorful saves only the
+minimum provider state in the operating system credential store. During
+YouTube Music or Spotify restore, the isolated Chromium process may briefly
+appear as a browser process or taskbar icon. It does not open an interactive
+login page and should not repeatedly steal focus. Manually pasted YouTube
+headers remain a static fallback and cannot refresh through the hidden profile.
 
 - [Connect YouTube Music](docs/youtube-music-login.md)
 - [Connect SoundCloud](docs/soundcloud-login.md)

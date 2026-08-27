@@ -97,8 +97,9 @@ async function authenticatedInnertubeSource(
   videoId: string,
   bootstrap: YouTubeMusicPlaybackBootstrap,
   signatureTimestamp: number,
+  forceSessionRefresh = false,
 ): Promise<YouTubePlaybackSource> {
-  const browserHeaders = { ...await youtubeBrowserHeaders(),
+  const browserHeaders = { ...await youtubeBrowserHeaders(forceSessionRefresh),
     "x-youtube-client-version": bootstrap.clientVersion };
   const identity = youtubeBrowserIdentity(browserHeaders, bootstrap.visitorData);
   const authenticated = await requestAuthenticatedYouTubePlayer(videoId, identity, signatureTimestamp);
@@ -254,7 +255,7 @@ export async function youtubeSource(videoId: string, refresh = false): Promise<Y
   let source: YouTubePlaybackSource;
   if (youtubeLinked() && youtubePlayerRequiresLogin(player.document)) {
     debugLog("youtube.source", "authenticated_login_required_started", { videoId });
-    source = await authenticatedInnertubeSource(videoId, bootstrap, signatureTimestamp);
+    source = await authenticatedInnertubeSource(videoId, bootstrap, signatureTimestamp, refresh);
     debugLog("youtube.source", "authenticated_login_required_completed", {
       videoId, itag: source.itag, mimeType: source.mimeType, bitrate: source.bitrate,
     });
@@ -300,7 +301,7 @@ export async function youtubeSource(videoId: string, refresh = false): Promise<Y
           const [freshBootstrap, freshSignatureTimestamp] = await Promise.all([
             youtubeMusicPlaybackBootstrap(), youtubeMusicSignatureTimestamp(),
           ]);
-          source = await authenticatedInnertubeSource(videoId, freshBootstrap, freshSignatureTimestamp);
+          source = await authenticatedInnertubeSource(videoId, freshBootstrap, freshSignatureTimestamp, true);
           debugLog("youtube.source", "native_refresh_retry_completed", {
             videoId,
             itag: source.itag,

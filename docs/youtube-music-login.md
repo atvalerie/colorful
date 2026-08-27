@@ -7,21 +7,36 @@ albums and artists, and personalized mixes.
 ## Connect with a browser
 
 1. Open **colorful → Settings → Accounts → YouTube Music** and select **Sign in**.
-2. colorful opens an installed Chromium-based browser with an isolated temporary
-   profile. Helium, Chrome, Edge, Chromium, Brave, Vivaldi, and Opera are
+2. colorful opens an installed Chromium-based browser with an isolated,
+   app-owned profile. Helium, Chrome, Edge, Chromium, Brave, Vivaldi, and Opera are
    discovered on Windows, Linux, and macOS; `COLORFUL_BROWSER_EXECUTABLE` can
-   select another compatible build.
+   select another compatible build. The profile normally lives under colorful's
+   app-data directory as `youtube-browser`; `COLORFUL_YOUTUBE_PROFILE_DIR` can
+   select an app-owned location for packaging or tests.
    Current Helium Windows builds have an upstream Google sign-in rejection, so
    colorful selects another installed browser for YouTube Music when possible.
 3. Sign in, choose the YouTube profile/channel whose library you want, and open
    **Library**. colorful recognizes the authenticated request, verifies the
-   selected account, closes the temporary browser, and removes its profile.
+   selected account, closes the visible browser, and keeps only the isolated
+   profile needed for background session refresh.
 
 The browser is a separate, normal Chromium window rather than an embedded web
 view. colorful observes only that isolated window over a loopback connection;
-the password and form contents never enter colorful. Only the minimal YouTube
-Music cookie and account-selection headers are retained in the operating system
-credential service.
+the password and form contents never enter colorful. The minimum YouTube Music
+cookie and account-selection headers are retained in the operating system
+credential service, while Chromium owns the durable cookie jar inside its
+isolated profile.
+
+After sign-in, colorful starts the same profile with Chromium's headless mode.
+When the cached session ages or YouTube rejects a request, colorful reloads the
+hidden YouTube Music page once to capture rotated cookies; catalog, library, and
+playback requests still run directly from the provider host rather than through
+browser automation. A Chromium process or taskbar icon may appear briefly while
+the hidden session starts or recovers after a crash.
+No interactive login page opens, and it should not repeatedly steal focus.
+Disconnecting clears the isolated cookies and site storage and stops that
+background browser. If Google invalidates the session, select **Reconnect** and
+complete the visible sign-in again.
 
 ## Manual fallback
 
@@ -33,8 +48,9 @@ logged-in `/youtubei/v1/browse` request. In Chromium, use **Copy → Copy as cUR
 **Connect session**.
 
 The pasted session is stored in the operating system credential service, not in
-colorful's SQLite database or configuration files. Disconnecting the account
-removes it. Treat copied headers like a password: do not post or share them.
+colorful's SQLite database or configuration files. It is a static fallback and
+does not use or refresh through the app-owned browser profile. Disconnecting the
+account removes it. Treat copied headers like a password: do not post or share them.
 colorful verifies that YouTube returns an active account before marking the
 session connected; a public HTTP 200 response is not treated as authentication.
 
@@ -48,8 +64,8 @@ library or its personalized mixes.
 
 ## Limitations
 
-- Browser sessions can expire or be revoked. Select **Reconnect** to repeat the
-  isolated browser flow.
+- Browser sessions can expire or be revoked even with background refresh.
+  Select **Reconnect** to repeat the isolated browser flow.
 - With multiple YouTube profiles/channels, select the intended profile before
   opening Library. colorful retains the profile-selection identity header.
 - If an older colorful build restores as signed in but shows the wrong profile

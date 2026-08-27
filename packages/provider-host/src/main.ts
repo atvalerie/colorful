@@ -1,12 +1,12 @@
 import { normalizeVerificationUrl, pollDeviceAuth, refreshUserToken, startDeviceAuth, type UserToken } from "./auth";
 import { BrowseClient } from "./browse";
-import { captureBrowserLogin, type BrowserLoginCapture, type BrowserLoginProvider } from "./browser-login";
+import { captureBrowserLogin } from "./browser-login";
 import { readTidalConfig } from "./config";
 import { UserSession, type ManifestType, type PlaybackQuality } from "./manifest";
 import { clearProviderSecret, clearRefreshToken, loadProviderSecret, loadRefreshToken, saveProviderSecret, saveRefreshToken } from "./secret-store";
 import { loadAccountIdentity, loadSubscriptionStatus, type SubscriptionStatus } from "./subscription";
 import { parseSoundCloudAuthorization, setSoundCloudAccessToken, soundCloudAccount, soundCloudArtistPage, soundCloudCollection, soundCloudCollectionMore, soundCloudLinked, soundCloudMore, soundCloudPlaylistPage, soundCloudRelated, soundCloudSearch, soundCloudSearchMore, soundCloudSource, soundCloudTrackPage } from "./soundcloud";
-import { clearYouTubeAuth, connectYouTubeBrowser, connectYouTubeBrowserHeaders, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
+import { clearYouTubeAuth, closeYouTubeAuth, connectYouTubeBrowser, connectYouTubeBrowserHeaders, connectYouTubeBrowserProfile, pollYouTubeDeviceAuth, restoreYouTubeAuth, startYouTubeDeviceAuth, suspendYouTubeAuth, youtubeAccessToken, youtubeBrowserHeaders, youtubeLinked } from "./youtube-auth";
 import { clearYouTubeSourceCache, youtubeAvailable, youtubeSource, youtubeTrack } from "./youtube";
 import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicArtistTracksMore, youtubeMusicAutomix, youtubeMusicAutomixPage, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 import { resolveLyrics } from "./lyrics";
@@ -167,23 +167,18 @@ async function installSoundCloudToken(token: string): Promise<unknown> {
   return account;
 }
 
-async function finishCapturedBrowserLogin(capture: BrowserLoginCapture): Promise<void> {
-  if (capture.provider === "youtube") {
-    const account = await installYouTubeBrowserSession(capture.headers);
-    send({ event: "youtube.auth.completed", ok: true, data: { linked: true, account } });
-  } else {
-    const account = await installSoundCloudToken(capture.token);
-    send({ event: "soundcloud.auth.completed", ok: true, data: { linked: true, account } });
-  }
-}
-
-function startCapturedBrowserLogin(provider: BrowserLoginProvider): void {
+function startSoundCloudBrowserLogin(): void {
+  const provider = "soundcloud" as const;
   browserAuthAbort?.abort();
   const controller = new AbortController();
   browserAuthAbort = controller;
   void captureBrowserLogin(provider, controller.signal, (status) => {
     send({ event: "browser.auth.progress", ok: true, data: { provider, status } });
-  }).then(finishCapturedBrowserLogin).catch((error) => {
+  }).then(async (capture) => {
+    if (capture.provider !== "soundcloud") throw new Error("SoundCloud browser returned the wrong account capture");
+    const account = await installSoundCloudToken(capture.token);
+    send({ event: "soundcloud.auth.completed", ok: true, data: { linked: true, account } });
+  }).catch((error) => {
     if (!controller.signal.aborted) {
       send({ event: "browser.auth.failed", ok: false, data: { provider }, error: publicError(error) });
     }
@@ -303,10 +298,34 @@ async function handle(request: RequestMessage): Promise<void> {
       return;
     }
     case "youtube.auth.browser.start":
-      startCapturedBrowserLogin("youtube");
+      browserAuthAbort?.abort();
+      browserAuthAbort = new AbortController();
+      {
+        const controller = browserAuthAbort;
+        void connectYouTubeBrowserProfile(controller.signal, (status) => {
+          send({ event: "browser.auth.progress", ok: true, data: { provider: "youtube", status } });
+        }).then(async () => {
+          setYouTubeMusicAccessTokenProvider(null);
+          setYouTubeMusicBrowserHeadersProvider(youtubeBrowserHeaders);
+          clearYouTubeSourceCache();
+          const account = await youtubeMusicAccount();
+          send({ event: "youtube.auth.completed", ok: true, data: { linked: true, account } });
+        }).catch(async (error) => {
+          if (!controller.signal.aborted) {
+            await suspendYouTubeAuth();
+            setYouTubeMusicBrowserHeadersProvider(null);
+            clearYouTubeSourceCache();
+            send({ event: "youtube.auth.failed", ok: false, error: publicError(error) });
+          }
+        }).finally(() => {
+          if (browserAuthAbort === controller) browserAuthAbort = null;
+        });
+      }
       send({ id: request.id, ok: true, data: { provider: "youtube" } });
       return;
     case "youtube.auth.unlink":
+      browserAuthAbort?.abort();
+      browserAuthAbort = null;
       youtubeAuthAbort?.abort();
       youtubeAuthAbort = null;
       await clearYouTubeAuth();
@@ -334,7 +353,7 @@ async function handle(request: RequestMessage): Promise<void> {
       return;
     }
     case "soundcloud.auth.browser.start":
-      startCapturedBrowserLogin("soundcloud");
+      startSoundCloudBrowserLogin();
       send({ id: request.id, ok: true, data: { provider: "soundcloud" } });
       return;
     case "browser.auth.cancel":
@@ -693,7 +712,7 @@ async function restoreAccounts(): Promise<void> {
       const account = await youtubeMusicAccount();
       send({ event: "youtube.auth.restored", ok: true, data: { linked: true, account } });
     } catch (error) {
-      await clearYouTubeAuth();
+      await suspendYouTubeAuth();
       setYouTubeMusicBrowserHeadersProvider(null);
       send({ event: "warning", ok: false, error: `Stored YouTube Music session expired: ${publicError(error)}` });
     }
@@ -765,4 +784,5 @@ void readRequests().finally(() => {
   authAbort?.abort();
   youtubeAuthAbort?.abort();
   void spotifySession.close();
+  void closeYouTubeAuth();
 });

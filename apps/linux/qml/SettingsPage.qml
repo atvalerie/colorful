@@ -9,6 +9,7 @@ Item {
     property url pendingTravelImportFile: ""
     property string pendingSpotifyAction: ""
     property string pendingSpotifyMode: ""
+    property int spotifyExplanationCountdown: 0
     readonly property var aboutBuild: colorful.buildInfo || {}
     readonly property var pages: [
         ["Accounts", "Provider connections"],
@@ -43,6 +44,8 @@ Item {
     function openSpotifyExplanation(action, mode) {
         pendingSpotifyAction = action || "info"
         pendingSpotifyMode = mode || ""
+        spotifyExplanationCountdown = 10
+        spotifyExplanationTimer.restart()
         spotifyExplanationPopup.open()
     }
 
@@ -68,6 +71,7 @@ Item {
     }
 
     function acceptSpotifyExplanation() {
+        if (spotifyExplanationCountdown > 0) return
         const action = pendingSpotifyAction
         const mode = pendingSpotifyMode
         pendingSpotifyAction = ""
@@ -91,6 +95,14 @@ Item {
     onVisibleChanged: {
         if (visible && colorful.spotifyLinked && !colorful.spotifyExplainerSeen)
             Qt.callLater(function() { root.openSpotifyExplanation("info", "") })
+    }
+
+    Timer {
+        id: spotifyExplanationTimer
+        interval: 1000
+        repeat: true
+        running: spotifyExplanationPopup.visible && root.spotifyExplanationCountdown > 0
+        onTriggered: root.spotifyExplanationCountdown = Math.max(0, root.spotifyExplanationCountdown - 1)
     }
 
     RowLayout {
@@ -190,8 +202,8 @@ Item {
                                     ? "Connected  ·  " + (((colorful.youtubeHub.account || {}).channelHandle) || ((colorful.youtubeHub.account || {}).accountName) || "account ready")
                                     : "Anonymous catalog mode"
                         description: colorful.youtubeLinked
-                                     ? "Private playlists, liked music, library artists, albums, and personalized mixes use this account."
-                                     : "Sign in through an isolated Chromium-based browser window. colorful captures only the YouTube Music session needed for your library."
+                                     ? "Private playlists, liked music, albums, and mixes use this account. Its isolated Chromium profile refreshes cookies silently; a brief taskbar process is normal during startup."
+                                     : "Sign in once through an isolated Chromium window. Later session refreshes use the same profile invisibly without reopening the login page."
                         details: [
                             [((colorful.youtubeHub.account || {}).premiumStatus) || "Unknown", "Plan"],
                             [String((colorful.youtubeHub.tracks || []).length), "Liked tracks"],
@@ -1227,6 +1239,15 @@ Item {
                     font.pixelSize: Math.round(12 * colorful.textScale)
                     wrapMode: Text.WordWrap
                 }
+                Text {
+                    Layout.fillWidth: true
+                    text: root.spotifyExplanationCountdown > 0
+                          ? "Please review this first. You can continue in " + root.spotifyExplanationCountdown + " seconds."
+                          : "You can continue now."
+                    color: root.spotifyExplanationCountdown > 0 ? colorful.accent : Qt.rgba(1, 1, 1, 0.42)
+                    font.bold: root.spotifyExplanationCountdown > 0
+                    font.pixelSize: Math.round(11 * colorful.textScale)
+                }
             }
 
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(1, 1, 1, 0.09) }
@@ -1288,7 +1309,7 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "A free Spotify account is enough. The first sign-in uses Spotify's own page in an isolated colorful browser profile. Its cookies keep the session alive; short-lived Web Player tokens stay in memory and refresh silently, so no browser opens for each request. Disconnecting clears that isolated session. Your password and email are never retained by colorful."
+                        text: "A free Spotify account is enough. The first sign-in uses Spotify's own page in an isolated colorful browser profile. Its cookies keep the session alive; short-lived Web Player tokens stay in memory and refresh silently, so no interactive login page opens for each request. The isolated Chromium background session may briefly appear as a browser process or taskbar icon during restore or refresh, but it should not repeatedly steal focus. Disconnecting clears that isolated session. Your password and email are never retained by colorful."
                         color: Qt.rgba(1, 1, 1, 0.62)
                         font.pixelSize: Math.round(11 * colorful.textScale)
                         lineHeight: 1.25
@@ -1333,6 +1354,7 @@ Item {
                 ColorButton {
                     text: root.pendingSpotifyAction === "info" ? "Close" : "Not now"
                     quiet: true
+                    enabled: root.spotifyExplanationCountdown === 0
                     onClicked: {
                         root.pendingSpotifyAction = ""
                         root.pendingSpotifyMode = ""
@@ -1343,6 +1365,7 @@ Item {
                     text: root.pendingSpotifyAction === "connect" || root.pendingSpotifyAction === "connect-mode"
                           ? "Continue to Spotify"
                           : root.pendingSpotifyAction === "mode" ? "Use this mode" : "I understand"
+                    enabled: root.spotifyExplanationCountdown === 0
                     onClicked: root.acceptSpotifyExplanation()
                 }
             }

@@ -348,6 +348,7 @@ function defaultSpawn(browser: string, args: string[]): SpotifyBrowserProcess {
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
+    windowsHide: args.includes("--headless=new"),
   });
   return process;
 }
@@ -523,6 +524,7 @@ export class SpotifyBrowserSession {
   private clientHeadless = false;
   private clientToken: SpotifyClientToken | null = null;
   private refreshInFlight: Promise<SpotifyCredentials> | null = null;
+  private generation = 0;
   private readonly exitHandler = (): void => {
     // The process-exit path cannot await Browser.close. Killing the child is
     // still preferable to leaving a persistent profile locked by a stale
@@ -553,13 +555,16 @@ export class SpotifyBrowserSession {
     const cached = this.cache.get(force);
     if (cached) return cached;
     if (this.refreshInFlight) return this.refreshInFlight;
-    this.refreshInFlight = this.refreshFromBrowser(signal).then((credentials) => {
+    const generation = this.generation;
+    const refresh = this.refreshFromBrowser(signal).then((credentials) => {
+      if (generation !== this.generation) throw abortError();
       this.cache.set(credentials);
       return credentials;
     }).finally(() => {
-      this.refreshInFlight = null;
+      if (this.refreshInFlight === refresh) this.refreshInFlight = null;
     });
-    return this.refreshInFlight;
+    this.refreshInFlight = refresh;
+    return refresh;
   }
 
   /**
@@ -571,6 +576,7 @@ export class SpotifyBrowserSession {
     signal: AbortSignal,
     progress: (status: string) => void = () => undefined,
   ): Promise<SpotifyCredentials> {
+    this.generation += 1;
     this.cache.clear();
     this.clientToken = null;
     try {
@@ -772,6 +778,7 @@ export class SpotifyBrowserSession {
 
   /** Clear only the isolated Spotify profile's browser state, never app data. */
   async clear(): Promise<void> {
+    this.generation += 1;
     this.cache.clear();
     this.clientToken = null;
     try { unlinkSync(this.linkedMarker); } catch { /* missing marker is already unlinked */ }

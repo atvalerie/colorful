@@ -37,8 +37,9 @@ instead imports a logged-in browser session into Secret Service because Google
 currently rejects custom-client OAuth tokens on its private Music endpoints.
 Desktop YouTube Music and SoundCloud can capture the provider session from an
 isolated Chromium-family browser over loopback, and both retain a manual copied-
-request fallback. Only the reduced YouTube header set or SoundCloud OAuth token
-is retained in the platform credential service.
+request fallback. YouTube Music keeps its app-owned browser profile for hidden
+cookie rotation while native provider requests use the reduced header set from
+the platform credential service. SoundCloud retains only its OAuth token.
 An Android implementation will store equivalent provider credentials in
 Keystore while reusing the provider request semantics.
 
