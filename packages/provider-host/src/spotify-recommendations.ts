@@ -8,6 +8,8 @@
  * layer retaining an expired token.
  */
 
+import { debugLog } from "./debug";
+
 export type SpotifyTrack = {
   spotifyId: string;
   uri: string;
@@ -99,6 +101,12 @@ const TRACK_ID = /^[A-Za-z0-9]{22}$/;
 const ISRC = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/;
 const BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const decoder = new TextDecoder();
+// This is the host used by the Web Player for first-party spclient calls in
+// the captured browser session. The AP resolver is still preferred when it is
+// readable, but a page-origin fetch to apresolve.spotify.com can fail CORS
+// before returning a response. Metadata and radio remain available through
+// the same authenticated spclient host in that case.
+const FALLBACK_SPCLIENT = "spclient.wg.spotify.com";
 
 type Fetcher = SpotifyFetch;
 
@@ -395,12 +403,23 @@ export class SpotifyRecommendationClient {
 
   /** Resolve the current dynamic spclient host used by Spotify's Web Player. */
   async resolveSpclient(): Promise<string> {
-    const response = await this.fetcher("https://apresolve.spotify.com/?type=spclient");
-    if (!response.ok) throw requestError(response, "https://apresolve.spotify.com/?type=spclient");
-    const body = await response.json().catch(() => null) as { spclient?: unknown } | null;
-    const address = body && Array.isArray(body.spclient) ? text(body.spclient[0]) : undefined;
-    if (!address) throw new SpotifyRecommendationError("malformed_response", "Spotify AP resolver returned no spclient address");
-    return normalizeSpclientAddress(address);
+    try {
+      const response = await this.fetcher("https://apresolve.spotify.com/?type=spclient");
+      if (!response.ok) throw requestError(response, "https://apresolve.spotify.com/?type=spclient");
+      const body = await response.json().catch(() => null) as { spclient?: unknown } | null;
+      const address = body && Array.isArray(body.spclient) ? text(body.spclient[0]) : undefined;
+      if (!address) throw new SpotifyRecommendationError("malformed_response", "Spotify AP resolver returned no spclient address");
+      return normalizeSpclientAddress(address);
+    } catch (error) {
+      // The authenticated page can still reach the static Web Player spclient
+      // host even when the resolver is not CORS-readable from Runtime.evaluate.
+      // Do not turn a resolver transport quirk into an unavailable catalog.
+      debugLog("spotify.recommendations", "spclient_resolver_fallback", {
+        error: error instanceof Error ? error.message : String(error),
+        host: FALLBACK_SPCLIENT,
+      });
+      return FALLBACK_SPCLIENT;
+    }
   }
 
   private async jsonRequest(url: string): Promise<unknown> {

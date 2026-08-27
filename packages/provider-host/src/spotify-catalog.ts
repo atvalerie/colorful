@@ -24,6 +24,11 @@ import type { SpotifyCredentials } from "./spotify-auth";
 export const SPOTIFY_CATALOG_API = "https://api.spotify.com/v1";
 export const SPOTIFY_PATHFINDER_API = "https://api-partner.spotify.com/pathfinder/v2/query";
 export const SPOTIFY_LIKED_PLAYLIST_ID = "collection:tracks";
+// The Web Player exposes Liked Songs as a pseudo-playlist in libraryV3, but
+// resolves it to this real playlist URI before calling fetchPlaylist. Keep the
+// public sentinel above for the desktop route and translate it at the request
+// boundary so Pathfinder receives the type it expects.
+export const SPOTIFY_LIKED_PLAYLIST_URI = "spotify:playlist:37i9dQZF1F5p3rmiWPIYgZ";
 
 const PATHFINDER_HASHES = {
   searchTracks: "59ee4a659c32e9ad894a71308207594a65ba67bb6b632b183abe97303a51fa55",
@@ -752,8 +757,12 @@ export class SpotifyCatalogClient {
   async playlistPage(playlistId: string): Promise<PlaylistPage> {
     if (this.pathfinderEnabled) {
       if (playlistId === SPOTIFY_LIKED_PLAYLIST_ID) {
-        const document = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
-          uri: "spotify:collection:tracks", offset: 0, limit: 50, includeEpisodeContentRatingsV2: true,
+        const document = object(await this.pathfinder("fetchPlaylist", PATHFINDER_HASHES.fetchPlaylist, {
+          uri: SPOTIFY_LIKED_PLAYLIST_URI,
+          offset: 0,
+          limit: 25,
+          enableWatchFeedEntrypoint: true,
+          includeEpisodeContentRatingsV2: true,
         }));
         const content = object(object(object(document.data).playlistV2).content);
         const tracks = await this.hydrateTrackIsrcs(unique(array(content.items).map((item) => mapPathfinderTrack(pathfinderItemData(item)))));
@@ -831,7 +840,7 @@ export class SpotifyCatalogClient {
     const offset = cursorOffset(cursor);
     if (this.pathfinderEnabled && kind === "playlist" && section === "tracks") {
       const document = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
-        uri: resourceId === SPOTIFY_LIKED_PLAYLIST_ID ? "spotify:collection:tracks" : `spotify:playlist:${resourceId}`,
+        uri: resourceId === SPOTIFY_LIKED_PLAYLIST_ID ? SPOTIFY_LIKED_PLAYLIST_URI : `spotify:playlist:${resourceId}`,
         offset: Number(offset) || 0,
         limit: 50,
         includeEpisodeContentRatingsV2: true,
@@ -900,8 +909,12 @@ export class SpotifyCatalogClient {
       const likedPlaylist = pseudo ? mapPathfinderLikedPlaylist(pseudo) : null;
       if (pseudo) {
         try {
-          const likedDocument = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
-            uri: "spotify:collection:tracks", offset: 0, limit: Number(limit), includeEpisodeContentRatingsV2: true,
+          const likedDocument = object(await this.pathfinder("fetchPlaylist", PATHFINDER_HASHES.fetchPlaylist, {
+            uri: SPOTIFY_LIKED_PLAYLIST_URI,
+            offset: 0,
+            limit: Math.min(25, Number(limit)),
+            enableWatchFeedEntrypoint: true,
+            includeEpisodeContentRatingsV2: true,
           }));
           const content = object(object(object(likedDocument.data).playlistV2).content);
           likedTracks = await this.hydrateTrackIsrcs(unique(array(content.items).map((item) => mapPathfinderTrack(pathfinderItemData(item)))));
@@ -961,7 +974,7 @@ export class SpotifyCatalogClient {
     if (this.pathfinderEnabled) {
       if (section === "tracks") {
         const document = object(await this.pathfinder("fetchPlaylistContents", PATHFINDER_HASHES.fetchPlaylistContents, {
-          uri: "spotify:collection:tracks", offset: Number(offset) || 0, limit: Number(limit), includeEpisodeContentRatingsV2: true,
+          uri: SPOTIFY_LIKED_PLAYLIST_URI, offset: Number(offset) || 0, limit: Number(limit), includeEpisodeContentRatingsV2: true,
         }));
         const content = object(object(object(document.data).playlistV2).content);
         const items = await this.hydrateTrackIsrcs(unique(array(content.items).map((item) => mapPathfinderTrack(pathfinderItemData(item)))));

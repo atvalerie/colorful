@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   SPOTIFY_CATALOG_API,
+  SPOTIFY_LIKED_PLAYLIST_URI,
   SpotifyCatalogClient,
   mapPathfinderPlaylist,
   mapSpotifyAlbum,
@@ -105,6 +106,7 @@ describe("Spotify catalog client", () => {
   test("loads liked tracks from the library pseudo-playlist", async () => {
     const likedTrackId = "7gf5ffmSqKQBDnkmSe2Dt7";
     const operations: string[] = [];
+    const uris: string[] = [];
     const client = new SpotifyCatalogClient({
       pathfinder: true,
       sessionProvider: async () => ({ accessToken: "access-token", clientToken: "client-token" }),
@@ -112,6 +114,7 @@ describe("Spotify catalog client", () => {
       fetch: async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as { operationName: string };
         operations.push(body.operationName);
+        uris.push(String((body as { variables?: { uri?: unknown } }).variables?.uri ?? ""));
         if (body.operationName === "libraryV3") return json({
           data: { me: { libraryV3: {
             items: [{ item: { data: {
@@ -131,12 +134,13 @@ describe("Spotify catalog client", () => {
       },
     });
     const result = await client.collection();
-    expect(operations).toEqual(["libraryV3", "fetchPlaylistContents"]);
+    expect(operations).toEqual(["libraryV3", "fetchPlaylist"]);
     expect(result.tracks).toEqual([expect.objectContaining({ id: likedTrackId, isrc: "USRC17607840" })]);
     expect(result.playlists).toEqual([expect.objectContaining({ id: "collection:tracks", name: "Liked Songs", playlistType: "LIKED SONGS" })]);
     const page = await client.playlistPage("collection:tracks");
     expect(page.playlist.name).toBe("Liked Songs");
     expect(page.tracks[0]?.id).toBe(likedTrackId);
+    expect(uris.at(-1)).toBe(SPOTIFY_LIKED_PLAYLIST_URI);
   });
 
   test("searches all catalog kinds and returns independent pagination cursors", async () => {

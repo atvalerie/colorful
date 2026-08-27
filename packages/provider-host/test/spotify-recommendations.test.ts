@@ -142,6 +142,22 @@ describe("Spotify recommendation client", () => {
     });
   });
 
+  test("uses the captured static Web Player host when AP resolution is unavailable", async () => {
+    const calls: string[] = [];
+    const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+      const url = String(input);
+      calls.push(url);
+      if (url.startsWith("https://apresolve.spotify.com/")) throw new TypeError("Failed to fetch");
+      if (url.includes("/metadata/4/track/")) return protobufResponse(metadata(recommendationId, "GBARL9300135"));
+      return jsonResponse({}, 500);
+    };
+    const client = new SpotifyRecommendationClient({ sessionProvider: { accessToken: "token" }, fetch: fetcher });
+    const tracks = await client.trackMetadata([recommendationId]);
+    expect(tracks[0]?.isrc).toBe("GBARL9300135");
+    expect(calls[0]).toBe("https://apresolve.spotify.com/?type=spclient");
+    expect(calls[1]).toContain("https://spclient.wg.spotify.com/metadata/4/track/");
+  });
+
   test("verifies an ISRC against candidate metadata instead of trusting search", async () => {
     const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
       const url = String(input);
