@@ -50,6 +50,7 @@ POST /v1/party-join-handles/mint
 POST /v1/party-join-tickets/redeem
 POST /v1/discord/rpc-token
 GET  /v1/party-sessions/<id>/relay   (WebSocket upgrade)
+POST /v1/discord/rpc-token
 ```
 
 Mailbox and party creation return bearer capabilities once. Clients should
@@ -119,6 +120,16 @@ edge. The service does not terminate application-layer end-to-end encryption.
 The public Discord ticket flow intentionally issues tickets only when the relay
 base URL is exactly `https://colorful.valerie.sh`; a local or arbitrary relay
 cannot be used for that Discord button.
+
+### Discord party invites
+
+`POST /v1/discord/rpc-token` exchanges a short-lived Discord local-RPC
+authorization code for the desktop client. It exists so the Discord OAuth
+client secret stays on the relay and is never placed in a Windows build,
+portable archive, or AppImage. Configure `COLORFUL_DISCORD_CLIENT_SECRET` in
+the deployment secret manager (and optionally `COLORFUL_DISCORD_CLIENT_ID`);
+the endpoint returns `503` when that secret is absent. It stores neither the
+authorization code nor the resulting access token.
 
 ## Docker Compose deployment
 

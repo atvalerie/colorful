@@ -148,6 +148,41 @@ Rectangle {
                     onClicked: party.setJoinEnabled(!party.joinEnabled)
                 }
             }
+            Text {
+                Layout.fillWidth: true
+                text: party.joinEnabled
+                      ? "Discord shows native Invite and Ask to Join controls for this party."
+                      : "Discord invites are disabled while joining is off."
+                color: Qt.rgba(1,1,1,0.34); font.pixelSize: Math.round(9 * colorful.textScale)
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: party.active && party.role === "host" && party.discordJoinRequests.length > 0
+            spacing: 6
+            Text { text: "Discord requests"; color: "#f5f5f5"; font.weight: Font.DemiBold; font.pixelSize: Math.round(13 * colorful.textScale) }
+            Repeater {
+                model: party.discordJoinRequests
+                delegate: Rectangle {
+                    required property var modelData
+                    Layout.fillWidth: true; implicitHeight: requestContent.implicitHeight + 16
+                    color: Qt.rgba(1,1,1,0.028); border.width: 1; border.color: Qt.rgba(1,1,1,0.1)
+                    RowLayout {
+                        id: requestContent
+                        anchors.fill: parent; anchors.margins: 8; spacing: 7
+                        Text {
+                            Layout.fillWidth: true
+                            text: modelData.globalName || modelData.username || "Discord user"
+                            color: "#f5f5f5"; font.pixelSize: Math.round(11 * colorful.textScale)
+                            elide: Text.ElideRight
+                        }
+                        ColorButton { text: "Accept"; quiet: true; implicitHeight: 28; implicitWidth: 58; onClicked: party.respondToDiscordJoinRequest(modelData.userId, true) }
+                        ColorButton { text: "Decline"; quiet: true; implicitHeight: 28; implicitWidth: 64; onClicked: party.respondToDiscordJoinRequest(modelData.userId, false) }
+                    }
+                }
+            }
         }
 
         ColumnLayout {
