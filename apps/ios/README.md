@@ -35,20 +35,30 @@ is the secondary strategy; Android VR and downgraded TV AAC/MP4 sources remain
 last-resort direct-stream fallbacks. YouTube artist, album, account, library,
 and authenticated deciphering surfaces remain follow-up work.
 
-The first offline slice uses Apple's background asset-download session for
-TIDAL HLS, persists every job through the Rust download state machine, prefers
-completed local packages during playback, and exposes pause/resume, deletion,
-storage totals, album batching, and one-action export/share. When AVFoundation
-can expose the downloaded audio, lossless assets export through AudioToolbox as
-standalone FLAC files and AAC assets export as tagged M4A files. The UI never
-exposes Apple's internal HLS package as though it were a song file. Media paths are stored relative to
-the application container and legacy absolute paths are rebased at lookup so
-sideloading-container UUID changes do not orphan otherwise valid downloads.
-LiveContainer also retains Apple's managed background package directly.
-Copying a completed `.movpkg` out of that location can leave AVFoundation
-unable to resolve its audio tracks, so export failure never invalidates a
-playable offline download. Standalone export from LiveContainer remains a
-separate compatibility limitation.
+The offline slice uses Apple's background asset-download session for TIDAL HLS,
+persists every job through the Rust download state machine, restores tasks after
+relaunch through an app-owned service, and prefers completed local packages
+during playback. Managed locations, task completion, persistence, and UIKit's
+background completion callback are drained in order. It exposes
+pause/resume, deletion, storage totals, album batching, and one-action
+export/share. Completed packages are checked with `AVAssetCache` before they are
+shown as available offline. Paths are stored relative to the application
+container and legacy absolute paths are rebased after sideloading-container UUID
+changes. LiveContainer keeps the managed package in place; it does not copy the
+private `.movpkg` bundle for playback. See [`../../docs/ios-offline.md`](../../docs/ios-offline.md)
+for lifecycle rules and the physical-device travel checklist.
+
+Settings can export a versioned travel snapshot for sharing and import one
+through the iOS document picker. Import replaces portable library, playlist,
+queue, and playback state while leaving downloads and account credentials on
+the device.
+
+Settings also exposes a bounded playback diagnostic log. After reproducing an
+iOS YouTube or AVPlayer failure, use Settings > Diagnostics > Share playback
+log and send the resulting text file. The log contains request metadata,
+response status, and playback errors; cookies, authorization values, and token
+contents are excluded. Unified logging remains available for physical-device
+debugging when a Mac is connected.
 
 The current shell uses Swift, SwiftUI, AVFoundation/AVPlayer, AVAudioSession,
 Keychain, background audio mode, MPRemoteCommandCenter, and

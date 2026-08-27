@@ -6,6 +6,7 @@ import QtQuick.Layouts
 Item {
     id: root
     property int tab: 0
+    property url pendingTravelImportFile: ""
     readonly property var pages: [
         ["Accounts", "Provider connections"],
         ["Playback", "Queue and audio behavior"],
@@ -99,7 +100,7 @@ Item {
                     id: accountsBody
                     width: Math.min(parent.width, 820); spacing: 14
                     Text { text: "Accounts"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
-                    Text { text: "Provider credentials remain on this device and are stored by the system credential service."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    Text { text: "Provider sessions remain on this device. Tokens use the system credential service; browser sign-ins use isolated app-owned profiles."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     ProviderAccountCard {
                         Layout.fillWidth: true
                         providerName: "TIDAL"
@@ -215,6 +216,25 @@ Item {
                             }
                         }
                     }
+                    ProviderAccountCard {
+                        Layout.fillWidth: true
+                        providerName: "Spotify"
+                        loading: !colorful.providerStatusResolved
+                        connected: colorful.spotifyLinked
+                        statusText: !colorful.providerStatusResolved ? "Checking saved account…"
+                                    : colorful.spotifyLinked ? "Connected for recommendations" : "Not connected"
+                        description: colorful.spotifyLinked
+                                     ? "Spotify personalizes autoplay. Every result is matched by ISRC and played from TIDAL."
+                                     : "Optional: sign in with Spotify for personalized recommendations. Spotify audio is never streamed by colorful."
+                        details: [
+                            [colorful.spotifyLinked ? "Ready" : "Optional", "Recommendation account"],
+                            ["TIDAL", "Playback source"],
+                            ["ISRC", "Track matching"]
+                        ]
+                        primaryText: colorful.spotifyLinked ? "Reconnect" : "Sign in"
+                        onPrimaryRequested: colorful.startSpotifyBrowserLogin()
+                        onSecondaryRequested: colorful.unlinkSpotify()
+                    }
                 }
             }
 
@@ -252,6 +272,35 @@ Item {
                             Rectangle { width: 16; height: 16; y: 3; x: colorful.autoplayEnabled ? parent.width - width - 3 : 3; color: colorful.autoplayEnabled && (0.2126 * colorful.accent.r + 0.7152 * colorful.accent.g + 0.0722 * colorful.accent.b) > 0.56 ? "#111114" : "#f5f5f5"; Behavior on x { NumberAnimation { duration: 100 } } }
                             HoverHandler { cursorShape: Qt.PointingHandCursor }
                             TapHandler { onTapped: colorful.autoplayEnabled = !colorful.autoplayEnabled }
+                        }
+                    }
+                    Text { text: "Autoplay recommendations"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Spotify modes use its personalization only, then match recommendations by ISRC to playable TIDAL tracks. Fallback asks Spotify only when TIDAL returns nothing."
+                        color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap
+                    }
+                    Row {
+                        Layout.fillWidth: true; spacing: 0
+                        Repeater {
+                            model: [["tidal", "TIDAL", "TIDAL related tracks"],
+                                    ["spotify", "Spotify", "Always personalize"],
+                                    ["fallback", "Spotify fallback", "Only when TIDAL is empty"]]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: Math.max(170, recommendationText.implicitWidth + 30); height: 58
+                                color: colorful.recommendationMode === modelData[0] ? Qt.rgba(1, 1, 1, 0.075)
+                                       : recommendationHover.hovered ? Qt.rgba(1, 1, 1, 0.04) : "transparent"
+                                border.width: 1
+                                border.color: colorful.recommendationMode === modelData[0] ? colorful.accent : Qt.rgba(1, 1, 1, 0.12)
+                                opacity: modelData[0] === "spotify" && !colorful.spotifyLinked ? 0.58 : 1
+                                Column { anchors.centerIn: parent; spacing: 2
+                                    Text { id: recommendationText; anchors.horizontalCenter: parent.horizontalCenter; text: modelData[1]; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(12 * colorful.textScale) }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData[2]; color: Qt.rgba(1, 1, 1, 0.36); font.pixelSize: Math.round(9 * colorful.textScale) }
+                                }
+                                HoverHandler { id: recommendationHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: colorful.recommendationMode = modelData[0] }
+                            }
                         }
                     }
                     Text { text: "TIDAL stream quality"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale); Layout.topMargin: 5 }
@@ -639,17 +688,29 @@ Item {
                     Text { text: "Storage"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(24 * colorful.textScale) }
                     Text { Layout.fillWidth: true; text: "Offline files are private application data. They contain playable audio and do not depend on an expiring manifest after completion."; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: Math.round(12 * colorful.textScale); wrapMode: Text.WordWrap }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 126
+                        Layout.fillWidth: true; Layout.preferredHeight: storageFolderColumn.implicitHeight + 32
                         color: Qt.rgba(1, 1, 1, 0.028); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.1)
-                        RowLayout {
-                            anchors.fill: parent; anchors.margins: 16; spacing: 18
+                        ColumnLayout {
+                            id: storageFolderColumn
+                            anchors.fill: parent; anchors.margins: 16; spacing: 8
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 3
+                                Text { text: "Download folder"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                                Text { Layout.fillWidth: true; text: colorful.downloadDirectory; color: Qt.rgba(1, 1, 1, 0.48); font.pixelSize: Math.round(11 * colorful.textScale); elide: Text.ElideMiddle }
+                                Text { Layout.fillWidth: true; text: "New downloads use this folder. Existing completed downloads stay where they are."; color: Qt.rgba(1, 1, 1, 0.34); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 8
+                                ColorButton { text: "Choose folder…"; quiet: true; onClicked: downloadFolderDialog.open() }
+                                ColorButton { text: "Open folder"; quiet: true; onClicked: colorful.openDownloadsFolder() }
+                                ColorButton { text: "Use default"; quiet: true; enabled: !colorful.downloadDirectoryIsDefault; onClicked: colorful.resetDownloadDirectory() }
+                            }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 3
                                 Text { text: root.formatStorage(colorful.offlineStorageUsed); color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(22 * colorful.textScale) }
                                 Text { text: colorful.downloads.length + " offline " + (colorful.downloads.length === 1 ? "entry" : "entries"); color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
                                 Text { text: colorful.offlineStorageLimitBytes > 0 ? "Limit: " + root.formatStorage(colorful.offlineStorageLimitBytes) : "No storage limit"; color: Qt.rgba(1, 1, 1, 0.42); font.pixelSize: Math.round(11 * colorful.textScale) }
                             }
-                            ColorButton { text: "Open folder"; quiet: true; onClicked: colorful.openDownloadsFolder() }
                         }
                     }
                     Text { text: "Offline storage limit"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(14 * colorful.textScale) }
@@ -753,11 +814,39 @@ Item {
                         }
                     }
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 72
+                        id: travelSnapshotCard
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: travelSnapshotColumn.implicitHeight + 28
+                        implicitHeight: travelSnapshotColumn.implicitHeight + 28
                         color: Qt.rgba(1, 1, 1, 0.018); border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
-                        Column { anchors.fill: parent; anchors.margins: 14; spacing: 4
-                            Text { text: "Device sync is not enabled yet"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
-                            Text { width: parent.width; text: "Pairing, history sync, playback handoff, and desktop RPC relay controls will appear here."; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap }
+                        Column {
+                            id: travelSnapshotColumn
+                            anchors.fill: parent; anchors.margins: 14; spacing: 8
+                            Text { text: "Travel snapshot"; color: "#f5f5f5"; font.bold: true; font.pixelSize: Math.round(13 * colorful.textScale) }
+                            Text {
+                                width: parent.width
+                                text: "Move your library, playlists, queue, playback position, and selected playback settings between devices. Downloads and accounts stay on this device."
+                                color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: Math.round(11 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                width: parent.width; spacing: 8
+                                ColorButton {
+                                    text: "Export JSON"
+                                    quiet: true
+                                    enabled: !colorful.busy
+                                    onClicked: travelExportDialog.open()
+                                }
+                                ColorButton {
+                                    text: "Import JSON"
+                                    enabled: !colorful.busy
+                                    onClicked: travelImportDialog.open()
+                                }
+                            }
+                            Text {
+                                width: parent.width
+                                text: "Import replaces portable state after confirmation."
+                                color: Qt.rgba(1, 1, 1, 0.3); font.pixelSize: Math.round(10 * colorful.textScale); wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }
@@ -838,6 +927,55 @@ Item {
         onAccepted: {
             colorful.fixedAccent = selectedColor
             colorful.accentMode = "fixed"
+        }
+    }
+
+    FileDialog {
+        id: travelExportDialog
+        title: "Export a colorful travel snapshot"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["Colorful travel snapshots (*.json)", "All files (*)"]
+        onAccepted: colorful.exportTravelSnapshot(selectedFile)
+    }
+
+    FolderDialog {
+        id: downloadFolderDialog
+        title: "Choose the download folder"
+        currentFolder: colorful.downloadDirectoryUrl
+        onAccepted: colorful.setDownloadDirectory(selectedFolder)
+    }
+
+    FileDialog {
+        id: travelImportDialog
+        title: "Choose a colorful travel snapshot"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Colorful travel snapshots (*.json)", "All files (*)"]
+        onAccepted: {
+            root.pendingTravelImportFile = selectedFile
+            travelImportConfirm.open()
+        }
+    }
+
+    Dialog {
+        id: travelImportConfirm
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        title: "Replace portable state?"
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: {
+            colorful.importTravelSnapshot(root.pendingTravelImportFile)
+            root.pendingTravelImportFile = ""
+        }
+        onRejected: root.pendingTravelImportFile = ""
+        contentItem: ColumnLayout {
+            implicitWidth: 420
+            Text {
+                Layout.fillWidth: true
+                text: "This replaces the current library, playlists, queue, playback position, and portable playback settings. Downloads, provider accounts, history, and other device-local data stay here."
+                color: Qt.rgba(1, 1, 1, 0.65)
+                font.pixelSize: Math.round(12 * colorful.textScale)
+                wrapMode: Text.WordWrap
+            }
         }
     }
 }

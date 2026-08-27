@@ -1,7 +1,23 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import OSLog
 import UIKit
+
+private let colorfulIOSPlaybackLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "sh.valerie.colorful",
+    category: "Playback"
+)
+
+private func colorfulPlaybackInfo(_ message: String) {
+    colorfulIOSPlaybackLogger.info("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "Playback", message: message)
+}
+
+private func colorfulPlaybackError(_ message: String) {
+    colorfulIOSPlaybackLogger.error("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "Playback", message: message)
+}
 
 @MainActor
 final class IOSPlaybackService: NSObject, ObservableObject {
@@ -16,6 +32,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private var notificationTokens = [NSObjectProtocol]()
     private var timeObserver: Any?
     private var sourceTask: Task<Void, Never>?
+    private var sourceResolutionGeneration: UInt64 = 0
+    private var sourceResolutionInFlight = false
     private var itemReadinessTask: Task<Void, Never>?
     private var itemStatusCancellable: AnyCancellable?
     private var activeTrackID: CoreMediaID?
@@ -87,6 +105,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     func stop() {
         finishListeningSession()
+        sourceResolutionGeneration &+= 1
+        sourceResolutionInFlight = false
         sourceTask?.cancel()
         sourceTask = nil
         itemReadinessTask?.cancel()
@@ -168,6 +188,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
 
     func retryCurrentTrack() {
         guard store.currentTrack != nil else { return }
+        sourceResolutionGeneration &+= 1
+        sourceResolutionInFlight = false
         sourceTask?.cancel()
         itemReadinessTask?.cancel()
         itemStatusCancellable = nil
@@ -185,6 +207,8 @@ final class IOSPlaybackService: NSObject, ObservableObject {
     private func synchronize() {
         guard let track = store.currentTrack else {
             finishListeningSession()
+            sourceResolutionGeneration &+= 1
+            sourceResolutionInFlight = false
             sourceTask?.cancel()
             itemReadinessTask?.cancel()
             itemStatusCancellable = nil
@@ -219,6 +243,11 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             applyPlaybackState()
             return
         }
+        if activeTrackID == track.id,
+           activeQueueEntryID == queueEntryID,
+           sourceResolutionInFlight {
+            return
+        }
 
         let startsAtBeginning = activeTrackID != nil
             && (activeTrackID != track.id || activeQueueEntryID != queueEntryID)
@@ -239,8 +268,16 @@ final class IOSPlaybackService: NSObject, ObservableObject {
         failedQueueEntryID = nil
         isBuffering = store.effectiveIsPlaying
         errorMessage = nil
+        sourceResolutionGeneration &+= 1
+        let resolutionGeneration = sourceResolutionGeneration
+        sourceResolutionInFlight = true
         sourceTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if self.sourceResolutionGeneration == resolutionGeneration {
+                    self.sourceResolutionInFlight = false
+                }
+            }
             do {
                 if let localURL = downloads.localURL(for: track) {
                     guard !Task.isCancelled,
@@ -293,6 +330,9 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                 failedTrackID = track.id
                 failedQueueEntryID = queueEntryID
                 errorMessage = error.localizedDescription
+                colorfulPlaybackError(
+                    "source resolution failed provider=\(provider) track=\(track.id.providerID) error=\(error.localizedDescription)"
+                )
                 store.pause()
             }
         }
@@ -323,15 +363,27 @@ final class IOSPlaybackService: NSObject, ObservableObject {
             options[AVURLAssetHTTPUserAgentKey] = userAgent
         }
         options[AVURLAssetOverrideMIMETypeKey] = source.mimeType
-        // Provider-supplied cookies (e.g. from the WebView HLS resolver) must
-        // reach AVPlayer's segment requests via the shared cookie store.
-        if let cookieHeader = source.httpHeaders["Cookie"] {
-            let cookies = HTTPCookie.cookies(withResponseHeaderFields: [
-                "Set-Cookie": cookieHeader.replacingOccurrences(of: "; ", with: "\r\nSet-Cookie: "),
-            ], for: source.url)
-            let store = HTTPCookieStorage.shared
-            for cookie in cookies { store.setCookie(cookie) }
+        // AVFoundation has no supported arbitrary-header option. YouTube's
+        // direct source is probed with this same User-Agent and range shape;
+        // sources that still depend on browser-only Origin/Referer fail before
+        // an AVPlayerItem is installed.
+        // AVURLAsset does not reliably inherit cookies from process-wide
+        // storage. Pass URL-matching cookies explicitly so the HLS manifest
+        // and subsequent media requests use the same WebView session.
+        let cookies = HTTPCookieStorage.shared.cookies(for: source.url)
+        if let cookies, !cookies.isEmpty {
+            options[AVURLAssetHTTPCookiesKey] = cookies
         }
+        let queryKeys = Array(Set(
+            URLComponents(url: source.url, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name) ?? []
+        )).sorted().joined(separator: ",")
+        let host = source.url.host ?? ""
+        let headerNames = source.httpHeaders.keys.sorted().joined(separator: ",")
+        let hasPOT = queryKeys.split(separator: ",").contains("pot")
+        let hasUMP = queryKeys.split(separator: ",").contains("ump")
+        colorfulPlaybackInfo(
+            "install youtube AVPlayer source track=\(track.id.providerID) host=\(host) mime=\(source.mimeType) headers=\(headerNames) cookies=\(cookies?.count ?? 0) queryKeys=[\(queryKeys)] pot=\(hasPOT) ump=\(hasUMP)"
+        )
         let asset = AVURLAsset(url: source.url, options: options)
         let item = AVPlayerItem(asset: asset)
         if source.mimeType.lowercased().contains("mpegurl") {
@@ -369,12 +421,19 @@ final class IOSPlaybackService: NSObject, ObservableObject {
                     self.itemReadinessTask?.cancel()
                     self.itemReadinessTask = nil
                     self.isBuffering = false
+                    colorfulPlaybackInfo(
+                        "AVPlayer item ready track=\(track.id.providerID)"
+                    )
                     self.applyPlaybackState()
                 case .failed:
+                    let message = self.playbackFailureMessage(for: item)
+                    colorfulPlaybackError(
+                        "AVPlayer item failed track=\(track.id.providerID) message=\(message)"
+                    )
                     self.failInstalledItem(
                         track: track,
                         queueEntryID: queueEntryID,
-                        message: self.playbackFailureMessage(for: item)
+                        message: message
                     )
                 case .unknown:
                     break

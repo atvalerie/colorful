@@ -11,6 +11,9 @@ import { clearYouTubeSourceCache, youtubeAvailable, youtubeSource, youtubeTrack 
 import { searchYouTubeMusicCatalog, setYouTubeMusicAccessTokenProvider, setYouTubeMusicBrowserHeadersProvider, youtubeMusicAccount, youtubeMusicAlbum, youtubeMusicArtist, youtubeMusicArtistTracksMore, youtubeMusicAutomix, youtubeMusicAutomixPage, youtubeMusicCollection, youtubeMusicPlaylist, youtubeMusicPlaylistMore, youtubeMusicShuffledPlaylist, youtubeMusicTrackMetadata } from "./youtube-music";
 import { resolveLyrics } from "./lyrics";
 import { debugLog } from "./debug";
+import { recommendationMode, selectRecommendations } from "./recommendation-policy";
+import { SpotifyBrowserSession } from "./spotify-auth";
+import { SpotifyRecommendationClient } from "./spotify-recommendations";
 
 type RequestMessage = { id: number; type: string; payload?: Record<string, unknown> };
 type ResponseMessage = { id?: number; event?: string; ok: boolean; data?: unknown; error?: string };
@@ -24,6 +27,18 @@ let userBrowse: BrowseClient | null = null;
 let authAbort: AbortController | null = null;
 let youtubeAuthAbort: AbortController | null = null;
 let browserAuthAbort: AbortController | null = null;
+let spotifyAuthAbort: AbortController | null = null;
+const spotifySession = new SpotifyBrowserSession();
+const spotifyRecommendations = new SpotifyRecommendationClient({
+  sessionProvider: async () => {
+    const credentials = await spotifySession.credentials();
+    return {
+      accessToken: credentials.accessToken,
+      clientToken: credentials.clientToken,
+      expiresAtMs: credentials.expiresAtMs,
+    };
+  },
+});
 
 function send(message: ResponseMessage): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -47,6 +62,32 @@ async function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs = 12
 
 function youtubeTracks(tracks: Awaited<ReturnType<typeof youtubeMusicAutomix>>): Array<(typeof tracks)[number] & { provider: "youtube" }> {
   return tracks.map((track) => ({ ...track, provider: "youtube" as const }));
+}
+
+async function spotifyRelatedTracks(trackId: string, suppliedIsrc: string, limit: number) {
+  if (!spotifySession.linked) throw new Error("Connect Spotify in Settings to use Spotify recommendations");
+  const isrc = suppliedIsrc.trim().toUpperCase()
+    || (await browse.trackSummary(trackId)).isrc?.trim().toUpperCase()
+    || "";
+  if (!isrc) throw new Error("That TIDAL track has no ISRC for Spotify matching");
+  const candidateTrackIds = await spotifySession.searchTrackIds(`isrc:${isrc}`);
+  const result = await spotifyRecommendations.recommend(
+    { isrc, candidateTrackIds }, Math.min(100, Math.max(limit * 3, limit)),
+  );
+  const tracks = await browse.tracksByIsrc(result.isrcBatch, limit);
+  return tracks.map((track) => ({ ...track, provider: "tidal" as const }));
+}
+
+async function tidalRelatedByPolicy(trackId: string, suppliedIsrc: string, limit: number, value: unknown) {
+  const mode = recommendationMode(value);
+  const tidal = () => browse.relatedTracks(trackId, limit);
+  if (mode === "fallback" && !spotifySession.linked) {
+    return { source: "tidal" as const, tracks: await tidal() };
+  }
+  const spotify = async () => {
+    return spotifyRelatedTracks(trackId, suppliedIsrc, limit);
+  };
+  return selectRecommendations(mode, tidal, spotify);
 }
 
 async function installSession(token: UserToken): Promise<void> {
@@ -164,7 +205,36 @@ async function handle(request: RequestMessage): Promise<void> {
         youtubeLinked: youtubeLinked(),
         soundcloudAvailable: true,
         soundcloudLinked: soundCloudLinked(),
+        spotifyAvailable: true,
+        spotifyLinked: spotifySession.linked,
       } });
+      return;
+    case "spotify.auth.status":
+      send({ id: request.id, ok: true, data: { linked: spotifySession.linked } });
+      return;
+    case "spotify.auth.browser.start": {
+      spotifyAuthAbort?.abort();
+      const controller = new AbortController();
+      spotifyAuthAbort = controller;
+      void spotifySession.authenticate(controller.signal, (status) => {
+        send({ event: "browser.auth.progress", ok: true, data: { provider: "spotify", status } });
+      }).then(() => {
+        send({ event: "spotify.auth.completed", ok: true, data: { linked: true } });
+      }).catch((error) => {
+        if (!controller.signal.aborted) {
+          send({ event: "spotify.auth.failed", ok: false, error: publicError(error) });
+        }
+      }).finally(() => {
+        if (spotifyAuthAbort === controller) spotifyAuthAbort = null;
+      });
+      send({ id: request.id, ok: true, data: { provider: "spotify" } });
+      return;
+    }
+    case "spotify.auth.unlink":
+      spotifyAuthAbort?.abort();
+      spotifyAuthAbort = null;
+      await spotifySession.clear();
+      send({ id: request.id, ok: true, data: { linked: false } });
       return;
     case "youtube.auth.status":
       send({ id: request.id, ok: true, data: {
@@ -251,6 +321,8 @@ async function handle(request: RequestMessage): Promise<void> {
     case "browser.auth.cancel":
       browserAuthAbort?.abort();
       browserAuthAbort = null;
+      spotifyAuthAbort?.abort();
+      spotifyAuthAbort = null;
       send({ id: request.id, ok: true, data: { cancelled: true } });
       return;
     case "soundcloud.auth.unlink":
@@ -458,7 +530,23 @@ async function handle(request: RequestMessage): Promise<void> {
         return;
       }
       if (provider !== "tidal") throw new Error(`Catalog pages are not implemented for ${provider}`);
-      if (kind === "track") send({ id: request.id, ok: true, data: await browse.trackPage(resourceId) });
+      if (kind === "track") {
+        const mode = recommendationMode(request.payload?.recommendationMode);
+        const page = mode === "spotify"
+          ? { kind: "track" as const, track: await browse.trackSummary(resourceId), relatedTracks: [] }
+          : await browse.trackPage(resourceId);
+        const selected = await selectRecommendations(
+          mode,
+          async () => page.relatedTracks,
+          async () => {
+            if (!spotifySession.linked) return [];
+            return spotifyRelatedTracks(resourceId, page.track.isrc ?? "", 20).catch(() => []);
+          },
+        );
+        send({ id: request.id, ok: true, data: {
+          ...page, relatedTracks: selected.tracks, recommendationSource: selected.source,
+        } });
+      }
       else if (kind === "album") send({ id: request.id, ok: true, data: await browse.albumPage(resourceId) });
       else if (kind === "artist") send({ id: request.id, ok: true, data: await browse.artistPage(resourceId) });
       else if (kind === "playlist") {
@@ -525,8 +613,15 @@ async function handle(request: RequestMessage): Promise<void> {
         const page = await youtubeMusicAutomixPage(trackId);
         send({ id: request.id, ok: true, data: { tracks: youtubeTracks(page.tracks), cursor: page.cursor } });
       }
-      else if (provider === "tidal")
-        send({ id: request.id, ok: true, data: { tracks: await browse.relatedTracks(trackId, limit) } });
+      else if (provider === "tidal") {
+        const selected = await tidalRelatedByPolicy(
+          trackId, String(request.payload?.isrc ?? ""), limit,
+          request.payload?.recommendationMode,
+        );
+        send({ id: request.id, ok: true, data: {
+          tracks: selected.tracks, recommendationSource: selected.source,
+        } });
+      }
       else if (provider === "soundcloud")
         send({ id: request.id, ok: true, data: { tracks: await soundCloudRelated(trackId, limit) } });
       else throw new Error(`Related tracks are not implemented for ${provider}`);
@@ -595,6 +690,11 @@ async function restoreAccounts(): Promise<void> {
       await clearProviderSecret("soundcloud");
       send({ event: "warning", ok: false, error: `Stored SoundCloud session expired: ${publicError(error)}` });
     }
+  })(), (async () => {
+    const credentials = await spotifySession.restore();
+    if (credentials) {
+      send({ event: "spotify.auth.restored", ok: true, data: { linked: true } });
+    }
   })()]);
 }
 
@@ -638,6 +738,8 @@ void restoreAccounts().catch((error) => {
 });
 void readRequests().finally(() => {
   browserAuthAbort?.abort();
+  spotifyAuthAbort?.abort();
   authAbort?.abort();
   youtubeAuthAbort?.abort();
+  void spotifySession.close();
 });

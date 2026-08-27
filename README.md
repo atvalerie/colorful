@@ -29,10 +29,10 @@
 > AI-generated code.
 
 <p align="center">
-  <img src="assets/desktop_early_ver.png" alt="Early colorful desktop build showing search, queue, and playback controls" width="100%">
+  <img src="assets/desktop_alpha.png" alt="Early colorful desktop build showing search, queue, and playback controls" width="100%">
 </p>
 
-<p align="center"><sub>This is an early desktop build. The interface has changed since then.</sub></p>
+<p align="center"><sub>This is an early desktop build.</sub></p>
 
 ## About
 

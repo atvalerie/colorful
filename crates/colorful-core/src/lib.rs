@@ -17,6 +17,7 @@ pub mod playlist;
 pub mod providers;
 pub mod queue;
 pub mod storage;
+pub mod travel_snapshot;
 
 pub use download::{DownloadJob, DownloadState, DownloadTransitionError};
 pub use engine::{
@@ -46,3 +47,9 @@ pub use providers::account::{
 };
 pub use queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
 pub use storage::{Storage, StorageError, StorageResult, StoredPlayback};
+pub use travel_snapshot::{
+    PORTABLE_SETTING_KEYS, TRAVEL_SNAPSHOT_FORMAT, TRAVEL_SNAPSHOT_VERSION, TravelArtist,
+    TravelArtwork, TravelImportSummary, TravelLibraryEntry, TravelMediaId, TravelPlayback,
+    TravelPlaylist, TravelQueue, TravelQueueEntry, TravelSetting, TravelSnapshot,
+    TravelSnapshotError, TravelTrack,
+};

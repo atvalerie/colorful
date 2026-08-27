@@ -14,6 +14,8 @@ uint32_t colorful_core_abi_version(void);
 char *colorful_engine_open(const char *database_path);
 char *colorful_engine_dispatch(uint64_t handle, const char *command_json);
 char *colorful_engine_snapshot(uint64_t handle);
+char *colorful_engine_export_travel_snapshot(uint64_t handle);
+char *colorful_engine_import_travel_snapshot(uint64_t handle, const char *snapshot_json);
 char *colorful_engine_setting(uint64_t handle, const char *key);
 bool colorful_engine_close(uint64_t handle);
 char *colorful_party_open(void);

@@ -175,6 +175,29 @@ export function deduplicateTracks(tracks: TrackSummary[]): TrackSummary[] {
   return result;
 }
 
+export function orderTracksByIsrc(
+  tracks: TrackSummary[],
+  requestedIsrcs: string[],
+  limit = requestedIsrcs.length,
+): TrackSummary[] {
+  const requested = [...new Set(requestedIsrcs.map((isrc) => isrc.trim().toUpperCase()).filter(Boolean))];
+  const byIsrc = new Map<string, TrackSummary[]>();
+  for (const track of tracks) {
+    const isrc = track.isrc?.trim().toUpperCase();
+    if (!isrc) continue;
+    const values = byIsrc.get(isrc) ?? [];
+    values.push(track);
+    byIsrc.set(isrc, values);
+  }
+  const ordered: TrackSummary[] = [];
+  for (const isrc of requested) {
+    const best = deduplicateTracks(byIsrc.get(isrc) ?? [])[0];
+    if (best) ordered.push(best);
+    if (ordered.length >= Math.max(0, limit)) break;
+  }
+  return ordered;
+}
+
 export function cursorFromNextLink(document: { links?: { next?: unknown; meta?: { nextCursor?: unknown } } }): string | undefined {
   const metadataCursor = document.links?.meta?.nextCursor;
   if (typeof metadataCursor === "string" && metadataCursor) return metadataCursor;
@@ -363,6 +386,35 @@ export class BrowseClient {
     } catch {
       return this.hydrateMissingArtwork(tracks);
     }
+  }
+
+  async trackSummary(trackId: string): Promise<TrackSummary> {
+    const document = await this.get(`tracks/${encodeURIComponent(trackId)}`, { include: "albums,artists" });
+    const track = (await this.hydrateMissingArtwork(mapTracks(document)))[0];
+    if (!track) throw new Error("TIDAL did not return that track");
+    return track;
+  }
+
+  async tracksByIsrc(isrcs: string[], limit = isrcs.length): Promise<TrackSummary[]> {
+    const requested = [...new Set(isrcs.map((isrc) => isrc.trim().toUpperCase()).filter(Boolean))];
+    if (requested.length === 0 || limit <= 0) return [];
+    const documents: any[] = [];
+    const pending: string[][] = [];
+    for (let index = 0; index < requested.length; index += 20) pending.push(requested.slice(index, index + 20));
+    const workers = Array.from({ length: Math.min(4, pending.length) }, async () => {
+      while (pending.length) {
+        const batch = pending.shift();
+        if (!batch) return;
+        documents.push(await this.get("tracks", {
+          include: "albums,artists,albums.coverArt",
+          "filter[isrc]": batch.join(","),
+          "page[limit]": String(batch.length),
+        }));
+      }
+    });
+    await Promise.all(workers);
+    const tracks = await this.hydrateMissingArtwork(documents.flatMap(mapTracks));
+    return orderTracksByIsrc(tracks, requested, limit);
   }
 
   private async hydrateAlbums(albums: AlbumSummary[]): Promise<AlbumSummary[]> {
@@ -610,9 +662,7 @@ export class BrowseClient {
   }
 
   async trackPage(trackId: string): Promise<TrackPage> {
-    const document = await this.get(`tracks/${encodeURIComponent(trackId)}`, { include: "albums,artists" });
-    const track = (await this.hydrateMissingArtwork(mapTracks(document)))[0];
-    if (!track) throw new Error("TIDAL did not return that track");
+    const track = await this.trackSummary(trackId);
     return { kind: "track", track, relatedTracks: await this.relatedTracks(trackId, 20).catch(() => []) };
   }
 

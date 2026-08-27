@@ -10,6 +10,7 @@ use crate::history::{ListenEvent, ListenStats};
 use crate::media::{MediaId, Track};
 use crate::playback::RepeatMode;
 use crate::queue::QueueEntryId;
+use crate::travel_snapshot::TravelSnapshot;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
@@ -430,6 +431,61 @@ pub extern "C" fn colorful_engine_snapshot(handle: u64) -> *mut c_char {
     })
 }
 
+/// Exports the portable travel snapshot document for an open engine.
+///
+/// The response's `value` is deterministic JSON using the versioned
+/// `colorful-travel-snapshot` schema. Device-local data is never included.
+#[unsafe(no_mangle)]
+pub extern "C" fn colorful_engine_export_travel_snapshot(handle: u64) -> *mut c_char {
+    guarded(|| {
+        let registry = registry()
+            .lock()
+            .map_err(|_| "engine registry lock is poisoned".to_owned())?;
+        let engine = registry
+            .engines
+            .get(&handle)
+            .ok_or_else(|| format!("unknown engine handle {handle}"))?;
+        let snapshot = engine
+            .export_travel_snapshot()
+            .map_err(|error| error.to_string())?;
+        Ok(success(snapshot))
+    })
+}
+
+/// Imports a raw versioned travel snapshot document into an open engine.
+///
+/// The import replaces portable library, playlist, queue, playback-position,
+/// repeat/shuffle, and allow-listed setting state in one transaction. It does
+/// not touch downloads, cache entries, history, credentials, signed URLs, or
+/// other device-local settings.
+///
+/// # Safety
+///
+/// `snapshot_json` must point to a valid NUL-terminated UTF-8 string for the
+/// duration of this call. The returned string must be released with
+/// [`colorful_string_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn colorful_engine_import_travel_snapshot(
+    handle: u64,
+    snapshot_json: *const c_char,
+) -> *mut c_char {
+    guarded(|| {
+        let json = unsafe { required_string(snapshot_json, "snapshot_json") }?;
+        let snapshot = TravelSnapshot::from_json(&json).map_err(|error| error.to_string())?;
+        let mut registry = registry()
+            .lock()
+            .map_err(|_| "engine registry lock is poisoned".to_owned())?;
+        let engine = registry
+            .engines
+            .get_mut(&handle)
+            .ok_or_else(|| format!("unknown engine handle {handle}"))?;
+        let summary = engine
+            .import_travel_snapshot(&snapshot)
+            .map_err(|error| error.to_string())?;
+        Ok(success(summary))
+    })
+}
+
 /// Reads one JSON setting without inflating the regular engine snapshot.
 ///
 /// # Safety
@@ -509,6 +565,15 @@ mod tests {
             .to_owned();
         unsafe { colorful_string_free(pointer) };
         serde_json::from_str(&json).unwrap()
+    }
+
+    fn response_text(pointer: *mut c_char) -> String {
+        let json = unsafe { CStr::from_ptr(pointer) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        unsafe { colorful_string_free(pointer) };
+        json
     }
 
     #[test]
@@ -623,5 +688,144 @@ mod tests {
         assert_eq!(snapshot["value"]["listenStats"]["playCount"], 1);
         assert_eq!(snapshot["value"]["listenStats"]["totalListenedMs"], 60_000);
         assert!(colorful_engine_close(handle));
+    }
+
+    #[test]
+    fn c_abi_travel_export_is_deterministic_and_import_is_repeatable() {
+        let source_path = CString::new(":memory:").unwrap();
+        let source = response(unsafe { colorful_engine_open(source_path.as_ptr()) });
+        let source_handle = source["value"]["handle"].as_u64().unwrap();
+        let first = Track {
+            id: MediaId::new(Provider::Tidal, "travel-first").unwrap(),
+            title: "First".into(),
+            version: None,
+            artists: vec![ArtistCredit {
+                id: None,
+                name: "Artist".into(),
+            }],
+            album_id: None,
+            album_title: None,
+            artwork: Some(crate::media::Artwork {
+                url: Some("https://signed.example/cover?token=secret".into()),
+                local_key: Some("C:/private/cover.jpg".into()),
+                width: Some(512),
+                height: Some(512),
+            }),
+            duration_ms: Some(180_000),
+            isrc: None,
+            explicit: None,
+        };
+        let second = Track {
+            id: MediaId::new(Provider::SoundCloud, "travel-second").unwrap(),
+            title: "Second".into(),
+            version: None,
+            artists: vec![ArtistCredit {
+                id: None,
+                name: "Artist".into(),
+            }],
+            album_id: None,
+            album_title: None,
+            artwork: None,
+            duration_ms: Some(200_000),
+            isrc: None,
+            explicit: None,
+        };
+        for command in [
+            serde_json::json!({"command":"play_tracks","tracks":[first.clone(), second.clone()]}),
+            serde_json::json!({"command":"add_to_library","track":first.clone()}),
+            serde_json::json!({"command":"create_playlist","name":"Trip","tracks":[second.clone(), first.clone(), second.clone()]}),
+            serde_json::json!({"command":"set_shuffle","enabled":true,"seed":17}),
+            serde_json::json!({"command":"set_repeat","repeat":"all"}),
+            serde_json::json!({"command":"checkpoint_position","position_ms":1234}),
+            serde_json::json!({"command":"set_setting","key":"playback/autoplay","value_json":"true"}),
+            serde_json::json!({"command":"set_setting","key":"provider/token","value_json":r#""secret""#}),
+        ] {
+            let command = CString::new(command.to_string()).unwrap();
+            assert!(
+                response(unsafe { colorful_engine_dispatch(source_handle, command.as_ptr()) })
+                    ["ok"]
+                    .as_bool()
+                    .unwrap()
+            );
+        }
+        let mut job = DownloadJob::queued(second.id.clone(), 1);
+        job.begin_transfer(Some(10), Some(10), 2).unwrap();
+        job.complete("C:/private/audio.m4a", 10, 3).unwrap();
+        let command = CString::new(
+            serde_json::json!({"command":"save_download","track":second.clone(),"job":job})
+                .to_string(),
+        )
+        .unwrap();
+        assert!(
+            response(unsafe { colorful_engine_dispatch(source_handle, command.as_ptr()) })["ok"]
+                .as_bool()
+                .unwrap()
+        );
+
+        let exported_first = response_text(colorful_engine_export_travel_snapshot(source_handle));
+        let exported_second = response_text(colorful_engine_export_travel_snapshot(source_handle));
+        assert_eq!(exported_first, exported_second);
+        let exported: serde_json::Value = serde_json::from_str(&exported_first).unwrap();
+        assert!(exported["ok"].as_bool().unwrap());
+        let travel = exported["value"].clone();
+        assert_eq!(travel["format"], "colorful-travel-snapshot");
+        assert_eq!(travel["version"], 1);
+        assert_eq!(travel["playback"]["positionMs"], 1234);
+        assert_eq!(travel["playback"]["repeat"], "all");
+        assert!(travel["playback"]["queue"]["current"].is_number());
+        assert!(!exported_first.contains("downloads"));
+        assert!(!exported_first.contains("private"));
+        assert!(!exported_first.contains("signed.example"));
+        assert!(!exported_first.contains("localKey"));
+        assert!(!exported_first.contains("provider/token"));
+
+        let destination_path = CString::new(":memory:").unwrap();
+        let destination = response(unsafe { colorful_engine_open(destination_path.as_ptr()) });
+        let destination_handle = destination["value"]["handle"].as_u64().unwrap();
+        let travel_json = CString::new(travel.to_string()).unwrap();
+        let imported = response(unsafe {
+            colorful_engine_import_travel_snapshot(destination_handle, travel_json.as_ptr())
+        });
+        assert!(imported["ok"].as_bool().unwrap());
+        assert_eq!(imported["value"]["playlistCount"], 1);
+        assert_eq!(imported["value"]["queueCount"], 2);
+
+        let destination_export =
+            response_text(colorful_engine_export_travel_snapshot(destination_handle));
+        let imported_again = response(unsafe {
+            colorful_engine_import_travel_snapshot(destination_handle, travel_json.as_ptr())
+        });
+        assert!(imported_again["ok"].as_bool().unwrap());
+        let destination_export_again =
+            response_text(colorful_engine_export_travel_snapshot(destination_handle));
+        assert_eq!(destination_export, destination_export_again);
+
+        let mut unsupported = travel.clone();
+        unsupported["version"] = serde_json::json!(999);
+        let unsupported_json = CString::new(unsupported.to_string()).unwrap();
+        let rejected = response(unsafe {
+            colorful_engine_import_travel_snapshot(destination_handle, unsupported_json.as_ptr())
+        });
+        assert!(!rejected["ok"].as_bool().unwrap());
+        assert!(
+            rejected["error"]
+                .as_str()
+                .unwrap()
+                .contains("unsupported travel snapshot version")
+        );
+        let after_rejected =
+            response_text(colorful_engine_export_travel_snapshot(destination_handle));
+        assert_eq!(after_rejected, destination_export_again);
+
+        let mut malformed = travel.clone();
+        malformed["playback"]["queue"]["entries"][0]["mediaId"]["providerId"] =
+            serde_json::json!("missing");
+        let malformed_json = CString::new(malformed.to_string()).unwrap();
+        let rejected = response(unsafe {
+            colorful_engine_import_travel_snapshot(destination_handle, malformed_json.as_ptr())
+        });
+        assert!(!rejected["ok"].as_bool().unwrap());
+        assert!(colorful_engine_close(source_handle));
+        assert!(colorful_engine_close(destination_handle));
     }
 }

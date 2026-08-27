@@ -71,3 +71,40 @@ The ABI registry serializes access to each SQLite-backed engine, catches Rust
 panics before they cross the C boundary, validates UTF-8/JSON, and reports stale
 handles as errors. `colorful_core_abi_version()` lets a shell reject an
 incompatible library before opening its database.
+
+## Travel snapshots
+
+The additive `colorful_engine_export_travel_snapshot(handle)` function returns
+the regular ABI response envelope. Its `value` is deterministic JSON with
+`format: "colorful-travel-snapshot"` and `version: 1`.
+
+```c
+char *colorful_engine_export_travel_snapshot(uint64_t handle);
+char *colorful_engine_import_travel_snapshot(uint64_t handle, const char *snapshot_json);
+```
+
+The import function accepts the raw snapshot document from the export
+response's `value`. It replaces library membership, Colorful playlists and
+their order, queue entries and playback position, repeat/shuffle state, and a
+small allow-list of portable playback settings. The operation validates every
+reference before making one SQLite transaction. Repeating the same import is
+safe and produces the same portable state.
+
+Downloads, cache entries, local paths, provider credentials, signed URLs,
+listening history, lyrics/cache settings, and platform-specific settings are
+not part of the format and remain on the destination device. Track artwork in
+the travel document contains dimensions only; artwork URLs and local cache
+keys are deliberately omitted.
+
+Local-provider tracks are omitted during export. Playlists remain present with
+their portable items in the original order; local items are left out. If the
+current queue entry is local, export selects the next portable playback entry,
+falls back to the first portable entry when needed, and resets the position to
+zero. If no portable queue entry remains, the exported queue has no current
+entry.
+
+On import, destination local-library membership is retained. Destination
+playlists containing local tracks are retained as well. For a matching
+playlist ID, imported portable items are written first and the existing local
+items are appended. A destination local-only playlist is kept unchanged.
+Local references are never imported from the snapshot.

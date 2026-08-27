@@ -6,7 +6,12 @@ use crate::media::{ArtistCredit, Artwork, MediaId, Provider, Track};
 use crate::playback::RepeatMode;
 use crate::playlist::LocalPlaylist;
 use crate::queue::{PlaybackQueue, QueueEntry, QueueEntryId, QueueSnapshot, QueueSnapshotError};
+use crate::travel_snapshot::{
+    TravelImportSummary, TravelLibraryEntry, TravelPlaylist, TravelSetting, TravelSnapshot,
+    TravelSnapshotError, filter_local_queue, is_portable_setting_key, validate_setting,
+};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde_json::Value;
 use std::fmt;
 use std::path::Path;
 use std::time::Duration;
@@ -24,6 +29,7 @@ pub enum StorageError {
     InvalidProvider(String),
     InvalidMediaId,
     InvalidQueue(QueueSnapshotError),
+    InvalidTravelSnapshot(TravelSnapshotError),
     InvalidDownloadState(String),
     IntegerOutOfRange(&'static str),
 }
@@ -46,6 +52,7 @@ impl fmt::Display for StorageError {
             Self::InvalidQueue(error) => {
                 write!(formatter, "database contains an invalid queue: {error:?}")
             }
+            Self::InvalidTravelSnapshot(error) => error.fmt(formatter),
             Self::InvalidDownloadState(state) => {
                 write!(formatter, "unknown download state in database: {state}")
             }
@@ -74,6 +81,12 @@ impl From<std::io::Error> for StorageError {
 impl From<QueueSnapshotError> for StorageError {
     fn from(value: QueueSnapshotError) -> Self {
         Self::InvalidQueue(value)
+    }
+}
+
+impl From<TravelSnapshotError> for StorageError {
+    fn from(value: TravelSnapshotError) -> Self {
+        Self::InvalidTravelSnapshot(value)
     }
 }
 
@@ -197,6 +210,286 @@ impl Storage {
                 load_track(&self.connection, &id)?.ok_or(StorageError::InvalidMediaId)
             })
             .collect()
+    }
+
+    pub fn export_travel_snapshot(&self) -> StorageResult<TravelSnapshot> {
+        let library_rows = {
+            let mut statement = self.connection.prepare(
+                "SELECT provider, provider_id, added_at_ms
+                 FROM library_tracks ORDER BY provider, provider_id",
+            )?;
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut tracks = Vec::new();
+        let mut library = Vec::with_capacity(library_rows.len());
+        for (provider, provider_id, added_at_ms) in library_rows {
+            let id = media_id(&provider, provider_id)?;
+            if id.provider == Provider::Local {
+                continue;
+            }
+            let track = self.track(&id)?.ok_or(StorageError::InvalidMediaId)?;
+            tracks.push(track);
+            library.push(TravelLibraryEntry {
+                id: (&id).into(),
+                added_at_ms,
+            });
+        }
+
+        let stored_playback = self.load_playback()?;
+        let (portable_queue, current_was_removed) =
+            filter_local_queue(&stored_playback.queue).map_err(StorageError::from)?;
+        for entry in portable_queue.entries() {
+            tracks.push(
+                self.track(&entry.media_id)?
+                    .ok_or_else(|| StorageError::InvalidMediaId)?,
+            );
+        }
+
+        let stored_playlists = self.playlists()?;
+        let playlists = stored_playlists
+            .into_iter()
+            .map(|playlist| {
+                let portable_tracks = playlist
+                    .tracks
+                    .iter()
+                    .filter(|track| track.id.provider != Provider::Local)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                tracks.extend(portable_tracks.iter().cloned());
+                TravelPlaylist {
+                    id: playlist.id,
+                    name: playlist.name,
+                    created_at_ms: playlist.created_at_ms,
+                    updated_at_ms: playlist.updated_at_ms,
+                    track_ids: portable_tracks
+                        .iter()
+                        .map(|track| (&track.id).into())
+                        .collect(),
+                }
+            })
+            .collect();
+
+        let settings = self.portable_settings()?;
+        TravelSnapshot::from_storage_parts(
+            tracks,
+            library,
+            playlists,
+            &portable_queue,
+            if current_was_removed {
+                0
+            } else {
+                stored_playback.position_ms
+            },
+            stored_playback.repeat,
+            settings,
+        )
+        .map_err(StorageError::from)
+    }
+
+    /// Replaces portable user state in one SQLite transaction. Downloads,
+    /// cache entries, history, provider sessions, and every non-portable
+    /// setting remain on the destination device. Destination local-library
+    /// membership and playlist items are preserved; when a playlist ID is
+    /// shared, imported portable items come first and local items follow.
+    pub fn import_travel_snapshot(
+        &mut self,
+        snapshot: &TravelSnapshot,
+    ) -> StorageResult<TravelImportSummary> {
+        snapshot.validate().map_err(StorageError::from)?;
+        let tracks = snapshot.tracks().map_err(StorageError::from)?;
+        let queue = snapshot.queue().map_err(StorageError::from)?;
+        let queue_snapshot = queue.snapshot();
+        let shuffle_seed = sqlite_u64(queue_snapshot.shuffle_seed, "shuffle seed")?;
+        let imported_playlist_ids = snapshot
+            .playlists
+            .iter()
+            .map(|playlist| playlist.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let play_positions = queue_snapshot
+            .play_order
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (*id, position))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        let transaction = self.connection.transaction()?;
+        let local_playlist_contexts = load_playlists(&transaction)?
+            .into_iter()
+            .filter_map(|mut playlist| {
+                let local_tracks = playlist
+                    .tracks
+                    .into_iter()
+                    .filter(|track| track.id.provider == Provider::Local)
+                    .collect::<Vec<_>>();
+                if local_tracks.is_empty() {
+                    None
+                } else {
+                    playlist.tracks = local_tracks;
+                    Some(playlist)
+                }
+            })
+            .collect::<Vec<_>>();
+        for track in &tracks {
+            upsert_track_preserving_artwork(&transaction, track)?;
+        }
+
+        transaction.execute("DELETE FROM library_tracks WHERE provider <> 'local'", [])?;
+        for entry in &snapshot.library {
+            transaction.execute(
+                "INSERT INTO library_tracks (provider, provider_id, added_at_ms, source)
+                 VALUES (?1, ?2, ?3, 'import')",
+                params![
+                    entry.id.provider.to_string(),
+                    entry.id.provider_id,
+                    entry.added_at_ms,
+                ],
+            )?;
+        }
+
+        transaction.execute("DELETE FROM local_playlists", [])?;
+        for playlist in &snapshot.playlists {
+            transaction.execute(
+                "INSERT INTO local_playlists
+                 (playlist_id, name, created_at_ms, updated_at_ms)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    playlist.id,
+                    playlist.name.trim(),
+                    playlist.created_at_ms,
+                    playlist.updated_at_ms,
+                ],
+            )?;
+            for (position, track_id) in playlist.track_ids.iter().enumerate() {
+                transaction.execute(
+                    "INSERT INTO local_playlist_items
+                     (playlist_id, position, provider, provider_id, added_at_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        playlist.id,
+                        sqlite_usize(position, "playlist position")?,
+                        track_id.provider.to_string(),
+                        track_id.provider_id,
+                        playlist.updated_at_ms,
+                    ],
+                )?;
+            }
+            if let Some(local_context) = local_playlist_contexts
+                .iter()
+                .find(|context| context.id == playlist.id)
+            {
+                for (offset, track) in local_context.tracks.iter().enumerate() {
+                    transaction.execute(
+                        "INSERT INTO local_playlist_items
+                         (playlist_id, position, provider, provider_id, added_at_ms)
+                         VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![
+                            playlist.id,
+                            sqlite_usize(playlist.track_ids.len() + offset, "playlist position")?,
+                            track.id.provider.to_string(),
+                            track.id.provider_id,
+                            local_context.updated_at_ms,
+                        ],
+                    )?;
+                }
+            }
+        }
+        for local_context in &local_playlist_contexts {
+            if imported_playlist_ids.contains(local_context.id.as_str()) {
+                continue;
+            }
+            transaction.execute(
+                "INSERT INTO local_playlists
+                 (playlist_id, name, created_at_ms, updated_at_ms)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    local_context.id,
+                    local_context.name,
+                    local_context.created_at_ms,
+                    local_context.updated_at_ms,
+                ],
+            )?;
+            for (position, track) in local_context.tracks.iter().enumerate() {
+                transaction.execute(
+                    "INSERT INTO local_playlist_items
+                     (playlist_id, position, provider, provider_id, added_at_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        local_context.id,
+                        sqlite_usize(position, "playlist position")?,
+                        track.id.provider.to_string(),
+                        track.id.provider_id,
+                        local_context.updated_at_ms,
+                    ],
+                )?;
+            }
+        }
+
+        transaction.execute("DELETE FROM playback_queue", [])?;
+        for (visible_position, entry) in queue_snapshot.entries.iter().enumerate() {
+            transaction.execute(
+                "INSERT INTO playback_queue
+                 (entry_id, provider, provider_id, visible_position, play_position, added_at_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    sqlite_u64(entry.id.get(), "queue entry ID")?,
+                    entry.media_id.provider.to_string(),
+                    entry.media_id.provider_id,
+                    sqlite_usize(visible_position, "visible queue position")?,
+                    sqlite_usize(play_positions[&entry.id], "play queue position")?,
+                    unix_time_ms(),
+                ],
+            )?;
+        }
+        transaction.execute(
+            "UPDATE playback_state SET
+                current_entry_id = ?1,
+                position_ms = ?2,
+                repeat_mode = ?3,
+                shuffle_enabled = ?4,
+                shuffle_seed = ?5,
+                next_entry_id = ?6,
+                updated_at_ms = ?7
+             WHERE singleton_id = 1",
+            params![
+                queue_snapshot
+                    .current
+                    .map(|id| sqlite_u64(id.get(), "current queue entry ID"))
+                    .transpose()?,
+                sqlite_u64(snapshot.playback.position_ms, "playback position")?,
+                repeat_wire_name(snapshot.playback.repeat),
+                queue_snapshot.shuffle,
+                shuffle_seed,
+                sqlite_u64(queue_snapshot.next_entry_id, "next queue entry ID")?,
+                unix_time_ms(),
+            ],
+        )?;
+
+        for key in crate::travel_snapshot::PORTABLE_SETTING_KEYS {
+            transaction.execute("DELETE FROM settings WHERE key = ?1", [*key])?;
+        }
+        for setting in &snapshot.settings {
+            let value_json = serde_json::to_string(&setting.value).map_err(|error| {
+                StorageError::InvalidTravelSnapshot(TravelSnapshotError::Serialization(
+                    error.to_string(),
+                ))
+            })?;
+            transaction.execute(
+                "INSERT INTO settings (key, value_json, updated_at_ms)
+                 VALUES (?1, ?2, ?3)",
+                params![setting.key, value_json, unix_time_ms()],
+            )?;
+        }
+
+        transaction.commit()?;
+        Ok(TravelImportSummary::from_snapshot(snapshot))
     }
 
     pub fn create_playlist(&mut self, name: &str, created_at_ms: i64) -> StorageResult<String> {
@@ -344,36 +637,7 @@ impl Storage {
     }
 
     pub fn playlists(&self) -> StorageResult<Vec<LocalPlaylist>> {
-        let rows = {
-            let mut statement = self.connection.prepare(
-                "SELECT playlist_id, name, created_at_ms, updated_at_ms
-                 FROM local_playlists ORDER BY updated_at_ms DESC, name COLLATE NOCASE",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, i64>(3)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        rows.into_iter().map(|(id, name, created_at_ms, updated_at_ms)| {
-            let ids = {
-                let mut statement = self.connection.prepare(
-                    "SELECT provider, provider_id FROM local_playlist_items WHERE playlist_id = ?1 ORDER BY position",
-                )?;
-                statement.query_map([&id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-                    .collect::<Result<Vec<_>, _>>()?
-            };
-            let tracks = ids.into_iter().map(|(provider, provider_id)| {
-                let media_id = media_id(&provider, provider_id)?;
-                load_track(&self.connection, &media_id)?.ok_or(StorageError::InvalidMediaId)
-            }).collect::<StorageResult<Vec<_>>>()?;
-            Ok(LocalPlaylist { id, name, created_at_ms, updated_at_ms, tracks })
-        }).collect()
+        load_playlists(&self.connection)
     }
 
     /// Inserts a globally identified listen once. Replayed sync operations are
@@ -610,6 +874,7 @@ impl Storage {
         updated_at_ms: i64,
     ) -> StorageResult<()> {
         let snapshot = queue.snapshot();
+        let shuffle_seed = sqlite_u64(snapshot.shuffle_seed, "shuffle seed")?;
         let transaction = self.connection.transaction()?;
         transaction.execute("DELETE FROM playback_queue", [])?;
 
@@ -654,7 +919,7 @@ impl Storage {
                 sqlite_u64(position_ms, "playback position")?,
                 repeat_wire_name(repeat),
                 snapshot.shuffle,
-                snapshot.shuffle_seed as i64,
+                shuffle_seed,
                 sqlite_u64(snapshot.next_entry_id, "next queue entry ID")?,
                 updated_at_ms,
             ],
@@ -724,7 +989,10 @@ impl Storage {
             play_order: order.into_iter().map(|(_, id)| id).collect(),
             current,
             shuffle: state.3,
-            shuffle_seed: state.4 as u64,
+            shuffle_seed: state
+                .4
+                .try_into()
+                .map_err(|_| StorageError::IntegerOutOfRange("shuffle seed"))?,
             next_entry_id: state
                 .5
                 .try_into()
@@ -765,6 +1033,27 @@ impl Storage {
                 |row| row.get(0),
             )
             .optional()?)
+    }
+
+    fn portable_settings(&self) -> StorageResult<Vec<TravelSetting>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT key, value_json FROM settings ORDER BY key")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(key, value_json)| {
+                if !is_portable_setting_key(&key) {
+                    return None;
+                }
+                let value = serde_json::from_str::<Value>(&value_json).ok()?;
+                validate_setting(&key, &value).then_some(TravelSetting { key, value })
+            })
+            .collect())
     }
 
     pub fn save_download(&mut self, track: &Track, job: &DownloadJob) -> StorageResult<()> {
@@ -872,13 +1161,91 @@ impl Storage {
     }
 }
 
+fn load_playlists(connection: &Connection) -> StorageResult<Vec<LocalPlaylist>> {
+    let rows = {
+        let mut statement = connection.prepare(
+            "SELECT playlist_id, name, created_at_ms, updated_at_ms
+             FROM local_playlists ORDER BY updated_at_ms DESC, name COLLATE NOCASE",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    rows.into_iter()
+        .map(|(id, name, created_at_ms, updated_at_ms)| {
+            let ids = {
+                let mut statement = connection.prepare(
+                    "SELECT provider, provider_id FROM local_playlist_items
+                     WHERE playlist_id = ?1 ORDER BY position",
+                )?;
+                statement
+                    .query_map([&id], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            let tracks = ids
+                .into_iter()
+                .map(|(provider, provider_id)| {
+                    let media_id = media_id(&provider, provider_id)?;
+                    load_track(connection, &media_id)?.ok_or(StorageError::InvalidMediaId)
+                })
+                .collect::<StorageResult<Vec<_>>>()?;
+            Ok(LocalPlaylist {
+                id,
+                name,
+                created_at_ms,
+                updated_at_ms,
+                tracks,
+            })
+        })
+        .collect()
+}
+
 fn upsert_track(transaction: &Transaction<'_>, track: &Track) -> StorageResult<()> {
+    upsert_track_with_artwork_policy(transaction, track, false)
+}
+
+fn upsert_track_preserving_artwork(
+    transaction: &Transaction<'_>,
+    track: &Track,
+) -> StorageResult<()> {
+    upsert_track_with_artwork_policy(transaction, track, true)
+}
+
+fn upsert_track_with_artwork_policy(
+    transaction: &Transaction<'_>,
+    track: &Track,
+    preserve_existing_artwork: bool,
+) -> StorageResult<()> {
     let (album_provider, album_provider_id) = track
         .album_id
         .as_ref()
         .map(|id| (Some(id.provider.to_string()), Some(id.provider_id.as_str())))
         .unwrap_or((None, None));
-    transaction.execute(
+    let artwork_url_update = if preserve_existing_artwork {
+        "COALESCE(excluded.artwork_url, tracks.artwork_url)"
+    } else {
+        "excluded.artwork_url"
+    };
+    let artwork_width_update = if preserve_existing_artwork {
+        "COALESCE(excluded.artwork_width, tracks.artwork_width)"
+    } else {
+        "excluded.artwork_width"
+    };
+    let artwork_height_update = if preserve_existing_artwork {
+        "COALESCE(excluded.artwork_height, tracks.artwork_height)"
+    } else {
+        "excluded.artwork_height"
+    };
+    let query = format!(
         "INSERT INTO tracks (
             provider, provider_id, title, version, album_provider, album_provider_id,
             album_title, artwork_url, artwork_local_key, artwork_width, artwork_height,
@@ -890,14 +1257,17 @@ fn upsert_track(transaction: &Transaction<'_>, track: &Track) -> StorageResult<(
             album_provider = excluded.album_provider,
             album_provider_id = excluded.album_provider_id,
             album_title = excluded.album_title,
-            artwork_url = excluded.artwork_url,
+            artwork_url = {artwork_url_update},
             artwork_local_key = COALESCE(excluded.artwork_local_key, tracks.artwork_local_key),
-            artwork_width = excluded.artwork_width,
-            artwork_height = excluded.artwork_height,
+            artwork_width = {artwork_width_update},
+            artwork_height = {artwork_height_update},
             duration_ms = excluded.duration_ms,
             isrc = excluded.isrc,
             explicit = excluded.explicit,
-            metadata_updated_at_ms = excluded.metadata_updated_at_ms",
+            metadata_updated_at_ms = excluded.metadata_updated_at_ms"
+    );
+    transaction.execute(
+        &query,
         params![
             track.id.provider.to_string(),
             track.id.provider_id,
@@ -1290,7 +1660,7 @@ mod tests {
 
         let mut queue = PlaybackQueue::new();
         queue.replace([first.id.clone(), first.id.clone(), second.id.clone()]);
-        queue.set_shuffle(true, u64::MAX - 4);
+        queue.set_shuffle(true, 42);
         queue.advance(RepeatMode::Off);
         storage
             .save_playback(&queue, 31_337, RepeatMode::All, 99)
@@ -1348,5 +1718,317 @@ mod tests {
             Some("music/offline.cover")
         );
         assert!(storage.remove_download(&track.id).unwrap());
+    }
+
+    #[test]
+    fn travel_export_excludes_device_local_data_and_unsafe_settings() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        let mut trip = track("trip");
+        trip.artwork.as_mut().unwrap().local_key = Some("C:/private/cover.jpg".into());
+        storage.add_to_library(&trip, 7).unwrap();
+
+        let mut job = DownloadJob::queued(trip.id.clone(), 1);
+        job.begin_transfer(Some(100), Some(100), 2).unwrap();
+        job.complete("C:/private/audio.m4a", 100, 3).unwrap();
+        storage.save_download(&trip, &job).unwrap();
+
+        storage.set_setting("playback/autoplay", "true", 1).unwrap();
+        storage
+            .set_setting("lyrics/tidal/trip", r#"{"source":"tidal"}"#, 2)
+            .unwrap();
+        storage
+            .set_setting("provider/token", r#""secret""#, 3)
+            .unwrap();
+
+        let snapshot = storage.export_travel_snapshot().unwrap();
+        let json = snapshot.to_json().unwrap();
+        assert!(json.contains("playback/autoplay"));
+        assert!(!json.contains("lyrics/tidal/trip"));
+        assert!(!json.contains("provider/token"));
+        assert!(!json.contains("secret"));
+        assert!(!json.contains("localKey"));
+        assert!(!json.contains("private/cover.jpg"));
+        assert!(!json.contains("private/audio.m4a"));
+        assert!(!json.contains("downloads"));
+        assert_eq!(
+            snapshot.tracks[0].artwork.as_ref().unwrap().width,
+            Some(1280)
+        );
+        assert_eq!(storage.download(&trip.id).unwrap(), Some(job));
+    }
+
+    #[test]
+    fn travel_import_replaces_portable_state_is_idempotent_and_preserves_local_state() {
+        let mut source = Storage::open_in_memory().unwrap();
+        let first = track("first");
+        let second = track("second");
+        source.add_to_library(&first, 11).unwrap();
+        let playlist_id = source.create_playlist("Trip", 12).unwrap();
+        source
+            .add_playlist_tracks(
+                &playlist_id,
+                &[first.clone(), second.clone(), first.clone()],
+                13,
+            )
+            .unwrap();
+        let mut queue = PlaybackQueue::new();
+        queue.replace([second.id.clone(), first.id.clone(), second.id.clone()]);
+        queue.set_shuffle(true, 42);
+        queue.advance(RepeatMode::Off);
+        source
+            .save_playback(&queue, 12_345, RepeatMode::One, 14)
+            .unwrap();
+        source.set_setting("playback/autoplay", "true", 15).unwrap();
+        source
+            .set_setting("lyrics/tidal/first", r#"{"cached":true}"#, 16)
+            .unwrap();
+        let imported = source.export_travel_snapshot().unwrap();
+        let expected_json = imported.to_json().unwrap();
+
+        let mut destination = Storage::open_in_memory().unwrap();
+        let old = track("old");
+        destination.add_to_library(&old, 99).unwrap();
+        let old_playlist = destination.create_playlist("Old", 100).unwrap();
+        destination
+            .add_playlist_track(&old_playlist, &old, 101)
+            .unwrap();
+        let mut old_job = DownloadJob::queued(old.id.clone(), 102);
+        old_job.begin_transfer(Some(1), Some(1), 103).unwrap();
+        old_job.complete("C:/device/download.m4a", 1, 104).unwrap();
+        destination.save_download(&old, &old_job).unwrap();
+        destination
+            .set_setting("playback/autoplay", "false", 105)
+            .unwrap();
+        destination
+            .set_setting("lyrics/tidal/local", r#"{"cached":true}"#, 106)
+            .unwrap();
+
+        let summary = destination.import_travel_snapshot(&imported).unwrap();
+        assert_eq!(summary.track_count, 2);
+        assert_eq!(summary.library_count, 1);
+        assert_eq!(summary.playlist_count, 1);
+        assert_eq!(summary.queue_count, 3);
+        assert_eq!(summary.setting_count, 1);
+        assert_eq!(
+            destination
+                .export_travel_snapshot()
+                .unwrap()
+                .to_json()
+                .unwrap(),
+            expected_json
+        );
+        assert_eq!(
+            destination.setting("playback/autoplay").unwrap().as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            destination
+                .setting("lyrics/tidal/local")
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"cached":true}"#)
+        );
+        assert_eq!(
+            destination.download(&old.id).unwrap(),
+            Some(old_job.clone())
+        );
+
+        destination.import_travel_snapshot(&imported).unwrap();
+        assert_eq!(
+            destination
+                .export_travel_snapshot()
+                .unwrap()
+                .to_json()
+                .unwrap(),
+            expected_json
+        );
+
+        let before_rejected_import = destination
+            .export_travel_snapshot()
+            .unwrap()
+            .to_json()
+            .unwrap();
+        let mut malformed = imported.clone();
+        malformed.playback.queue.entries[0].media_id.provider_id = "missing".into();
+        assert!(destination.import_travel_snapshot(&malformed).is_err());
+        assert_eq!(
+            destination
+                .export_travel_snapshot()
+                .unwrap()
+                .to_json()
+                .unwrap(),
+            before_rejected_import
+        );
+    }
+
+    #[test]
+    fn travel_export_omits_local_tracks_and_recovers_from_local_current() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        let mut local = track("local-path");
+        local.id = MediaId::new(Provider::Local, "C:/private/local-track").unwrap();
+        let portable = track("portable");
+        storage.add_to_library(&local, 1).unwrap();
+        storage.add_to_library(&portable, 2).unwrap();
+
+        let playlist_id = storage.create_playlist("Trip", 3).unwrap();
+        storage
+            .add_playlist_tracks(&playlist_id, &[local.clone(), portable.clone(), local], 4)
+            .unwrap();
+
+        let mut queue = PlaybackQueue::new();
+        queue.replace([
+            MediaId::new(Provider::Local, "C:/private/local-track").unwrap(),
+            portable.id.clone(),
+        ]);
+        storage
+            .save_playback(&queue, 9_999, RepeatMode::All, 5)
+            .unwrap();
+
+        let snapshot = storage.export_travel_snapshot().unwrap();
+        assert_eq!(snapshot.library.len(), 1);
+        assert_eq!(snapshot.library[0].id, (&portable.id).into());
+        assert_eq!(snapshot.playlists.len(), 1);
+        assert_eq!(snapshot.playlists[0].track_ids, vec![(&portable.id).into()]);
+        assert_eq!(snapshot.playback.queue.entries.len(), 1);
+        assert_eq!(
+            snapshot.playback.queue.current,
+            Some(snapshot.playback.queue.entries[0].id)
+        );
+        assert_eq!(snapshot.playback.position_ms, 0);
+        assert_eq!(snapshot.playback.repeat, RepeatMode::All);
+        let json = snapshot.to_json().unwrap();
+        assert!(!json.contains("local-path"));
+        assert!(!json.contains("local-track"));
+    }
+
+    #[test]
+    fn travel_import_preserves_local_library_and_playlist_context() {
+        let mut source = Storage::open_in_memory().unwrap();
+        let portable = track("portable");
+        source.add_to_library(&portable, 1).unwrap();
+        let source_playlist = source.create_playlist("Trip", 2).unwrap();
+        source
+            .add_playlist_track(&source_playlist, &portable, 3)
+            .unwrap();
+        let mut imported = source.export_travel_snapshot().unwrap();
+
+        let mut destination = Storage::open_in_memory().unwrap();
+        let mut local = track("local");
+        local.id = MediaId::new(Provider::Local, "C:/private/local").unwrap();
+        destination.add_to_library(&local, 4).unwrap();
+        let local_playlist_id = destination.create_playlist("Local context", 5).unwrap();
+        destination
+            .add_playlist_tracks(
+                &local_playlist_id,
+                &[track("old-portable"), local.clone()],
+                6,
+            )
+            .unwrap();
+        let local_only_playlist = destination.create_playlist("Local only", 7).unwrap();
+        destination
+            .add_playlist_track(&local_only_playlist, &local, 8)
+            .unwrap();
+
+        imported.playlists[0].id = local_playlist_id.clone();
+        imported.validate().unwrap();
+        destination.import_travel_snapshot(&imported).unwrap();
+
+        let library = destination.library().unwrap();
+        assert!(library.iter().any(|track| track.id == local.id));
+        assert!(library.iter().any(|track| track.id == portable.id));
+        assert!(destination.track(&local.id).unwrap().is_some());
+
+        let playlists = destination.playlists().unwrap();
+        let merged = playlists
+            .iter()
+            .find(|playlist| playlist.id == local_playlist_id)
+            .unwrap();
+        assert_eq!(
+            merged
+                .tracks
+                .iter()
+                .map(|track| track.id.clone())
+                .collect::<Vec<_>>(),
+            vec![portable.id.clone(), local.id.clone()]
+        );
+
+        destination.import_travel_snapshot(&imported).unwrap();
+        let repeated = destination
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .find(|playlist| playlist.id == local_playlist_id)
+            .unwrap();
+        assert_eq!(
+            repeated
+                .tracks
+                .iter()
+                .map(|track| track.id.clone())
+                .collect::<Vec<_>>(),
+            vec![portable.id.clone(), local.id.clone()]
+        );
+
+        let preserved = playlists
+            .iter()
+            .find(|playlist| playlist.id == local_only_playlist)
+            .unwrap();
+        assert_eq!(preserved.tracks, vec![local.clone()]);
+    }
+
+    #[test]
+    fn travel_import_preserves_existing_artwork_when_snapshot_has_none() {
+        let mut source = Storage::open_in_memory().unwrap();
+        let mut source_track = track("artwork");
+        source_track.artwork = None;
+        source.add_to_library(&source_track, 1).unwrap();
+        let snapshot = source.export_travel_snapshot().unwrap();
+
+        let mut destination = Storage::open_in_memory().unwrap();
+        let mut destination_track = source_track.clone();
+        destination_track.artwork = Some(Artwork {
+            url: Some("https://art.example/cover.jpg".into()),
+            local_key: Some("C:/private/cover.jpg".into()),
+            width: Some(640),
+            height: Some(480),
+        });
+        destination.upsert_track(&destination_track).unwrap();
+        destination.import_travel_snapshot(&snapshot).unwrap();
+
+        assert_eq!(
+            destination
+                .track(&source_track.id)
+                .unwrap()
+                .unwrap()
+                .artwork,
+            destination_track.artwork
+        );
+    }
+
+    #[test]
+    fn rejects_out_of_range_shuffle_seed_without_mutating_state() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        let track = track("shuffle");
+        storage.upsert_track(&track).unwrap();
+        let mut queue = PlaybackQueue::new();
+        queue.append(track.id.clone());
+        queue.set_shuffle(true, u64::MAX);
+        assert!(matches!(
+            storage.save_playback(&queue, 0, RepeatMode::Off, 1),
+            Err(StorageError::IntegerOutOfRange("shuffle seed"))
+        ));
+        assert!(storage.load_playback().unwrap().queue.is_empty());
+
+        let before = storage.export_travel_snapshot().unwrap().to_json().unwrap();
+        let mut invalid = storage.export_travel_snapshot().unwrap();
+        invalid.playback.queue.shuffle_seed = u64::MAX;
+        assert!(matches!(
+            storage.import_travel_snapshot(&invalid),
+            Err(StorageError::InvalidTravelSnapshot(TravelSnapshotError::Invalid(message)))
+                if message.contains("shuffle seed")
+        ));
+        assert_eq!(
+            storage.export_travel_snapshot().unwrap().to_json().unwrap(),
+            before
+        );
     }
 }

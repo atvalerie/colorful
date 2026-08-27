@@ -23,6 +23,7 @@
 #include <QSettings>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QTemporaryFile>
 #include <QUrl>
 #include <QUuid>
 #include <algorithm>
@@ -32,6 +33,40 @@
 namespace {
 constexpr qint64 CatalogCacheFreshMs = 15 * 60 * 1000;
 constexpr qsizetype MaximumCatalogCacheEntries = 128;
+constexpr qint64 MaximumTravelSnapshotBytes = 64 * 1024 * 1024;
+
+QString localTravelFilePath(const QUrl &fileUrl, QString *error)
+{
+    QString path;
+    if (fileUrl.isLocalFile()) path = fileUrl.toLocalFile();
+    else if (fileUrl.scheme().isEmpty()) path = fileUrl.toString();
+    else {
+        if (error) *error = QStringLiteral("Only local files can be used for travel snapshots");
+        return {};
+    }
+    path = QDir::cleanPath(path);
+    if (path.isEmpty() || !QFileInfo(path).isAbsolute()) {
+        if (error) *error = QStringLiteral("Choose an absolute local file path");
+        return {};
+    }
+    return path;
+}
+
+bool ensureWritableDirectory(const QString &path, QString *error)
+{
+    if (path.isEmpty() || !QDir().mkpath(path) || !QFileInfo(path).isDir()) {
+        if (error) *error = QStringLiteral("Could not create the selected download folder");
+        return false;
+    }
+    QTemporaryFile probe(QDir(path).filePath(QStringLiteral(".colorful-write-test-XXXXXX")));
+    probe.setAutoRemove(true);
+    if (!probe.open()) {
+        if (error) *error = QStringLiteral("The selected download folder is not writable");
+        return false;
+    }
+    probe.close();
+    return true;
+}
 
 QString safeTrackPath(const QVariantMap &track)
 {
@@ -154,10 +189,23 @@ Backend::Backend(QObject *parent)
     m_textScale = std::clamp(settings.value(QStringLiteral("appearance/textScale"), m_textScale).toDouble(), 0.9, 1.3);
     if (m_accentMode == QStringLiteral("fixed")) m_accent = m_fixedAccent;
     m_autoplayEnabled = settings.value(QStringLiteral("playback/autoplay"), true).toBool();
+    m_recommendationMode = settings.value(QStringLiteral("playback/recommendationMode"),
+                                          QStringLiteral("fallback")).toString();
+    if (m_recommendationMode != QStringLiteral("tidal")
+        && m_recommendationMode != QStringLiteral("spotify")
+        && m_recommendationMode != QStringLiteral("fallback")) {
+        m_recommendationMode = QStringLiteral("fallback");
+    }
     m_streamQuality = settings.value(QStringLiteral("playback/streamQuality"), QStringLiteral("best")).toString();
     if (m_streamQuality != QStringLiteral("best") && m_streamQuality != QStringLiteral("lossless")
         && m_streamQuality != QStringLiteral("high")) m_streamQuality = QStringLiteral("best");
     m_soundcloudOriginalDownloads = settings.value(QStringLiteral("downloads/soundcloudOriginal"), false).toBool();
+    const auto configuredDownloadDirectory = settings.value(QStringLiteral("storage/downloadDirectory")).toString().trimmed();
+    if (!configuredDownloadDirectory.isEmpty()) {
+        const auto normalized = QDir::cleanPath(QDir::fromNativeSeparators(configuredDownloadDirectory));
+        if (QFileInfo(normalized).isAbsolute()) m_downloadDirectory = normalized;
+        else settings.remove(QStringLiteral("storage/downloadDirectory"));
+    }
     m_normalizationEnabled = settings.value(QStringLiteral("playback/normalization"), false).toBool();
     m_onboardingCompleted = settings.value(QStringLiteral("ui/onboardingCompleted"), false).toBool();
     m_partyDiagnosticsEnabled = settings.value(QStringLiteral("debug/partyDiagnostics"), false).toBool();
@@ -745,7 +793,7 @@ QJsonObject Backend::dispatchCore(const QJsonObject &command)
     return response.value(QStringLiteral("value")).toObject();
 }
 
-void Backend::refreshCoreSnapshot()
+void Backend::refreshCoreSnapshot(bool restorePlaybackPosition)
 {
     QString error;
     const auto response = m_core.snapshot(&error);
@@ -862,7 +910,7 @@ void Backend::refreshCoreSnapshot()
     m_shuffleEnabled = nextShuffleEnabled;
     const auto currentArtworkUrl = currentTrack().value(QStringLiteral("coverUrl")).toString();
     if (!currentArtworkUrl.isEmpty() && currentArtworkUrl != previousArtworkUrl) loadAccent(currentArtworkUrl);
-    if (currentWasChanged) {
+    if (currentWasChanged || restorePlaybackPosition) {
         m_resumePositionMs = playback.value(QStringLiteral("positionMs")).toInteger();
         m_displayPositionOverride = m_resumePositionMs;
         emit positionChanged();
@@ -874,6 +922,78 @@ void Backend::refreshCoreSnapshot()
     if (downloadsWereChanged) emit downloadsChanged();
     if (listenStatsWereChanged) emit listenStatsChanged();
     if (playbackOptionsWereChanged) emit playbackOptionsChanged();
+}
+
+void Backend::refreshPortableSettings()
+{
+    if (!m_core.isOpen()) return;
+
+    bool readFailed = false;
+    const auto readSetting = [this, &readFailed](const QString &key) {
+        QString error;
+        const auto value = m_core.setting(key, &error);
+        if (!error.isEmpty()) {
+            readFailed = true;
+            setStatus(QStringLiteral("Local engine: %1").arg(error));
+        }
+        return value;
+    };
+
+    const auto autoplayValue = readSetting(QStringLiteral("playback/autoplay"));
+    const auto qualityValue = readSetting(QStringLiteral("playback/streamQuality"));
+    const auto normalizationValue = readSetting(QStringLiteral("playback/normalization"));
+    const auto bandsValue = readSetting(QStringLiteral("playback/equalizerBands"));
+    const auto presetValue = readSetting(QStringLiteral("playback/equalizerPreset"));
+    if (readFailed) return;
+
+    const auto nextAutoplay = autoplayValue.isBool() ? autoplayValue.toBool() : true;
+    auto nextStreamQuality = qualityValue.toString(QStringLiteral("best"));
+    if (nextStreamQuality != QStringLiteral("best")
+        && nextStreamQuality != QStringLiteral("lossless")
+        && nextStreamQuality != QStringLiteral("high")) {
+        nextStreamQuality = QStringLiteral("best");
+    }
+    const auto nextNormalization = normalizationValue.isBool()
+        ? normalizationValue.toBool() : false;
+
+    QVariantList nextEqualizerBands;
+    const auto bandValues = bandsValue.toArray();
+    if (bandValues.size() == 10) {
+        for (const auto &value : bandValues)
+            nextEqualizerBands.append(std::clamp(value.toDouble(), -12.0, 12.0));
+    } else {
+        for (int index = 0; index < 10; ++index) nextEqualizerBands.append(0.0);
+    }
+    const auto nextEqualizerPreset = presetValue.toString(QStringLiteral("Flat"));
+    const bool autoplayChanged = m_autoplayEnabled != nextAutoplay;
+    const bool streamQualityWasChanged = m_streamQuality != nextStreamQuality;
+    const bool normalizationChanged = m_normalizationEnabled != nextNormalization;
+    const bool equalizerChanged = m_equalizerBands != nextEqualizerBands
+        || m_equalizerPreset != nextEqualizerPreset;
+
+    m_autoplayEnabled = nextAutoplay;
+    m_streamQuality = nextStreamQuality;
+    m_normalizationEnabled = nextNormalization;
+    m_equalizerBands = nextEqualizerBands;
+    m_equalizerPreset = nextEqualizerPreset;
+
+    QSettings settings;
+    settings.setValue(QStringLiteral("playback/autoplay"), m_autoplayEnabled);
+    settings.setValue(QStringLiteral("playback/streamQuality"), m_streamQuality);
+    settings.setValue(QStringLiteral("playback/normalization"), m_normalizationEnabled);
+    settings.setValue(QStringLiteral("playback/equalizerBands"), m_equalizerBands);
+    settings.setValue(QStringLiteral("playback/equalizerPreset"), m_equalizerPreset);
+
+    if (normalizationChanged) m_playback.setReplayGain(m_normalizationEnabled);
+    if (equalizerChanged) {
+        QList<double> gains;
+        gains.reserve(m_equalizerBands.size());
+        for (const auto &gain : std::as_const(m_equalizerBands)) gains.append(gain.toDouble());
+        m_playback.setEqualizer(gains);
+    }
+    if (autoplayChanged) emit autoplayEnabledChanged();
+    if (streamQualityWasChanged) emit streamQualityChanged();
+    if (normalizationChanged || equalizerChanged) emit audioProcessingChanged();
 }
 
 QJsonObject Backend::variantTrackToCore(const QVariantMap &track)
@@ -1100,6 +1220,11 @@ void Backend::providerHostStarted()
             m_soundcloudLinked = soundcloudLinked;
             emit soundcloudAccountChanged();
         }
+        const auto spotifyLinked = data.value(QStringLiteral("spotifyLinked")).toBool();
+        if (m_spotifyLinked != spotifyLinked) {
+            m_spotifyLinked = spotifyLinked;
+            emit spotifyAccountChanged();
+        }
         if (!data.value(QStringLiteral("browseConfigured")).toBool()) {
             setStatus(QStringLiteral("TIDAL browse configuration is unavailable."));
         } else if (!data.value(QStringLiteral("deviceConfigured")).toBool()) {
@@ -1279,6 +1404,28 @@ void Backend::handleProviderEvent(const QString &event, const QJsonObject &messa
             emit toastRequested(QStringLiteral("SoundCloud connected"), QStringLiteral("success"));
             loadSoundCloudHub(true);
         }
+    } else if (event == QStringLiteral("spotify.auth.restored")
+               || event == QStringLiteral("spotify.auth.completed")) {
+        const auto completed = event.endsWith(QStringLiteral("completed"));
+        m_spotifyLinked = true;
+        if (m_authProvider == QStringLiteral("spotify")) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
+        emit spotifyAccountChanged();
+        setStatus(completed
+                      ? QStringLiteral("Spotify recommendations connected")
+                      : QStringLiteral("Spotify recommendation account restored"));
+        if (completed) {
+            emit toastRequested(QStringLiteral("Spotify recommendations connected"),
+                                QStringLiteral("success"));
+        }
+    } else if (event == QStringLiteral("spotify.auth.failed")) {
+        if (m_authProvider == QStringLiteral("spotify")) {
+            m_authPending = false;
+            emit authPendingChanged();
+        }
+        setStatus(message.value(QStringLiteral("error")).toString());
     } else if (event == QStringLiteral("browser.auth.progress")) {
         const auto data = message.value(QStringLiteral("data")).toObject();
         if (m_authPending && data.value(QStringLiteral("provider")).toString() == m_authProvider) {
@@ -1428,14 +1575,21 @@ void Backend::startSoundCloudBrowserLogin()
     startBrowserLogin(QStringLiteral("soundcloud"));
 }
 
+void Backend::startSpotifyBrowserLogin()
+{
+    startBrowserLogin(QStringLiteral("spotify"));
+}
+
 void Backend::startBrowserLogin(const QString &provider)
 {
-    if (provider != QStringLiteral("youtube") && provider != QStringLiteral("soundcloud")) return;
+    if (provider != QStringLiteral("youtube") && provider != QStringLiteral("soundcloud")
+        && provider != QStringLiteral("spotify")) return;
     if (m_authPending) cancelLogin();
     setBusy(true);
-    setStatus(QStringLiteral("Opening an isolated browser for %1…")
-                  .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
-                                                               : QStringLiteral("SoundCloud")));
+    const auto providerName = provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+        : provider == QStringLiteral("soundcloud") ? QStringLiteral("SoundCloud")
+                                                     : QStringLiteral("Spotify");
+    setStatus(QStringLiteral("Opening an isolated browser for %1…").arg(providerName));
     request(provider + QStringLiteral(".auth.browser.start"), {}, [this, provider](const QJsonObject &message) {
         setBusy(false);
         if (!message.value(QStringLiteral("ok")).toBool()) {
@@ -1448,9 +1602,23 @@ void Backend::startBrowserLogin(const QString &provider)
         m_verificationUrl.clear();
         emit authDetailsChanged();
         emit authPendingChanged();
-        setStatus(QStringLiteral("Waiting for %1 browser sign-in…")
-                      .arg(provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
-                                                                   : QStringLiteral("SoundCloud")));
+        const auto providerName = provider == QStringLiteral("youtube") ? QStringLiteral("YouTube Music")
+            : provider == QStringLiteral("soundcloud") ? QStringLiteral("SoundCloud")
+                                                         : QStringLiteral("Spotify");
+        setStatus(QStringLiteral("Waiting for %1 browser sign-in…").arg(providerName));
+    });
+}
+
+void Backend::unlinkSpotify()
+{
+    request(QStringLiteral("spotify.auth.unlink"), {}, [this](const QJsonObject &message) {
+        if (!message.value(QStringLiteral("ok")).toBool()) {
+            notify(message.value(QStringLiteral("error")).toString(), QStringLiteral("error"));
+            return;
+        }
+        m_spotifyLinked = false;
+        emit spotifyAccountChanged();
+        notify(QStringLiteral("Spotify recommendation account disconnected"));
     });
 }
 
@@ -1654,7 +1822,8 @@ void Backend::cancelLogin()
 {
     if (!m_authPending) return;
     const bool capturedBrowserLogin = m_verificationUrl.isEmpty()
-        && (m_authProvider == QStringLiteral("youtube") || m_authProvider == QStringLiteral("soundcloud"));
+        && (m_authProvider == QStringLiteral("youtube") || m_authProvider == QStringLiteral("soundcloud")
+            || m_authProvider == QStringLiteral("spotify"));
     const auto type = capturedBrowserLogin ? QStringLiteral("browser.auth.cancel")
         : m_authProvider == QStringLiteral("youtube") ? QStringLiteral("youtube.auth.cancel")
         : QStringLiteral("auth.cancel");
@@ -2035,6 +2204,7 @@ void Backend::openCatalog(const QString &kind, const QString &id, bool preserveC
         {QStringLiteral("provider"), provider},
         {QStringLiteral("kind"), kind},
         {QStringLiteral("id"), resourceId},
+        {QStringLiteral("recommendationMode"), m_recommendationMode},
     }, [this, generation, preserveCurrent, hasCachedPage](const QJsonObject &message) {
         if (generation != m_catalogGeneration) return;
         m_catalogLoading = false;
@@ -2525,10 +2695,25 @@ void Backend::enqueueLocalPlaylist(const QString &id)
     }
 }
 
-QString Backend::downloadsDirectory() const
+QString Backend::defaultDownloadsDirectory() const
 {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
         .filePath(QStringLiteral("offline"));
+}
+
+QString Backend::downloadsDirectory() const
+{
+    return m_downloadDirectory.isEmpty() ? defaultDownloadsDirectory() : m_downloadDirectory;
+}
+
+QString Backend::downloadDirectory() const
+{
+    return downloadsDirectory();
+}
+
+QUrl Backend::downloadDirectoryUrl() const
+{
+    return QUrl::fromLocalFile(downloadDirectory());
 }
 
 QString Backend::downloadPath(const QVariantMap &track, bool partial) const
@@ -3130,6 +3315,7 @@ void Backend::finishDownloadTransfer(bool succeeded, const QString &error)
         removeDownloadWorkingFiles(track);
         QFile::remove(finalPath);
         QFile::remove(downloadArtworkPath(track));
+        QFile::remove(track.value(QStringLiteral("coverLocalPath")).toString());
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                          {QStringLiteral("providerId"), track.value(QStringLiteral("id")).toString()}}}});
@@ -3209,6 +3395,7 @@ void Backend::removeDownload(const QString &trackId, const QString &provider)
         removeDownloadWorkingFiles(track);
         QFile::remove(downloadPath(track, false));
         QFile::remove(downloadArtworkPath(track));
+        QFile::remove(track.value(QStringLiteral("coverLocalPath")).toString());
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                          {QStringLiteral("providerId"), trackId}}}});
@@ -3235,6 +3422,7 @@ void Backend::removeDownload(const QString &trackId, const QString &provider)
     QFile::remove(existing.value(QStringLiteral("localPath")).toString());
     removeDownloadWorkingFiles(existing);
     QFile::remove(downloadArtworkPath(existing));
+    QFile::remove(existing.value(QStringLiteral("coverLocalPath")).toString());
     dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                   {QStringLiteral("id"), QJsonObject{{QStringLiteral("provider"), existing.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
                                                      {QStringLiteral("providerId"), trackId}}}});
@@ -3251,6 +3439,7 @@ void Backend::removeCompletedDownloads()
         QFile::remove(track.value(QStringLiteral("localPath")).toString());
         removeDownloadWorkingFiles(track);
         QFile::remove(downloadArtworkPath(track));
+        QFile::remove(track.value(QStringLiteral("coverLocalPath")).toString());
         dispatchCore({{QStringLiteral("command"), QStringLiteral("remove_download")},
                       {QStringLiteral("id"), QJsonObject{
                           {QStringLiteral("provider"), track.value(QStringLiteral("provider"), QStringLiteral("tidal")).toString()},
@@ -3343,8 +3532,217 @@ void Backend::setPartyDiagnosticsEnabled(bool enabled)
 
 void Backend::openDownloadsFolder()
 {
-    QDir().mkpath(downloadsDirectory());
-    QDesktopServices::openUrl(QUrl::fromLocalFile(downloadsDirectory()));
+    QString directoryError;
+    if (!ensureWritableDirectory(downloadsDirectory(), &directoryError)) {
+        notify(directoryError, QStringLiteral("error"));
+        return;
+    }
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(downloadsDirectory())))
+        notify(QStringLiteral("Could not open the download folder"), QStringLiteral("error"));
+}
+
+void Backend::setDownloadDirectory(const QUrl &directoryUrl)
+{
+    if (directoryUrl.isEmpty() || !directoryUrl.isLocalFile()) {
+        notify(QStringLiteral("Choose a local download folder"), QStringLiteral("error"));
+        return;
+    }
+    const auto rawPath = directoryUrl.toLocalFile();
+    if (rawPath.isEmpty() || !QFileInfo(rawPath).isAbsolute()) {
+        notify(QStringLiteral("Choose an absolute local download folder"), QStringLiteral("error"));
+        return;
+    }
+    const auto path = QDir::cleanPath(rawPath);
+    if (!m_activeDownloadTrack.isEmpty() || !m_downloadQueue.isEmpty()
+        || m_downloadProcess.state() != QProcess::NotRunning || m_downloadReply) {
+        notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+               QStringLiteral("warning"));
+        return;
+    }
+    for (const auto &value : std::as_const(m_downloads)) {
+        if (value.toMap().value(QStringLiteral("downloadState")).toString() != QStringLiteral("complete")) {
+            notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+                   QStringLiteral("warning"));
+            return;
+        }
+    }
+    QString directoryError;
+    if (!ensureWritableDirectory(path, &directoryError)) {
+        notify(directoryError, QStringLiteral("error"));
+        return;
+    }
+    if (path == downloadsDirectory()) return;
+    m_downloadDirectory = path;
+    QSettings().setValue(QStringLiteral("storage/downloadDirectory"), m_downloadDirectory);
+    emit downloadDirectoryChanged();
+    notify(QStringLiteral("New downloads will use %1").arg(QDir::toNativeSeparators(path)),
+           QStringLiteral("success"));
+}
+
+void Backend::resetDownloadDirectory()
+{
+    if (!m_activeDownloadTrack.isEmpty() || !m_downloadQueue.isEmpty()
+        || m_downloadProcess.state() != QProcess::NotRunning || m_downloadReply) {
+        notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+               QStringLiteral("warning"));
+        return;
+    }
+    for (const auto &value : std::as_const(m_downloads)) {
+        if (value.toMap().value(QStringLiteral("downloadState")).toString() != QStringLiteral("complete")) {
+            notify(QStringLiteral("Finish or remove unfinished downloads before changing the folder"),
+                   QStringLiteral("warning"));
+            return;
+        }
+    }
+    QString directoryError;
+    if (!ensureWritableDirectory(defaultDownloadsDirectory(), &directoryError)) {
+        notify(directoryError.replace(QStringLiteral("selected"), QStringLiteral("default")),
+               QStringLiteral("error"));
+        return;
+    }
+    m_downloadDirectory.clear();
+    QSettings().remove(QStringLiteral("storage/downloadDirectory"));
+    emit downloadDirectoryChanged();
+    notify(QStringLiteral("New downloads will use the default folder"), QStringLiteral("success"));
+}
+
+void Backend::exportTravelSnapshot(const QUrl &fileUrl)
+{
+    if (!m_core.isOpen()) {
+        notify(QStringLiteral("The local library is not ready yet"), QStringLiteral("error"));
+        return;
+    }
+
+    QString error;
+    auto path = localTravelFilePath(fileUrl, &error);
+    if (path.isEmpty()) {
+        notify(error, QStringLiteral("error"));
+        return;
+    }
+    const QFileInfo destinationInfo(path);
+    if (destinationInfo.exists() && destinationInfo.isDir()) {
+        notify(QStringLiteral("Choose a file, not a folder"), QStringLiteral("error"));
+        return;
+    }
+    if (destinationInfo.suffix().isEmpty()) path += QStringLiteral(".json");
+
+    const auto response = m_core.exportTravelSnapshot(&error);
+    if (!response.value(QStringLiteral("ok")).toBool()) {
+        notify(error.isEmpty() ? QStringLiteral("Could not export the travel snapshot") : error,
+               QStringLiteral("error"));
+        return;
+    }
+
+    const auto snapshot = response.value(QStringLiteral("value")).toObject();
+    if (snapshot.value(QStringLiteral("format")).toString()
+            != QStringLiteral("colorful-travel-snapshot")
+        || snapshot.value(QStringLiteral("version")).toInteger() != 1) {
+        notify(QStringLiteral("The core returned an unsupported travel snapshot"),
+               QStringLiteral("error"));
+        return;
+    }
+
+    const auto bytes = QJsonDocument(snapshot).toJson(QJsonDocument::Indented);
+    QSaveFile file(path);
+    file.setDirectWriteFallback(false);
+    if (!file.open(QIODevice::WriteOnly)
+        || file.write(bytes) != bytes.size()
+        || !file.commit()) {
+        notify(QStringLiteral("Could not write the travel snapshot: %1").arg(file.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+    notify(QStringLiteral("Travel snapshot exported to %1").arg(QDir::toNativeSeparators(path)),
+           QStringLiteral("success"));
+}
+
+void Backend::importTravelSnapshot(const QUrl &fileUrl)
+{
+    if (!m_core.isOpen()) {
+        notify(QStringLiteral("The local library is not ready yet"), QStringLiteral("error"));
+        return;
+    }
+
+    QString error;
+    const auto path = localTravelFilePath(fileUrl, &error);
+    if (path.isEmpty()) {
+        notify(error, QStringLiteral("error"));
+        return;
+    }
+    const QFileInfo sourceInfo(path);
+    if (!sourceInfo.exists() || !sourceInfo.isFile()) {
+        notify(QStringLiteral("Choose an existing travel snapshot file"), QStringLiteral("error"));
+        return;
+    }
+    if (sourceInfo.size() > MaximumTravelSnapshotBytes) {
+        notify(QStringLiteral("The travel snapshot is too large"), QStringLiteral("error"));
+        return;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        notify(QStringLiteral("Could not read the travel snapshot: %1").arg(file.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+    const auto sourceBytes = file.readAll();
+    if (file.error() != QFileDevice::NoError) {
+        notify(QStringLiteral("Could not read the travel snapshot: %1").arg(file.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const auto document = QJsonDocument::fromJson(sourceBytes, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        notify(QStringLiteral("The selected file is not valid JSON: %1")
+                   .arg(parseError.errorString()),
+               QStringLiteral("error"));
+        return;
+    }
+    const auto snapshot = document.object();
+    if (snapshot.value(QStringLiteral("format")).toString()
+            != QStringLiteral("colorful-travel-snapshot")
+        || snapshot.value(QStringLiteral("version")).toInteger() != 1) {
+        notify(QStringLiteral("This is not a supported colorful travel snapshot"),
+               QStringLiteral("error"));
+        return;
+    }
+
+    const auto compactJson = QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
+    const auto response = m_core.importTravelSnapshot(compactJson, &error);
+    if (!response.value(QStringLiteral("ok")).toBool()) {
+        notify(error.isEmpty() ? QStringLiteral("Could not import the travel snapshot") : error,
+               QStringLiteral("error"));
+        return;
+    }
+
+    m_manualSkipTimer.stop();
+    ++m_sourceGeneration;
+    m_automaticPlaybackRetryTrackId.clear();
+    m_automaticPlaybackRetryUsed = false;
+    clearPlaylistContinuation();
+    ++m_relatedGeneration;
+    m_relatedPending = false;
+    m_relatedContinueWhenReady = false;
+    m_relatedSeedEntryId = -1;
+    invalidatePreparedNext();
+    m_playback.clearSource();
+    m_playbackReady = false;
+    m_playingLocalSource = false;
+    m_resumePositionMs = 0;
+    m_displayPositionOverride = -1;
+    m_playbackError.clear();
+    setSourceResolving(false);
+    emit playbackConditionChanged();
+    refreshCoreSnapshot(true);
+    refreshPortableSettings();
+
+    const auto summary = response.value(QStringLiteral("value")).toObject();
+    notify(QStringLiteral("Imported %1 tracks and %2 playlists. Downloads and accounts stayed on this device.")
+               .arg(summary.value(QStringLiteral("trackCount")).toInteger())
+               .arg(summary.value(QStringLiteral("playlistCount")).toInteger()),
+           QStringLiteral("success"));
 }
 
 void Backend::playTrackAt(int index)
@@ -3798,6 +4196,8 @@ void Backend::requestRelated(bool continueWhenReady)
     if (continueWhenReady) setStatus(QStringLiteral("Finding something related…"));
     request(QStringLiteral("related"), {{QStringLiteral("provider"), seedProvider},
                                          {QStringLiteral("trackId"), seedTrackId},
+                                         {QStringLiteral("isrc"), seed.value(QStringLiteral("isrc")).toString()},
+                                         {QStringLiteral("recommendationMode"), m_recommendationMode},
                                          {QStringLiteral("limit"), seedProvider == QStringLiteral("youtube") ? 50 : 20}},
             [this, seedEntryId, generation, seedProvider, seedTrackId](const QJsonObject &message) {
         if (generation != m_relatedGeneration) return;
@@ -3949,6 +4349,22 @@ void Backend::setAutoplayEnabled(bool enabled)
     QSettings().setValue(QStringLiteral("playback/autoplay"), enabled);
     emit autoplayEnabledChanged();
     if (enabled) prepareNextSource();
+}
+
+void Backend::setRecommendationMode(const QString &mode)
+{
+    if (mode != QStringLiteral("tidal") && mode != QStringLiteral("spotify")
+        && mode != QStringLiteral("fallback")) return;
+    if (m_recommendationMode == mode) return;
+    m_recommendationMode = mode;
+    QSettings().setValue(QStringLiteral("playback/recommendationMode"), mode);
+    clearCatalogCache(QStringLiteral("tidal"));
+    ++m_relatedGeneration;
+    m_relatedPending = false;
+    m_relatedContinueWhenReady = false;
+    m_relatedSeedEntryId = -1;
+    emit recommendationModeChanged();
+    if (m_autoplayEnabled) prepareNextSource();
 }
 
 void Backend::setStreamQuality(const QString &quality)

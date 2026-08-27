@@ -7,6 +7,28 @@ struct ColorfulCoreResponse<Value: Decodable>: Decodable {
     let error: String?
 }
 
+enum ColorfulTravelSnapshotLimits {
+    static let maxBytes = 64 * 1024 * 1024
+    static let maxBytesLabel = "64 MiB"
+}
+
+struct ColorfulTravelSnapshotDocument: Decodable, Sendable {
+    let format: String
+    let version: UInt32
+}
+
+struct ColorfulTravelImportSummary: Decodable, Sendable {
+    let trackCount: Int
+    let libraryCount: Int
+    let playlistCount: Int
+    let queueCount: Int
+    let settingCount: Int
+
+    var message: String {
+        "Imported \(trackCount) tracks, \(libraryCount) library entries, \(playlistCount) playlists, \(queueCount) queue entries, and \(settingCount) portable settings. Downloads and account credentials were left unchanged."
+    }
+}
+
 struct CoreMediaID: Codable, Hashable, Sendable {
     let provider: String
     let providerID: String

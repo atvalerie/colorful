@@ -1,11 +1,28 @@
 import Foundation
+import OSLog
 import UIKit
 import WebKit
 
-struct YouTubeWebHLSResolution: @unchecked Sendable {
-    let manifestURL: URL
+private let colorfulYouTubeWebViewLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "sh.valerie.colorful",
+    category: "YouTube"
+)
+
+private func colorfulYouTubeWebViewInfo(_ message: String) {
+    colorfulYouTubeWebViewLogger.info("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "YouTube", message: message)
+}
+
+private func colorfulYouTubeWebViewError(_ message: String) {
+    colorfulYouTubeWebViewLogger.error("\(message, privacy: .public)")
+    ColorfulDiagnostics.shared.append(category: "YouTube", message: message)
+}
+
+struct YouTubeWebMediaResolution: @unchecked Sendable {
+    let mediaURL: URL
     let userAgent: String
     let cookies: [HTTPCookie]
+    let mimeType: String
 }
 
 @MainActor
@@ -14,12 +31,15 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
 
     private static let messageName = "colorfulHLS"
     private var webView: WKWebView?
-    private var continuation: CheckedContinuation<YouTubeWebHLSResolution, Error>?
+    private var continuation: CheckedContinuation<YouTubeWebMediaResolution, Error>?
     private var activeRequestID: UUID?
     private var timeoutTask: Task<Void, Never>?
+    private var activeVideoID: String?
+    private var watchRequest: URLRequest?
+    private var consentIsVisible = false
     private var isFinishing = false
 
-    func resolve(videoID: String) async throws -> YouTubeWebHLSResolution {
+    func resolve(videoID: String) async throws -> YouTubeWebMediaResolution {
         try Task.checkCancellation()
         let requestID = UUID()
 
@@ -38,9 +58,10 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
     private func start(
         videoID: String,
         requestID: UUID,
-        continuation: CheckedContinuation<YouTubeWebHLSResolution, Error>
+        continuation: CheckedContinuation<YouTubeWebMediaResolution, Error>
     ) {
         finishCurrent(with: .failure(CancellationError()))
+        colorfulYouTubeWebViewInfo("webview media start video=\(videoID)")
 
         let controller = WKUserContentController()
         controller.addUserScript(WKUserScript(
@@ -62,29 +83,31 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         webView.customUserAgent = userAgent
         webView.navigationDelegate = self
 
+        // WebKit will navigate an unattached, zero-sized view, but it is not
+        // required to start media playback or expose the media requests from
+        // that view. Keep a small, transparent view in the active app window
+        // while resolving so the page has a live media presentation context.
+        attachToActiveWindow(webView)
+
         self.webView = webView
         self.continuation = continuation
         activeRequestID = requestID
+        activeVideoID = videoID
         isFinishing = false
 
-        var components = URLComponents(string: "https://www.youtube.com/embed/\(videoID)")!
+        var components = URLComponents(string: "https://music.youtube.com/watch")!
         components.queryItems = [
+            URLQueryItem(name: "v", value: videoID),
             URLQueryItem(name: "autoplay", value: "1"),
             URLQueryItem(name: "playsinline", value: "1"),
-            URLQueryItem(name: "controls", value: "0"),
         ]
         var request = URLRequest(url: components.url!, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
         request.timeoutInterval = 18
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        watchRequest = request
         webView.load(request)
 
-        timeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 18_000_000_000)
-            guard !Task.isCancelled, self?.activeRequestID == requestID else { return }
-            self?.finishCurrent(with: .failure(YouTubeMusicClientError.invalidResponse(
-                "YouTube did not expose an iOS HLS stream for this track."
-            )))
-        }
+        armTimeout(videoID: videoID, requestID: requestID, nanoseconds: 18_000_000_000)
     }
 
     private var mobileSafariUserAgent: String {
@@ -100,6 +123,37 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         finishCurrent(with: .failure(CancellationError()))
     }
 
+    private func armTimeout(videoID: String, requestID: UUID, nanoseconds: UInt64) {
+        timeoutTask?.cancel()
+        timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled, self?.activeRequestID == requestID else { return }
+            colorfulYouTubeWebViewError("webview media timeout video=\(videoID)")
+            self?.finishCurrent(with: .failure(YouTubeMusicClientError.invalidResponse(
+                "YouTube did not expose an iOS playable media stream for this track."
+            )))
+        }
+    }
+
+    private func attachToActiveWindow(_ webView: WKWebView) {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+        let windows = scenes.flatMap(\.windows)
+        guard let window = windows.first(where: { $0.isKeyWindow && !$0.isHidden })
+                ?? windows.first(where: { !$0.isHidden }) else {
+            colorfulYouTubeWebViewError("webview media host unavailable")
+            return
+        }
+
+        webView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        webView.alpha = 0.01
+        webView.isHidden = false
+        webView.isUserInteractionEnabled = false
+        window.addSubview(webView)
+        colorfulYouTubeWebViewInfo("webview media host attached")
+    }
+
     private func accept(candidate rawValue: String) {
         guard !isFinishing, let requestID = activeRequestID else { return }
         var value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -112,10 +166,21 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         guard let url = URL(string: value), url.scheme?.lowercased() == "https",
               let host = url.host?.lowercased(),
               (host == "manifest.googlevideo.com" || host.hasSuffix(".googlevideo.com")),
-              (url.path.contains("/api/manifest/hls") || url.pathExtension.lowercased() == "m3u8") else {
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return
         }
 
+        let mimeType = components.queryItems?
+            .first(where: { $0.name == "mime" })?.value?.lowercased() ?? ""
+        let itag = Int(components.queryItems?.first(where: { $0.name == "itag" })?.value ?? "") ?? 0
+        let isHLS = url.path.contains("/api/manifest/hls") || url.pathExtension.lowercased() == "m3u8"
+        let isAudioMedia = url.path.contains("/videoplayback")
+            && (mimeType.hasPrefix("audio/") || [139, 140, 141, 249, 250, 251, 599, 600].contains(itag))
+        guard isHLS || isAudioMedia else { return }
+
+        colorfulYouTubeWebViewInfo(
+            "webview media candidate kind=\(isHLS ? "hls" : "audio") \(sourceDescriptor(url))"
+        )
         isFinishing = true
         Task { @MainActor [weak self] in
             // Let WebKit start the media request first. This establishes the
@@ -124,10 +189,11 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
             guard let self, self.activeRequestID == requestID,
                   let webView = self.webView else { return }
             let cookies = await self.cookies(in: webView.configuration.websiteDataStore.httpCookieStore)
-            self.finishCurrent(with: .success(YouTubeWebHLSResolution(
-                manifestURL: url,
+            self.finishCurrent(with: .success(YouTubeWebMediaResolution(
+                mediaURL: url,
                 userAgent: self.mobileSafariUserAgent,
-                cookies: cookies
+                cookies: cookies,
+                mimeType: isHLS ? "application/vnd.apple.mpegurl" : (mimeType.isEmpty ? "audio/mp4" : mimeType)
             )))
         }
     }
@@ -138,8 +204,16 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         }
     }
 
-    private func finishCurrent(with result: Result<YouTubeWebHLSResolution, Error>) {
+    private func finishCurrent(with result: Result<YouTubeWebMediaResolution, Error>) {
         guard let continuation else { return }
+        switch result {
+        case .success(let resolution):
+            colorfulYouTubeWebViewInfo("webview media success mime=\(resolution.mimeType) \(sourceDescriptor(resolution.mediaURL)) cookies=\(resolution.cookies.count)")
+        case .failure(let error):
+            if !(error is CancellationError) {
+                colorfulYouTubeWebViewError("webview HLS failed error=\(error.localizedDescription)")
+            }
+        }
         timeoutTask?.cancel()
         timeoutTask = nil
 
@@ -147,35 +221,109 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
             "document.querySelectorAll('video').forEach(function(video) { video.pause(); });"
         )
         webView?.stopLoading()
+        webView?.removeFromSuperview()
         webView?.navigationDelegate = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: Self.messageName)
         webView = nil
 
         self.continuation = nil
         activeRequestID = nil
+        activeVideoID = nil
+        watchRequest = nil
+        consentIsVisible = false
         isFinishing = false
         continuation.resume(with: result)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == Self.messageName, let candidate = message.body as? String else { return }
+        if candidate.hasPrefix("__colorful_state__") {
+            colorfulYouTubeWebViewInfo(
+                "webview media state \(candidate.dropFirst("__colorful_state__".count))"
+            )
+            return
+        }
         accept(candidate: candidate)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        let page = webView.url.map { "\($0.host ?? "")\($0.path)" } ?? "unknown"
+        colorfulYouTubeWebViewInfo("webview media navigation finished page=\(page)")
+
+        if webView.url?.host?.lowercased() == "consent.youtube.com" {
+            showConsentPage(in: webView)
+            return
+        }
+
+        if consentIsVisible {
+            hideConsentPage(in: webView)
+            colorfulYouTubeWebViewInfo("webview media consent completed page=\(page)")
+            if webView.url?.path != "/watch", let watchRequest {
+                colorfulYouTubeWebViewInfo("webview media consent replaying watch request")
+                webView.load(watchRequest)
+                return
+            }
+            if let activeRequestID, let activeVideoID {
+                armTimeout(
+                    videoID: activeVideoID,
+                    requestID: activeRequestID,
+                    nanoseconds: 30_000_000_000
+                )
+            }
+        }
+
         webView.evaluateJavaScript("window.__colorfulProbeHLS && window.__colorfulProbeHLS();")
+    }
+
+    private func showConsentPage(in webView: WKWebView) {
+        guard !consentIsVisible else { return }
+        consentIsVisible = true
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        webView.frame = webView.superview?.bounds ?? UIScreen.main.bounds
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        webView.alpha = 1
+        webView.isOpaque = true
+        webView.isUserInteractionEnabled = true
+        colorfulYouTubeWebViewInfo("webview media consent visible")
+        if let activeRequestID, let activeVideoID {
+            armTimeout(
+                videoID: activeVideoID,
+                requestID: activeRequestID,
+                nanoseconds: 180_000_000_000
+            )
+        }
+    }
+
+    private func hideConsentPage(in webView: WKWebView) {
+        consentIsVisible = false
+        webView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        webView.autoresizingMask = []
+        webView.alpha = 0.01
+        webView.isOpaque = false
+        webView.isUserInteractionEnabled = false
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         guard !isFinishing else { return }
+        colorfulYouTubeWebViewError("webview media provisional navigation failed error=\(error.localizedDescription)")
         finishCurrent(with: .failure(error))
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard !isFinishing else { return }
+        colorfulYouTubeWebViewError("webview media content process terminated")
         finishCurrent(with: .failure(YouTubeMusicClientError.invalidResponse(
-            "The iOS YouTube playback session stopped before HLS was ready."
+            "The iOS YouTube playback session stopped before media was ready."
         )))
+    }
+
+    private func sourceDescriptor(_ url: URL) -> String {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let keys = Array(Set(items.map(\.name))).sorted().joined(separator: ",")
+        let hasPOT = items.contains { $0.name == "pot" && !($0.value ?? "").isEmpty }
+        let host = url.host ?? ""
+        return "host=\(host) queryKeys=[\(keys)] pot=\(hasPOT)"
     }
 
     private static let probeScript = #"""
@@ -190,9 +338,33 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
           .replace(/\\u003d/g, "=")
           .replace(/\\\//g, "/")
           .replace(/&amp;/g, "&");
-        if (normalized.includes("/api/manifest/hls") || normalized.includes(".m3u8")) {
+        if (normalized.includes("/api/manifest/hls")
+            || normalized.includes(".m3u8")
+            || normalized.includes("/videoplayback")) {
           try { window.webkit.messageHandlers.colorfulHLS.postMessage(normalized); } catch (_) {}
         }
+      };
+
+      let lastState = "";
+      const postState = (phase, video, playState) => {
+        try {
+          const mediaError = video && video.error ? video.error.code : 0;
+          const state = [
+            "phase=" + phase,
+            "visibility=" + document.visibilityState,
+            "videos=" + document.querySelectorAll("video").length,
+            "paused=" + (video ? video.paused : "none"),
+            "readyState=" + (video ? video.readyState : "none"),
+            "networkState=" + (video ? video.networkState : "none"),
+            "hasSrc=" + (video ? Boolean(video.currentSrc || video.src) : false),
+            "muted=" + (video ? video.muted : "none"),
+            "errorCode=" + mediaError,
+            "play=" + (playState || "not-attempted")
+          ].join(" ");
+          if (state === lastState) return;
+          lastState = state;
+          window.webkit.messageHandlers.colorfulHLS.postMessage("__colorful_state__" + state);
+        } catch (_) {}
       };
 
       const inspectText = (text) => {
@@ -201,7 +373,7 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
         const manifestPattern = /["']hlsManifestUrl["']\s*:\s*["']([^"']+)["']/g;
         let match;
         while ((match = manifestPattern.exec(text)) !== null) post(match[1]);
-        const urlPattern = /https?(?:\\u003a|:)(?:\\\/|\/){2}[^"'\s<>]+(?:\/api\/manifest\/hls[^"'\s<>]*|\.m3u8[^"'\s<>]*)/g;
+        const urlPattern = /https?(?:\\u003a|:)(?:\\\/|\/){2}[^"'\s<>]+(?:\/api\/manifest\/hls[^"'\s<>]*|\.m3u8[^"'\s<>]*|\/videoplayback[^"'\s<>]*)/g;
         while ((match = urlPattern.exec(text)) !== null) post(match[0]);
       };
 
@@ -216,8 +388,11 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
             return;
           }
           if (typeof value !== "object") return;
+          post(value.url);
           post(value.hlsManifestUrl);
           if (value.streamingData) inspectValue(value.streamingData);
+          if (value.adaptiveFormats) inspectValue(value.adaptiveFormats);
+          if (value.formats) inspectValue(value.formats);
           if (value.playerResponse) inspectValue(value.playerResponse);
           if (value.raw_player_response) inspectValue(value.raw_player_response);
           if (value.args) inspectValue(value.args);
@@ -278,8 +453,21 @@ final class YouTubeHLSWebViewResolver: NSObject, WKNavigationDelegate, WKScriptM
           post(video.src);
           video.muted = true;
           video.playsInline = true;
-          if (video.paused) video.play().catch(() => {});
+          if (video.paused && !video.__colorfulPlayAttempted) {
+            video.__colorfulPlayAttempted = true;
+            const playPromise = video.play();
+            if (playPromise && playPromise.then) {
+              playPromise.then(() => postState("play-resolved", video, "resolved"))
+                .catch((error) => postState(
+                  "play-rejected-" + (error && error.name ? error.name : "unknown"),
+                  video,
+                  "rejected"
+                ));
+            }
+          }
+          postState("probe", video);
         });
+        if (!document.querySelector("video")) postState("probe", null);
       };
 
       window.setInterval(window.__colorfulProbeHLS, 250);
