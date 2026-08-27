@@ -48,6 +48,8 @@ export type SpotifyClientToken = {
 export type SpotifyCredentials = {
   accessToken: string;
   clientToken: string;
+  /** Web Player build identifier used on Pathfinder requests. */
+  appVersion?: string;
   expiresAtMs: number;
   clientTokenExpiresAtMs: number | null;
 };
@@ -338,6 +340,7 @@ export type SpotifyBrowserSessionOptions = {
 type NetworkCapture = {
   clientToken: SpotifyClientToken | null;
   headerClientToken: string;
+  headerAppVersion: string;
 };
 
 function abortError(): Error {
@@ -403,6 +406,7 @@ type SessionCapture = {
   apiToken: SpotifyApiToken | null;
   clientToken: SpotifyClientToken | null;
   headerClientToken: string;
+  headerAppVersion: string;
 };
 
 type SessionCaptureOptions = {
@@ -427,6 +431,7 @@ async function captureSpotifySession(
   let apiToken: SpotifyApiToken | null = null;
   let clientCapture: SpotifyClientToken | null = null;
   let headerClientToken = "";
+  let headerAppVersion = "";
   const requestState = new Map<string, { url: string; headers: Record<string, string> }>();
   const tokenResponses = new Set<string>();
   const clientResponses = new Set<string>();
@@ -443,7 +448,7 @@ async function captureSpotifySession(
     const clientToken = clientCapture?.clientToken || headerClientToken;
     if (!clientToken) return;
     settled = true;
-    resolveCapture({ apiToken, clientToken: clientCapture, headerClientToken });
+    resolveCapture({ apiToken, clientToken: clientCapture, headerClientToken, headerAppVersion });
   };
   const captureBody = async (requestId: string, kind: "api" | "client"): Promise<void> => {
     const body = responseBody(await client.command("Network.getResponseBody", { requestId }).catch(() => ({})));
@@ -476,12 +481,14 @@ async function captureSpotifySession(
       state.headers = { ...state.headers, ...normalizedHeaders(request.headers) };
       requestState.set(requestId, state);
       headerClientToken = state.headers["client-token"] ?? state.headers["x-client-token"] ?? headerClientToken;
+      headerAppVersion = state.headers["spotify-app-version"] ?? headerAppVersion;
       finish();
     } else if (message.method === "Network.requestWillBeSentExtraInfo") {
       const state = requestState.get(requestId) ?? { url: "", headers: {} };
       state.headers = { ...state.headers, ...normalizedHeaders(params.headers) };
       requestState.set(requestId, state);
       headerClientToken = state.headers["client-token"] ?? state.headers["x-client-token"] ?? headerClientToken;
+      headerAppVersion = state.headers["spotify-app-version"] ?? headerAppVersion;
       finish();
     } else if (message.method === "Network.responseReceived") {
       const response = object(params.response);
@@ -647,8 +654,8 @@ export class SpotifyBrowserSession {
    *
    * Executing fetch in the already-authenticated page preserves its origin,
    * cookies, browser network stack, and first-party request context without
-   * opening a window. This fixes request-shape differences; Spotify Web API
-   * quotas still apply and are handled by the catalog client's rate gate.
+   * opening a window. This fixes request-shape differences and lets catalog
+   * and metadata calls share the same first-party browser context.
    */
   async webPlayerFetch(
     input: RequestInfo | URL,
@@ -659,8 +666,13 @@ export class SpotifyBrowserSession {
     const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : String(input);
     let url: URL;
     try { url = new URL(rawUrl); } catch { throw new Error("Spotify browser request URL is invalid"); }
-    if (url.protocol !== "https:" || url.hostname !== "api.spotify.com") {
-      throw new Error("Spotify browser requests are restricted to the Web API host");
+    const allowedHost = url.hostname === "api.spotify.com"
+      || url.hostname === "api-partner.spotify.com"
+      || url.hostname === "apresolve.spotify.com"
+      || url.hostname === "spclient.wg.spotify.com"
+      || /^[a-z0-9-]+-spclient\.spotify\.com$/i.test(url.hostname);
+    if (url.protocol !== "https:" || !allowedHost) {
+      throw new Error("Spotify browser requests are restricted to Spotify's authenticated catalog hosts");
     }
     await this.credentials(false, signal);
     const client = await this.ensureBrowser(true, signal);
@@ -948,6 +960,7 @@ export class SpotifyBrowserSession {
       this.clientToken = { clientToken: captures.headerClientToken, expiresAtMs: null };
     }
     if (!clientToken) throw new Error("Spotify client token unavailable; retry sign-in");
+    const appVersion = captures.headerAppVersion || current?.appVersion;
     return {
       accessToken: apiToken.accessToken,
       clientToken,
@@ -956,6 +969,7 @@ export class SpotifyBrowserSession {
         ?? current?.clientTokenExpiresAtMs
         ?? this.clientToken?.expiresAtMs
         ?? null,
+      ...(appVersion ? { appVersion } : {}),
     };
   }
 
@@ -983,6 +997,7 @@ export class SpotifyBrowserSession {
       clientToken,
       expiresAtMs: capture.apiToken.expiresAtMs,
       clientTokenExpiresAtMs: capture.clientToken?.expiresAtMs ?? null,
+      ...(capture.headerAppVersion ? { appVersion: capture.headerAppVersion } : {}),
     };
   }
 
@@ -1002,6 +1017,7 @@ export class SpotifyBrowserSession {
       apiToken: capture.apiToken,
       clientToken: capture.clientToken,
       headerClientToken: capture.headerClientToken,
+      headerAppVersion: capture.headerAppVersion,
     };
   }
 

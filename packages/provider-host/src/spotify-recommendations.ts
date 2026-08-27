@@ -22,6 +22,7 @@ export type SpotifyTrack = {
 export type SpotifyWebSession = {
   accessToken: string;
   clientToken?: string;
+  appVersion?: string;
   expiresAtMs?: number;
   clientId?: string;
 };
@@ -327,6 +328,7 @@ function headers(session: SpotifyWebSession, accept: string): Record<string, str
     authorization: `Bearer ${session.accessToken}`,
     ...(session.clientToken ? { "client-token": session.clientToken } : {}),
     "app-platform": "WebPlayer",
+    ...(session.appVersion ? { "spotify-app-version": session.appVersion } : {}),
   };
 }
 
@@ -440,6 +442,15 @@ export class SpotifyRecommendationClient {
     await Promise.all(Array.from({ length: Math.min(4, pending.length) }, () => worker()));
     const order = new Map(ids.map((id, index) => [id, index]));
     return result.sort((left, right) => (order.get(left.spotifyId) ?? 0) - (order.get(right.spotifyId) ?? 0));
+  }
+
+  /** Hydrate catalog track IDs through the Web Player metadata endpoint.
+   * The catalog uses this to obtain ISRCs without calling the public Web API. */
+  async trackMetadata(ids: string[]): Promise<SpotifyTrack[]> {
+    const valid = [...new Set(ids.map((id) => id.trim()))]
+      .filter((id) => TRACK_ID.test(id)).slice(0, 50);
+    if (!valid.length) return [];
+    return this.hydrateTracks(valid, await this.resolveSpclient());
   }
 
   /** Resolve an exact Spotify track for an ISRC using metadata protobuf verification. */

@@ -59,6 +59,42 @@ describe("Spotify catalog mapping", () => {
 });
 
 describe("Spotify catalog client", () => {
+  test("uses Web Player Pathfinder for catalog search and hydrates ISRCs via metadata", async () => {
+    const operations: string[] = [];
+    const client = new SpotifyCatalogClient({
+      pathfinder: true,
+      sessionProvider: async () => ({ accessToken: "access-token", clientToken: "client-token", appVersion: "1.2.99.test" }),
+      metadataProvider: async (ids) => ids.map((id) => ({
+        spotifyId: id, isrc: "USRC17607839", title: "Never Gonna Give You Up", artists: ["Rick Astley"],
+      })),
+      fetch: async (input, init) => {
+        expect(String(input)).toBe("https://api-partner.spotify.com/pathfinder/v2/query");
+        const headers = new Headers(init?.headers);
+        expect(headers.get("authorization")).toBe("Bearer access-token");
+        expect(headers.get("client-token")).toBe("client-token");
+        expect(headers.get("spotify-app-version")).toBe("1.2.99.test");
+        const body = JSON.parse(String(init?.body)) as { operationName: string };
+        operations.push(body.operationName);
+        const trackData = {
+          __typename: "Track", id: trackId, name: "Never Gonna Give You Up",
+          artists: { items: [{ uri: "spotify:artist:artist123456789012345", profile: { name: "Rick Astley" } }] },
+          albumOfTrack: { uri: `spotify:album:${albumId}`, name: "Whenever You Need Somebody", coverArt: { sources: [{ url: "https://i.scdn.co/image/album" }] } },
+          duration: { totalMilliseconds: 213000 }, contentRating: { label: "NONE" },
+        };
+        const name = body.operationName;
+        const page = name === "searchTracks" ? { tracksV2: { items: [{ item: { data: trackData } }], pagingInfo: { nextOffset: 20 } } }
+          : name === "searchAlbums" ? { albumsV2: { items: [], pagingInfo: {} } }
+            : name === "searchArtists" ? { artists: { items: [], pagingInfo: {} } }
+              : { playlists: { items: [], pagingInfo: {} } };
+        return json({ data: { searchV2: page } });
+      },
+    });
+    const result = await client.searchCatalog("rick astley");
+    expect(operations).toEqual(["searchTracks", "searchAlbums", "searchArtists", "searchPlaylists"]);
+    expect(result.tracks[0]).toEqual(expect.objectContaining({ id: trackId, isrc: "USRC17607839", provider: "spotify" }));
+    expect(result.cursors.tracks).toBe("20");
+  });
+
   test("searches all catalog kinds and returns independent pagination cursors", async () => {
     const calls: string[] = [];
     const client = new SpotifyCatalogClient({

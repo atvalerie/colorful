@@ -60,6 +60,14 @@ Daylist when Spotify includes them in the account response. Album, artist, and
 playlist pages are read-only metadata views. Pagination is supported for
 search results and catalog sections.
 
+Search, playlist pages, and the account library use the authenticated Web
+Player's Pathfinder requests (the same first-party operation family observed
+in Spotify's web app), rather than the quota-limited public `/v1` catalog
+search endpoints. Track ISRCs are obtained from the Web Player metadata
+service. Pathfinder operation names and response shapes are implementation
+details owned by Spotify and may change; the provider host records only
+sanitized diagnostics and never stores request bodies or bearer values.
+
 Spotify catalog tracks retain their Spotify ID and ISRC for display and
 matching. A track is playable only when TIDAL returns an exact ISRC match;
 unmatched metadata remains visible but cannot be queued, saved, or played.

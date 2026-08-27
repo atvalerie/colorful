@@ -37,9 +37,11 @@ const spotifyRecommendations = new SpotifyRecommendationClient({
     return {
       accessToken: credentials.accessToken,
       clientToken: credentials.clientToken,
+      ...(credentials.appVersion ? { appVersion: credentials.appVersion } : {}),
       expiresAtMs: credentials.expiresAtMs,
     };
   },
+  fetch: spotifySession.webPlayerFetch.bind(spotifySession),
 });
 
 const spotifyCatalog = new SpotifyCatalogClient({
@@ -48,9 +50,12 @@ const spotifyCatalog = new SpotifyCatalogClient({
     return {
       accessToken: credentials.accessToken,
       clientToken: credentials.clientToken,
+      ...(credentials.appVersion ? { appVersion: credentials.appVersion } : {}),
     };
   },
   fetch: spotifySession.webPlayerFetch.bind(spotifySession),
+  pathfinder: true,
+  metadataProvider: (ids) => spotifyRecommendations.trackMetadata(ids),
 });
 
 function send(message: ResponseMessage): void {
@@ -64,8 +69,8 @@ function publicError(error: unknown): string {
 async function refreshSpotifyAccount(credentials: SpotifyCredentials): Promise<SpotifyAccount | null> {
   try {
     // Make the profile request from the same hidden page as the Web Player so
-    // its browser origin/cookies are preserved. This does not bypass Spotify
-    // quotas; the catalog client separately throttles public API calls.
+    // its browser origin/cookies are preserved. Catalog reads use Pathfinder;
+    // this profile call is kept separate so account details remain explicit.
     spotifyAccount = await loadSpotifyAccount(credentials, spotifySession.webPlayerFetch.bind(spotifySession));
   } catch (error) {
     debugLog("spotify.auth", "profile_unavailable", { error: publicError(error) });
